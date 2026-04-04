@@ -27,9 +27,9 @@ import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
 import { formatDate } from '@/lib/utils';
 import { Input } from '../ui/input';
-import { supabase } from '@/lib/supabaseClient';
 
 interface RateApprovalData {
+    id: number;
     indentNo: string;
     indenter: string;
     department: string;
@@ -39,6 +39,7 @@ interface RateApprovalData {
     date: string;
 }
 interface HistoryData {
+    id: number;
     indentNo: string;
     indenter: string;
     department: string;
@@ -63,50 +64,74 @@ export default () => {
         const fetchData = async () => {
             setDataLoading(true);
             try {
-                // Fetch pending data with pagination
-                const pendingData = await fetchFromSupabasePaginated(
-                    'indent',
+                // Fetch all vendor_rate_update records (Three Party submissions)
+                const rateUpdates = await fetchFromSupabasePaginated(
+                    'vendor_rate_update',
                     '*',
-                    { column: 'created_at', options: { ascending: false } },
-                    (q) => q.not('planned_3', 'is', null).is('actual_3', null).eq('vendor_type', 'Three Party')
+                    { column: 'createdAt', options: { ascending: false } }
                 );
 
-                if (pendingData) {
-                    const pendingTableData = pendingData.map((record: any) => ({
-                        indentNo: record.indent_number || '',
-                        indenter: record.indenter_name || '',
+                // Fetch all three_party_approval records (approved ones)
+                const threePartyApprovals = await fetchFromSupabasePaginated(
+                    'three_party_approval',
+                    '*',
+                    { column: 'createdAt', options: { ascending: false } }
+                );
+
+                // Build a set of approved indent numbers for quick lookup
+                const approvedIndentNumbers = new Set(
+                    (threePartyApprovals || []).map((r: any) =>
+                        r.indentNumber || r.indent_number || ''
+                    )
+                );
+
+                // PENDING: vendor_rate_update records that are NOT yet in three_party_approval
+                const pendingTableData = (rateUpdates || [])
+                    .filter((record: any) => {
+                        const indentNo = record.indentNumber || record.indent_number || '';
+                        return !approvedIndentNumbers.has(indentNo);
+                    })
+                    .map((record: any) => ({
+                        id: record.id,
+                        indentNo: record.indentNumber || record.indent_number || '',
+                        indenter: record.indenterName || '',
                         department: record.department || '',
-                        product: record.product_name || '',
-                        comparisonSheet: record.comparison_sheet || '',
-                        date: formatDate(new Date(record.created_at)),
+                        product: record.productName || '',
+                        comparisonSheet: record.comparisonSheet || '',
+                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         vendors: [
-                            [record.vendor_name_1 || '', record.rate_1?.toString() || '0', record.payment_term_1 || ''] as [string, string, string],
-                            [record.vendor_name_2 || '', record.rate_2?.toString() || '0', record.payment_term_2 || ''] as [string, string, string],
-                            [record.vendor_name_3 || '', record.rate_3?.toString() || '0', record.payment_term_3 || ''] as [string, string, string],
+                            [record.vendorName1 || '', record.rate1?.toString() || '0', record.paymentTerm1 || ''] as [string, string, string],
+                            [record.vendorName2 || '', record.rate2?.toString() || '0', record.paymentTerm2 || ''] as [string, string, string],
+                            [record.vendorName3 || '', record.rate3?.toString() || '0', record.paymentTerm3 || ''] as [string, string, string],
                         ],
                     }));
-                    setTableData(pendingTableData);
-                }
+                setTableData(pendingTableData);
 
-                // Fetch history data with pagination
-                const historyDataResult = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'created_at', options: { ascending: false } },
-                    (q) => q.not('planned_3', 'is', null).not('actual_3', 'is', null).eq('vendor_type', 'Three Party')
+                // Build set of indent numbers that came through the Three Party flow (vendor_rate_update)
+                const threePartyIndentNumbers = new Set(
+                    (rateUpdates || []).map((r: any) => r.indentNumber || r.indent_number || '')
                 );
 
-                if (historyDataResult) {
-                    const historyTableData = historyDataResult.map((record: any) => ({
-                        indentNo: record.indent_number || '',
-                        indenter: record.indenter_name || '',
+                // HISTORY: only three_party_approval records whose indent also exists in vendor_rate_update
+                const historyTableData = (threePartyApprovals || [])
+                    .filter((record: any) => {
+                        const indentNo = record.indentNumber || record.indent_number || '';
+                        return threePartyIndentNumbers.has(indentNo);
+                    })
+                    .map((record: any) => ({
+                        id: record.id,
+                        indentNo: record.indentNumber || record.indent_number || '',
+                        indenter: record.indenterName || '',
                         department: record.department || '',
-                        product: record.product_name || '',
-                        date: new Date(record.created_at).toDateString(),
-                        vendor: [record.approved_vendor_name || '', record.approved_rate?.toString() || '0'] as [string, string],
+                        product: record.productName || '',
+                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        vendor: [
+                            record.approvedVendorName || '',
+                            record.approvedRate?.toString() || '0'
+                        ] as [string, string],
                     }));
-                    setHistoryData(historyTableData);
-                }
+                setHistoryData(historyTableData);
+
             } catch (error: any) {
                 console.error('Error fetching data from Supabase:', error);
                 toast.error('Failed to fetch data: ' + error.message);
@@ -160,8 +185,8 @@ export default () => {
                 return (
                     <div className="grid place-items-center">
                         <div className="flex flex-col gap-1">
-                            {vendors.map((vendor) => (
-                                <span className="rounded-full text-xs px-3 py-1 bg-accent text-accent-foreground border border-accent-foreground">
+                            {vendors.map((vendor, index) => (
+                                <span key={index} className="rounded-full text-xs px-3 py-1 bg-accent text-accent-foreground border border-accent-foreground">
                                     {vendor[0]} - ₹{vendor[1]}
                                 </span>
                             ))}
@@ -214,24 +239,6 @@ export default () => {
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'product', header: 'Product' },
         { accessorKey: 'date', header: 'Date' },
-        {
-            accessorKey: 'vendor',
-            header: 'Vendor',
-            enableSorting: false,     // <-- ADD THIS
-            cell: ({ row }) => {
-                const vendor = row.original.vendor;
-                return (
-                    <div className="grid place-items-center">
-                        <div className="flex flex-col gap-1">
-                            <span className="rounded-full text-xs px-3 py-1 bg-accent text-accent-foreground border border-accent-foreground">
-                                {vendor[0]} - ₹{vendor[1]}
-                            </span>
-                        </div>
-                    </div>
-                );
-            },
-        },
-
     ];
 
     // Creating approval form
@@ -263,53 +270,65 @@ export default () => {
         try {
             let photoUrl = '';
             if (values.photoOfBill) {
-                photoUrl = await uploadFile(values.photoOfBill, 'bill_photo', 'supabase');
+                photoUrl = await uploadFile(values.photoOfBill, 'bill_photo', 'upload');
             }
 
             const selectedVendor = selectedIndent?.vendors[values.vendor];
 
-            const { error } = await supabase
-                .from('indent')
-                .update({
-                    actual_3: getCurrentFormattedDateOnly(),
-                    approved_vendor_name: selectedVendor?.[0],
-                    approved_rate: selectedVendor?.[1],
-                    approved_payment_term: selectedVendor?.[2],
-                    photo_of_bill: photoUrl || undefined,
-                })
-                .eq('indent_number', selectedIndent?.indentNo);
+            // Save approved vendor to three_party_approval table
+            const result = await postToSheet([{
+                indent_number: selectedIndent?.indentNo,
+                approvedVendorName: selectedVendor?.[0],
+                approvedRate: selectedVendor?.[1],
+                approvedPaymentTerm: selectedVendor?.[2],
+                photo_of_bill: photoUrl || undefined,
+            } as any], 'insert', 'THREE_PARTY_APPROVAL');
 
-            if (error) throw error;
+            if (!result.success) throw new Error('API update failed');
 
             toast.success(`Approved vendor for ${selectedIndent?.indentNo}`);
-            updateIndentSheet(); // Update context to sync sidebar counts
+            updateIndentSheet();
             setOpenDialog(false);
             form.reset();
 
-            // Refresh the data after update with pagination
-            const pendingData = await fetchFromSupabasePaginated(
-                'indent',
-                '*',
-                { column: 'created_at', options: { ascending: false } },
-                (q) => q.not('planned_3', 'is', null).is('actual_3', null).eq('vendor_type', 'Three Party')
-            );
+            // Refresh using new table-based logic
+            const rateUpdates = await fetchFromSupabasePaginated('vendor_rate_update', '*', { column: 'createdAt', options: { ascending: false } });
+            const threePartyApprovals = await fetchFromSupabasePaginated('three_party_approval', '*', { column: 'createdAt', options: { ascending: false } });
+            const approvedIndentNumbers = new Set((threePartyApprovals || []).map((r: any) => r.indentNumber || r.indent_number || ''));
 
-            if (pendingData) {
-                const pendingTableData = pendingData.map((record: any) => ({
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
+            setTableData((rateUpdates || [])
+                .filter((record: any) => !approvedIndentNumbers.has(record.indentNumber || record.indent_number || ''))
+                .map((record: any) => ({
+                    id: record.id,
+                    indentNo: record.indentNumber || record.indent_number || '',
+                    indenter: record.indenterName || '',
                     department: record.department || '',
-                    product: record.product_name || '',
-                    comparisonSheet: record.comparison_sheet || '',
-                    date: formatDate(new Date(record.created_at)),
+                    product: record.productName || '',
+                    comparisonSheet: record.comparisonSheet || '',
+                    date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                     vendors: [
-                        [record.vendor_name_1 || '', record.rate_1?.toString() || '0', record.payment_term_1 || ''] as [string, string, string],
-                        [record.vendor_name_2 || '', record.rate_2?.toString() || '0', record.payment_term_2 || ''] as [string, string, string],
-                        [record.vendor_name_3 || '', record.rate_3?.toString() || '0', record.payment_term_3 || ''] as [string, string, string],
+                        [record.vendorName1 || '', record.rate1?.toString() || '0', record.paymentTerm1 || ''] as [string, string, string],
+                        [record.vendorName2 || '', record.rate2?.toString() || '0', record.paymentTerm2 || ''] as [string, string, string],
+                        [record.vendorName3 || '', record.rate3?.toString() || '0', record.paymentTerm3 || ''] as [string, string, string],
                     ],
-                }));
-                setTableData(pendingTableData);
-            }
+                }))
+            );
+            // Only show Three Party flow approvals in history (cross-ref with vendor_rate_update)
+            const threePartyIndentNumbers = new Set(
+                (rateUpdates || []).map((r: any) => r.indentNumber || r.indent_number || '')
+            );
+            setHistoryData((threePartyApprovals || [])
+                .filter((record: any) => threePartyIndentNumbers.has(record.indentNumber || record.indent_number || ''))
+                .map((record: any) => ({
+                    id: record.id,
+                    indentNo: record.indentNumber || record.indent_number || '',
+                    indenter: record.indenterName || '',
+                    department: record.department || '',
+                    product: record.productName || '',
+                    date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    vendor: [record.approvedVendorName || '', record.approvedRate?.toString() || '0'] as [string, string],
+                }))
+            );
         } catch (error: any) {
             console.error('Error updating vendor:', error);
             toast.error('Failed to update vendor: ' + error.message);
@@ -335,42 +354,40 @@ export default () => {
 
     async function onSubmitHistoryUpdate(values: z.infer<typeof historyUpdateSchema>) {
         try {
-            const { error } = await supabase
-                .from('indent')
-                .update({
-                    approved_rate: values.rate,
-                })
-                .eq('indent_number', selectedHistory?.indentNo);
+            // Update approvedRate in three_party_approval table
+            const result = await postToSheet([{
+                id: selectedHistory?.id,
+                indent_number: selectedHistory?.indentNo,
+                approvedRate: values.rate
+            } as any], 'update', 'THREE_PARTY_APPROVAL');
 
-            if (error) throw error;
+            if (!result.success) throw new Error('API update failed');
 
             toast.success(`Updated rate of ${selectedHistory?.indentNo}`);
-            updateIndentSheet(); // Update context to sync sidebar counts
+            updateIndentSheet();
             setOpenDialog(false);
             historyUpdateForm.reset({ rate: undefined });
 
-            // Refresh the data after update
-            const { data: historyDataResult, error: historyError } = await supabase
-                .from('indent')
-                .select('*')
-                .not('planned_3', 'is', null)
-                .not('actual_3', 'is', null)
-                .eq('vendor_type', 'Three Party')
-                .order('created_at', { ascending: false });
-
-            if (historyError) throw historyError;
-
-            if (historyDataResult) {
-                const historyTableData = historyDataResult.map((record: any) => ({
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
+            // Refresh history — only show Three Party flow approvals
+            const [threePartyApprovals, rateUpdatesRefresh] = await Promise.all([
+                fetchFromSupabasePaginated('three_party_approval', '*', { column: 'createdAt', options: { ascending: false } }),
+                fetchFromSupabasePaginated('vendor_rate_update', '*', { column: 'createdAt', options: { ascending: false } })
+            ]);
+            const threePartyIndentNumbers = new Set(
+                (rateUpdatesRefresh || []).map((r: any) => r.indentNumber || r.indent_number || '')
+            );
+            setHistoryData((threePartyApprovals || [])
+                .filter((record: any) => threePartyIndentNumbers.has(record.indentNumber || record.indent_number || ''))
+                .map((record: any) => ({
+                    id: record.id,
+                    indentNo: record.indentNumber || record.indent_number || '',
+                    indenter: record.indenterName || '',
                     department: record.department || '',
-                    product: record.product_name || '',
-                    date: new Date(record.created_at).toDateString(),
-                    vendor: [record.approved_vendor_name || '', record.approved_rate?.toString() || '0'] as [string, string],
-                }));
-                setHistoryData(historyTableData);
-            }
+                    product: record.productName || '',
+                    date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    vendor: [record.approvedVendorName || '', record.approvedRate?.toString() || '0'] as [string, string],
+                }))
+            );
         } catch (error: any) {
             console.error('Error updating vendor:', error);
             toast.error('Failed to update vendor: ' + error.message);
@@ -459,10 +476,10 @@ export default () => {
                                             <FormItem>
                                                 <FormLabel>Select a vendor</FormLabel>
                                                 <FormControl>
-                                                    <RadioGroup onChange={field.onChange}>
+                                                    <RadioGroup onValueChange={field.onChange} defaultValue={field.value?.toString()}>
                                                         {selectedIndent.vendors.map(
                                                             (vendor, index) => (
-                                                                <FormItem>
+                                                                <FormItem key={index}>
                                                                     <FormLabel className="flex items-center gap-4 border hover:bg-accent p-3 rounded-md">
                                                                         <FormControl>
                                                                             <RadioGroupItem

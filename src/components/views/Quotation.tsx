@@ -213,15 +213,29 @@ export default function QuotationPage() {
   }, [details]);
 
 
-  // Filter eligible items - planned2 NOT NULL and actual2 NULL
+  // Filter eligible items - planned2 NOT NULL and actual2 effectively empty
   const eligibleItems = useMemo(() => {
     console.log('Total indentSheet items:', indentSheet.length);
 
+    const isEmpty = (value: any) => {
+      if (value === null || value === undefined) return true;
+      if (typeof value !== 'string') return false;
+      const normalized = value.trim();
+      // Treat common placeholder values as "empty"
+      return (
+        normalized === '' ||
+        normalized.toLowerCase() === 'null' ||
+        normalized === '0000-00-00' ||
+        normalized === '0000-00-00 00:00:00' ||
+        normalized === '0000-00-00T00:00:00'
+      );
+    };
+
     const filtered = indentSheet.filter(item => {
       const planned2NotNull = item.planned2 !== null && item.planned2 !== undefined && item.planned2 !== '';
-      const actual2IsNull = item.actual2 === null || item.actual2 === undefined || item.actual2 === '';
+      const actual2IsEmpty = isEmpty(item.actual2);
 
-      return planned2NotNull && actual2IsNull;
+      return planned2NotNull && actual2IsEmpty;
     }).reverse();
 
     console.log('Filtered eligible items:', filtered.length);

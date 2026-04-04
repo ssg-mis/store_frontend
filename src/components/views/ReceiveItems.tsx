@@ -7,8 +7,7 @@ import { useForm, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DownloadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
-import { supabase } from '@/lib/supabaseClient';
-import { uploadFile, fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { uploadFile, fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
 import {
     Dialog,
     DialogContent,
@@ -92,40 +91,41 @@ const ReceiveItems = () => {
         const fetchPendingItems = async () => {
             setLocalIndentLoading(true);
 
-            // Fetch indents with pagination (Stage 4 passed means PO created)
-            const indentData = await fetchFromSupabasePaginated(
-                'indent',
-                'indent_number, po_number, uom, po_copy, approved_vendor_name, approved_quantity, actual_4, product_name',
-                { column: 'actual_4', options: { ascending: false } },
-                (q) => q.not('actual_4', 'is', null)
+            // Fetch po_master data
+            const poMasterData = await fetchFromSupabasePaginated(
+                'po_master',
+                '*',
+                { column: 'createdAt', options: { ascending: false } }
             );
 
             // Fetch all received records with pagination to calculate totals
             const receivedData = await fetchFromSupabasePaginated(
                 'received',
                 'indent_number, received_quantity',
-                { column: 'timestamp', options: { ascending: false } }
+                { column: 'createdAt', options: { ascending: false } }
             );
 
-            const mappedData = indentData.map((item: any) => {
+            const mappedData = poMasterData.map((po: any) => {
+                const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
+                
                 const totalReceived = receivedData
-                    .filter((r: any) => r.indent_number === item.indent_number)
-                    .reduce((sum: number, r: any) => sum + (Number(r.received_quantity) || 0), 0);
+                    .filter((r: any) => r.indentNumber === indentNum || r.indent_number === indentNum)
+                    .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
 
-                const approvedQty = Number(item.approved_quantity) || 0;
-                const remainingQty = Math.max(0, approvedQty - totalReceived);
+                const poQty = Number(po.quantity) || 0;
+                const remainingQty = Math.max(0, poQty - totalReceived);
 
                 return {
-                    indentNumber: item.indent_number,
-                    poNumber: item.po_number,
-                    uom: item.uom,
-                    poCopy: item.po_copy,
-                    vendor: item.approved_vendor_name,
-                    quantity: approvedQty,
+                    indentNumber: indentNum,
+                    poNumber: po.poNumber || po.po_number,
+                    uom: po.unit,
+                    poCopy: po.pdf,
+                    vendor: po.partyName || po.party_name,
+                    quantity: poQty,
                     receivedQty: totalReceived,
                     remainingQty: remainingQty,
-                    poDate: item.actual_4,
-                    product: item.product_name,
+                    poDate: po.createdAt || po.created_at,
+                    product: po.product,
                 };
             }).filter((item) => item.remainingQty > 0); // Only show items with remaining quantity
 
@@ -140,56 +140,58 @@ const ReceiveItems = () => {
         const fetchHistoryItems = async () => {
             setLocalReceivedLoading(true);
 
-            // Fetch indents with pagination
-            const indentData = await fetchFromSupabasePaginated(
-                'indent',
-                'indent_number, po_number, actual_4, approved_vendor_name, product_name, approved_quantity, uom, planned_5, actual_5',
-                { column: 'actual_4', options: { ascending: false } },
-                (q) => q.not('actual_4', 'is', null)
+            // Fetch po_master data
+            const poMasterData = await fetchFromSupabasePaginated(
+                'po_master',
+                '*',
+                { column: 'createdAt', options: { ascending: false } }
             );
 
             // Fetch received items with pagination
             const receivedData = await fetchFromSupabasePaginated(
                 'received',
                 '*',
-                { column: 'timestamp', options: { ascending: false } }
+                { column: 'createdAt', options: { ascending: false } }
             );
 
             // Map the combined data
             const mappedData = receivedData.map((receivedRecord: any) => {
-                const indent = indentData.find(i => i.indent_number === receivedRecord.indent_number);
+                const indentNum = receivedRecord.indentNumber || receivedRecord.indent_number || '';
+                const po = poMasterData.find((p: any) => (p.indentNumber || p.indent_number || p.internalCode || p.internal_code) === indentNum);
 
                 // Calculate totals for this indent to show context
                 const totalReceivedForIndent = receivedData
-                    .filter((r: any) => r.indent_number === receivedRecord.indent_number)
-                    .reduce((sum: number, r: any) => sum + (Number(r.received_quantity) || 0), 0);
+                    .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
+                    .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
 
-                const approvedQty = indent ? (Number(indent.approved_quantity) || 0) : 0;
-                const remainingQty = Math.max(0, approvedQty - totalReceivedForIndent);
+                const poQty = po ? (Number(po.quantity) || 0) : 0;
+                const remainingQty = Math.max(0, poQty - totalReceivedForIndent);
+
+                const receivedRecordDate = receivedRecord.createdAt || receivedRecord.created_at || receivedRecord.timestamp;
 
                 return {
-                    indentNumber: receivedRecord.indent_number || indent?.indent_number || '',
-                    receiveStatus: receivedRecord.received_status || 'Unknown',
-                    poNumber: receivedRecord.po_number || indent?.po_number,
-                    poDate: receivedRecord.po_date ? formatDate(new Date(receivedRecord.po_date)) : (indent ? formatDate(new Date(indent.actual_4)) : ''),
-                    vendor: receivedRecord.vendor || indent?.approved_vendor_name,
-                    product: indent?.product_name || '',
-                    orderQuantity: approvedQty,
-                    receivedQuantity: Number(receivedRecord.received_quantity) || 0,
+                    indentNumber: indentNum,
+                    receiveStatus: receivedRecord.receivedStatus || receivedRecord.received_status || 'Unknown',
+                    poNumber: receivedRecord.poNumber || receivedRecord.po_number || po?.poNumber || po?.po_number || '',
+                    poDate: receivedRecord.poDate || receivedRecord.po_date ? formatDate(new Date(receivedRecord.poDate || receivedRecord.po_date)) : (po ? formatDate(new Date(po.createdAt || po.created_at)) : ''),
+                    vendor: receivedRecord.vendor || po?.partyName || po?.party_name || '',
+                    product: po?.product || '',
+                    orderQuantity: poQty,
+                    receivedQuantity: Number(receivedRecord.receivedQuantity || receivedRecord.received_quantity) || 0,
                     totalReceivedQty: totalReceivedForIndent,
                     remainingQty: remainingQty,
-                    uom: receivedRecord.uom || indent?.uom,
-                    photoOfProduct: receivedRecord.photo_of_product || '',
-                    receivedDate: receivedRecord.timestamp ? formatDate(new Date(receivedRecord.timestamp)) : '',
-                    warrantyStatus: receivedRecord.warranty_status || '',
-                    warrantyEndDate: receivedRecord.end_date ? formatDate(new Date(receivedRecord.end_date)) : '',
-                    billStatus: receivedRecord.bill_status || '',
-                    billNumber: receivedRecord.bill_number || '',
-                    billAmount: receivedRecord.bill_amount || 0,
-                    photoOfBill: receivedRecord.photo_of_bill || '',
-                    anyTransport: receivedRecord.any_transportations || '',
-                    transporterName: receivedRecord.transporter_name || '',
-                    transportingAmount: receivedRecord.transporting_amount || 0,
+                    uom: receivedRecord.uom || po?.unit || '',
+                    photoOfProduct: receivedRecord.photoOfProduct || receivedRecord.photo_of_product || '',
+                    receivedDate: receivedRecordDate ? formatDate(new Date(receivedRecordDate)) : '',
+                    warrantyStatus: receivedRecord.warrantyStatus || receivedRecord.warranty_status || '',
+                    warrantyEndDate: receivedRecord.warrantyEndDate || receivedRecord.end_date ? formatDate(new Date(receivedRecord.warrantyEndDate || receivedRecord.end_date)) : '',
+                    billStatus: receivedRecord.billStatus || receivedRecord.bill_status || '',
+                    billNumber: receivedRecord.billNumber || receivedRecord.bill_number || '',
+                    billAmount: receivedRecord.billAmount || receivedRecord.bill_amount || 0,
+                    photoOfBill: receivedRecord.photoOfBill || receivedRecord.photo_of_bill || '',
+                    anyTransport: receivedRecord.anyTransport || receivedRecord.any_transportations || '',
+                    transporterName: receivedRecord.transporterName || receivedRecord.transporter_name || '',
+                    transportingAmount: receivedRecord.transportingAmount || receivedRecord.transporting_amount || 0,
                 };
             });
 
@@ -221,9 +223,9 @@ const ReceiveItems = () => {
     }, []);
 
     // Per-cell inline edit handlers for history tab
-    const handleStartCellEdit = (rowId: string, field: 'product' | 'orderQuantity' | 'uom', currentValue: string | number) => {
+    const handleStartCellEdit = (rowId: string, field: 'product' | 'orderQuantity' | 'uom', currentValue: string | number | null | undefined) => {
         setEditingCell({ rowId, field });
-        setEditCellValue(currentValue);
+        setEditCellValue(currentValue ?? '');
         setProductSearch('');
     };
 
@@ -250,12 +252,9 @@ const ReceiveItems = () => {
                 localUpdate.uom = editCellValue;
             }
 
-            const { error } = await supabase
-                .from('indent')
-                .update(updatePayload)
-                .eq('indent_number', editingCell.rowId);
-
-            if (error) throw error;
+            // Update in backend using API
+            const result = await postToSheet([{ indentNumber: editingCell.rowId, ...updatePayload }], 'update', 'INDENT');
+            if (!result.success) throw new Error('API update failed');
 
             toast.success(`Updated ${editingCell.field} for ${editingCell.rowId}`);
 
@@ -553,28 +552,8 @@ const ReceiveItems = () => {
                 );
             },
         },
-        { accessorKey: 'warrantyStatus', header: 'Warranty Status' },
-        { accessorKey: 'warrantyEndDate', header: 'Warranty End Date' },
         { accessorKey: 'billStatus', header: 'Bill Status' },
-        { accessorKey: 'billNumber', header: 'Bill Number' },
         { accessorKey: 'billAmount', header: 'Bill Amount' },
-        {
-            accessorKey: 'photoOfBill',
-            header: 'Photo of Bill',
-            cell: ({ row }) => {
-                const photo = row.original.photoOfBill;
-                return photo ? (
-                    <a href={photo} target="_blank">
-                        Bill
-                    </a>
-                ) : (
-                    <></>
-                );
-            },
-        },
-        { accessorKey: 'anyTransport', header: 'Any Transport' },
-        { accessorKey: 'transporterName', header: 'Transporter Name' },
-        { accessorKey: 'transportingAmount', header: 'Transporting Amount' },
     ];
 
     // Updated Schema - status ko top level pe add kiya
@@ -615,11 +594,11 @@ const ReceiveItems = () => {
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
-            status: undefined,
+            status: "" as any,
             items: [],
-            billAmount: undefined,
+            billAmount: 0,
             photoOfBill: undefined,
-            billReceived: undefined,
+            billReceived: "" as any,
         },
     });
 
@@ -643,11 +622,11 @@ const ReceiveItems = () => {
         } else if (!openDialog) {
             setMatchingIndents([]);
             form.reset({
-                status: undefined,
+                status: "" as any,
                 items: [],
-                billAmount: undefined,
+                billAmount: 0,
                 photoOfBill: undefined,
-                billReceived: undefined,
+                billReceived: "" as any,
             });
         }
     }, [selectedIndent, openDialog, tableData, form]);
@@ -669,36 +648,61 @@ const ReceiveItems = () => {
             if (values.photoOfBill !== undefined) {
                 billPhotoUrl = await uploadFile(
                     values.photoOfBill,
-                    'bill_photo', // Use Supabase bucket name
-                    'supabase'    // Specify upload type
+                    'bill_photo',
+                    'upload'
                 );
             }
 
-            // Insert received items into Supabase
-            const receivedRows = values.items.map((item) => ({
-                indent_number: item.indentNumber,
-                po_date: selectedIndent?.poDate,
-                po_number: selectedIndent?.poNumber,
-                vendor: selectedIndent?.vendor,
-                received_status: values.status,
-                received_quantity: item.quantity,
-                uom: matchingIndents.find(i => i.indentNumber === item.indentNumber)?.uom,
-                bill_status: values.billReceived,
-                bill_amount: values.billAmount,
-                photo_of_bill: billPhotoUrl,
-            }));
+            // Fetch three_party_approval planned dates for delay calculation
+            const threePartyData = await fetchFromSupabasePaginated(
+                'three_party_approvals',
+                '*',
+                { column: 'createdAt', options: { ascending: false } }
+            );
 
-            const { error: receivedError } = await supabase
-                .from('received')
-                .insert(receivedRows);
+            const now = new Date();
 
-            if (receivedError) {
-                throw receivedError;
-            }
+            // Insert received items into backend using API
+            const receivedRows = values.items.map((item) => {
+                // Find the planned date from three_party_approval for this indent
+                const threeParty = threePartyData.find((t: any) =>
+                    (t.indent_number || t.indentNumber) === item.indentNumber
+                );
+                const plannedDate = threeParty?.planned ? new Date(threeParty.planned) : null;
 
-            // Update each indent in Supabase
-            for (const item of values.items) {
-                // Calculate new total received to see if we should close the indent
+                // Calculate delay in DD:HH:MM format (positive = late, negative = early)
+                let delayValue: string | null = null;
+                if (plannedDate) {
+                    const diffMs = now.getTime() - plannedDate.getTime();
+                    const absDiffMs = Math.abs(diffMs);
+                    const days = Math.floor(absDiffMs / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((absDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((absDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+                    const formatted = `${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                    delayValue = diffMs >= 0 ? `+${formatted}` : `-${formatted}`;
+                }
+
+                return {
+                    indent_number: item.indentNumber,
+                    poDate: selectedIndent?.poDate ? new Date(selectedIndent.poDate).toISOString() : new Date().toISOString(),
+                    poNumber: selectedIndent?.poNumber || '',
+                    vendor: selectedIndent?.vendor || '',
+                    receivedStatus: values.status,
+                    receivedQuantity: item.quantity,
+                    uom: matchingIndents.find(i => i.indentNumber === item.indentNumber)?.uom || '',
+                    billStatus: values.billReceived || 'Not Received',
+                    billAmount: values.billAmount || 0,
+                    photoOfBill: billPhotoUrl,
+                    delay: delayValue,
+                    planned: plannedDate ? plannedDate.toISOString() : null,
+                };
+            });
+
+            const recResult = await postToSheet(receivedRows, 'insert', 'RECEIVED');
+            if (!recResult.success) throw new Error('Failed to save received records');
+
+            // Update each indent using bulk API call
+            const indentUpdates = values.items.map((item) => {
                 const currentIndent = tableData.find(d => d.indentNumber === item.indentNumber);
                 const previousReceived = currentIndent?.receivedQty || 0;
                 const newTotalReceived = previousReceived + item.quantity;
@@ -706,87 +710,65 @@ const ReceiveItems = () => {
                 const remaining = Math.max(0, approvedQty - newTotalReceived);
 
                 const updatePayload: any = {
+                    id: item.indentNumber,
+                    indentNumber: item.indentNumber,
                     receive_status: values.status
                 };
 
-                // Only set actual_5 (completion date) if fully received
                 if (remaining === 0) {
                     updatePayload.actual_5 = formatDate(new Date());
                 }
+                return updatePayload;
+            });
 
-                const { error: updateError } = await supabase
-                    .from('indent')
-                    .update(updatePayload)
-                    .eq('indent_number', item.indentNumber);
-
-                if (updateError) {
-                    throw updateError;
-                }
-            }
+            const indResult = await postToSheet(indentUpdates, 'update', 'INDENT');
+            if (!indResult.success) throw new Error('Failed to update indents');
 
             toast.success(`Items received for PO ${selectedIndent?.poNumber}`);
             updateIndentSheet(); // Update context for sidebar
             updateReceivedSheet(); // Update context for history
             setOpenDialog(false);
 
-            // Refresh the data after successful submission
+            // Refresh using the existing fetchPendingItems logic (which uses API)
             const fetchPendingItems = async () => {
                 setLocalIndentLoading(true);
 
-                // Fetch indents (Stage 4 passed means PO created)
-                const { data: indentData, error: indentError } = await supabase
-                    .from('indent')
-                    .select(`
-                        indent_number,
-                        po_number,
-                        uom,
-                        po_copy,
-                        approved_vendor_name,
-                        approved_quantity,
-                        actual_4,
-                        product_name
-                    `)
-                    .not('actual_4', 'is', null); // PO Created
+                // Re-fetch using po_master data
+                const poMasterData = await fetchFromSupabasePaginated(
+                    'po_master',
+                    '*',
+                    { column: 'createdAt', options: { ascending: false } }
+                );
 
-                if (indentError) {
-                    console.error('Error fetching pending items from Supabase:', indentError);
-                    toast.error('Failed to fetch pending items');
-                    setLocalIndentLoading(false);
-                    return;
-                }
+                const receivedData = await fetchFromSupabasePaginated(
+                    'received',
+                    'indent_number, received_quantity',
+                    { column: 'createdAt', options: { ascending: false } }
+                );
 
-                // Fetch all received records to calculate totals
-                const { data: receivedData, error: receivedError } = await supabase
-                    .from('received')
-                    .select('indent_number, received_quantity');
-
-                if (receivedError) {
-                    console.error('Error fetching received data:', receivedError);
-                    setLocalIndentLoading(false);
-                    return;
-                }
-
-                const mappedData = indentData.map((item: any) => {
+                const mappedData = poMasterData.map((po: any) => {
+                    const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
+                    
                     const totalReceived = receivedData
-                        .filter((r: any) => r.indent_number === item.indent_number)
-                        .reduce((sum: number, r: any) => sum + (Number(r.received_quantity) || 0), 0);
+                        .filter((r: any) => r.indentNumber === indentNum || r.indent_number === indentNum)
+                        .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
 
-                    const approvedQty = Number(item.approved_quantity) || 0;
-                    const remainingQty = Math.max(0, approvedQty - totalReceived);
+                    const poQty = Number(po.quantity) || 0;
+                    const remainingQty = Math.max(0, poQty - totalReceived);
 
                     return {
-                        indentNumber: item.indent_number,
-                        poNumber: item.po_number,
-                        uom: item.uom,
-                        poCopy: item.po_copy,
-                        vendor: item.approved_vendor_name,
-                        quantity: approvedQty,
+                        indentNumber: indentNum,
+                        poNumber: po.poNumber || po.po_number,
+                        uom: po.unit,
+                        poCopy: po.pdf,
+                        vendor: po.partyName || po.party_name,
+                        quantity: poQty,
                         receivedQty: totalReceived,
                         remainingQty: remainingQty,
-                        poDate: item.actual_4,
-                        product: item.product_name,
+                        poDate: po.createdAt || po.created_at,
+                        product: po.product,
                     };
-                }).filter((item) => item.remainingQty > 0); // Only show items with remaining quantity
+                }).filter((item) => item.remainingQty > 0);
 
                 setTableData(mappedData.reverse());
                 setLocalIndentLoading(false);

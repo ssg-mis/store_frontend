@@ -32,15 +32,15 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
             const pathToPermissionMap: Record<string, keyof UserPermissions> = {
                 '': 'dashboard', // Dashboard route
                 'dashboard': 'dashboard',
-                // 'inventory': 'inventory',
+                'inventory': 'inventory',
                 'setting': 'setting',
                 'create-indent': 'createIndent',
-                'all-indent': 'allIndent',
+                // 'all-indent': 'allIndent',
                 'create-po': 'createPo',
                 'get-purchase': 'getPurchase',
                 'approve-indent': 'indentApprovalView',
                 'po-history': 'ordersView',
-                // 'po-master': 'poMaster',
+                'po-master': 'poMaster',
                 'pending-pos': 'pendingIndentsView',
                 'receive-items': 'receiveItemView',
                 'store-out-approval': 'storeOutApprovalView',
@@ -112,7 +112,6 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
                         onClick={() => updateAll()}
                         disabled={allLoading}
                     >
-                        <RotateCw />
                     </Button>
                 </div>
                 <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />

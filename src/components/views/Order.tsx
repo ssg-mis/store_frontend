@@ -4,8 +4,7 @@ import { Package2, Trash2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useSheets } from '@/context/SheetsContext';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
 import type { ColumnDef } from '@tanstack/react-table';
 import { formatDate } from '@/lib/utils';
 import DataTable from '../element/DataTable';
@@ -96,16 +95,8 @@ export default () => {
         try {
             console.log('Deleting row with ID:', id);
 
-            const { error } = await supabase
-                .from('po_master')
-                .delete()
-                .eq('id', id);
-
-            if (error) {
-                console.error('Delete error:', error);
-                alert('Failed to delete row: ' + error.message);
-                return;
-            }
+            const result = await postToSheet([{ id }], 'delete', 'PO_MASTER');
+            if (!result.success) throw new Error('API delete failed');
 
             alert('Row deleted successfully');
             // Update local state to remove the deleted row

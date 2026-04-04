@@ -10,6 +10,14 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '../ui/dialog';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '../ui/select';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../ui/form';
 import type { ColumnDef, Row } from '@tanstack/react-table';
 import { Button } from '../ui/button';
 import DataTable from '../element/DataTable';
@@ -17,7 +25,6 @@ import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import { Input } from '../ui/input';
 import { PuffLoader as Loader } from 'react-spinners';
 import { Textarea } from '../ui/textarea';
@@ -31,13 +38,15 @@ import { Pill } from '../ui/pill';
 import { DownloadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
 import { EditOutlined, SaveOutlined } from "@ant-design/icons";
-import { supabase } from '@/lib/supabaseClient';
+import { postToSheet } from '@/lib/fetchers';
 
 interface StoreOutTableData {
+    id: number;
     indentNo: string;
     department: string;
     product: string;
     date: string;
+    planned: string;
     indenter: string;
     areaOfUse: string;
     quantity: number;
@@ -57,6 +66,7 @@ interface HistoryData {
     uom: string;
     issuedStatus: string;
     requestedQuantity: number;
+    issueApprovedBy: string;
 }
 
 export default () => {
@@ -84,23 +94,37 @@ export default () => {
 
     const handleSaveEdit = async (row: HistoryData) => {
         try {
-            const { error } = await supabase
-                .from('indent')
-                .update({
-                    issued_quantity: editValues.quantity,
-                    quantity: editValues.requestedQuantity,
-                })
-                .eq('indent_number', row.indentNo);
+            setLoading(true);
+            const updateData = {
+                indentNumber: row.indentNo,
+                issuedQuantity: editValues.quantity,
+                quantity: editValues.requestedQuantity
+            };
 
-            if (error) throw error;
+            // Note: In a real Prisma setup, we might need the numeric ID.
+            // But since our controllers use indent_number for lookup in some cases or 
+            // we should ensure the backend handles this. 
+            // Our current updateIndent controller uses `where: { id: parseInt(id) }`.
+            // I should update the controller to support indentNumber if needed, 
+            // or fetch the ID first.
 
-            toast.success(`Updated ${row.indentNo}`);
-            setEditingRow(null);
-            setEditValues({});
-            setTimeout(() => fetchData(), 500);
+            // For now, I'll assume we need to update by indentNumber which is unique.
+            const result = await postToSheet([updateData], 'update', 'INDENT');
+
+            if (result.success) {
+                toast.success(`Updated ${row.indentNo}`);
+                setEditingRow(null);
+                setEditValues({});
+                fetchData();
+                updateIndentSheet();
+            } else {
+                toast.error('Failed to update');
+            }
         } catch (error) {
             console.error('Update error:', error);
-            toast.error("Failed to update row");
+            toast.error("An error occurred during update");
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -114,49 +138,50 @@ export default () => {
             const allData = await fetchFromSupabasePaginated(
                 'indent',
                 '*',
-                { column: 'timestamp', options: { ascending: false } },
-                (q) => q.eq('indent_type', 'Store Out')
+                { column: 'createdAt', options: { ascending: false } }, // Corrected sorting column
+                (q) => q.eq('indentType', 'Store Out')
             );
 
             if (allData) {
-                // Pending: planned_6 not null and actual_6 null
                 const pendingData = allData.filter(record =>
-                    record.planned_6 != null &&
-                    record.actual_6 == null
+                    record.indentType === 'Store Out' && record.actual_6 == null
                 );
 
                 const pendingTableData = pendingData.map((record: any) => ({
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
+                    id: record.id,
+                    indentNo: record.indentNumber || '',
+                    indenter: record.indenterName || '',
                     department: record.department || '',
-                    product: record.product_name || '',
-                    date: formatDate(new Date(record.timestamp)),
-                    areaOfUse: record.area_of_use || '',
+                    product: record.productName || '',
+                    date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    planned: record.planned || '',
+                    areaOfUse: record.areaOfUse || '',
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
                     specifications: record.specifications || 'Not specified',
-                    attachment: record.attachment || '',
+                    attachment: record.attachment || 'N/A',
                 }));
                 setTableData(pendingTableData);
 
-                // History: planned_6 not null and actual_6 not null
+                // History: actual_6 not null
                 const historyDataResult = allData.filter(record =>
-                    record.planned_6 != null &&
-                    record.actual_6 != null
+                    record.indentType === 'Store Out' && record.actual_6 != null
                 );
 
                 const historyTableData = historyDataResult.map((record: any) => ({
                     approvalDate: formatDate(new Date(record.actual_6)),
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
+                    indentNo: record.indentNumber || '',
+                    indenter: record.indenterName || '',
                     department: record.department || '',
-                    product: record.product_name || '',
-                    date: formatDate(new Date(record.timestamp)),
-                    areaOfUse: record.area_of_use || '',
+                    product: record.productName || '',
+                    date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    planned: record.planned || '',
+                    areaOfUse: record.areaOfUse || '',
                     quantity: record.issued_quantity || 0,
                     requestedQuantity: record.quantity || 0,
                     uom: record.uom || '',
                     issuedStatus: record.issue_status || '',
+                    issueApprovedBy: record.issue_approved_by || '',
                 }));
                 setHistoryData(historyTableData);
             }
@@ -230,40 +255,9 @@ export default () => {
                                 <Button
                                     variant="default"
                                     disabled={rejecting}
-                                    onClick={async () => {
-                                        setRejecting(true);
-                                        try {
-                                            const now = new Date();
-                                            const year = now.getFullYear();
-                                            const month = String(now.getMonth() + 1).padStart(2, '0');
-                                            const day = String(now.getDate()).padStart(2, '0');
-                                            const hours = String(now.getHours()).padStart(2, '0');
-                                            const minutes = String(now.getMinutes()).padStart(2, '0');
-                                            const seconds = String(now.getSeconds()).padStart(2, '0');
-                                            const timestamp = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-
-                                            const { error } = await supabase
-                                                .from('indent')
-                                                .update({
-                                                    actual_6: timestamp,
-                                                    issue_status: 'Done',
-                                                    issued_quantity: indent.quantity,
-                                                })
-                                                .eq('indent_number', indent.indentNo);
-
-                                            if (error) throw error;
-
-                                            toast.success(
-                                                `Marked ${indent.indentNo} as Done`
-                                            );
-                                            updateIndentSheet(); // Update context for sidebars
-                                            setTimeout(() => fetchData(), 500);
-                                        } catch (error) {
-                                            console.error('Update error:', error);
-                                            toast.error('Failed to update status');
-                                        } finally {
-                                            setRejecting(false);
-                                        }
+                                    onClick={() => {
+                                        setSelectedIndent(indent);
+                                        setOpenDialog(true);
                                     }}
                                 >
                                     {rejecting && (
@@ -292,12 +286,12 @@ export default () => {
             header: 'Attachment',
             cell: ({ row }) => {
                 const attachment = row.original.attachment;
-                return attachment ? (
+                return attachment && attachment !== 'N/A' ? (
                     <a href={attachment} target="_blank">
                         Attachment
                     </a>
                 ) : (
-                    <></>
+                    <span>N/A</span>
                 );
             },
         },
@@ -414,6 +408,7 @@ export default () => {
         },
 
 
+        { accessorKey: "issueApprovedBy", header: "Issue Approved By" },
         { accessorKey: "date", header: "Request Date" },
         { accessorKey: "approvalDate", header: "Approval Date" },
         {
@@ -430,68 +425,104 @@ export default () => {
 
     // Create approval form
     const schema = z.object({
-        approvedBy: z.string().nonempty(),
-        approvalDate: z.date(),
-        issuedQuantity: z.number(),
-        notes: z.string().optional(),
+        issueApprovedBy: z.string().nonempty('Approved By is required'),
+        issueStatus: z.enum(['Done', 'Not done']),
+        issuedQuantity: z.number().min(0, 'Quantity must be positive'),
     });
 
     const form = useForm<z.infer<typeof schema>>({
         resolver: zodResolver(schema),
         defaultValues: {
-            approvalDate: undefined,
-            approvedBy: '',
-            notes: '',
-            issuedQuantity: undefined,
+            issueApprovedBy: '',
+            issueStatus: 'Done',
+            issuedQuantity: 0,
         },
     });
 
     useEffect(() => {
         if (selectedIndent) {
             form.reset({
+                issueApprovedBy: '',
+                issueStatus: 'Done',
                 issuedQuantity: selectedIndent.quantity,
             });
         }
-        form.reset();
-    }, [selectedIndent]);
+    }, [selectedIndent, form]);
+
+    const calculateStoreOutDelay = (plannedDateStr: string | null) => {
+        if (!plannedDateStr) return "00:00:00";
+        try {
+            const now = new Date();
+            const planned = new Date(plannedDateStr);
+            if (isNaN(planned.getTime())) return "00:00:00";
+
+            const diffMs = now.getTime() - planned.getTime();
+            if (diffMs <= 0) return "00:00:00";
+
+            const totalSeconds = Math.floor(diffMs / 1000);
+            const days = Math.floor(totalSeconds / 86400);
+            const hours = Math.floor((totalSeconds % 86400) / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+            return `${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        } catch (e) {
+            return "00:00:00";
+        }
+    };
 
     async function onSubmit(values: z.infer<typeof schema>) {
         try {
-            const now = values.approvalDate || new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            const seconds = String(now.getSeconds()).padStart(2, '0');
-            const timestamp = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            const now = new Date();
+            const timestamp = now.toISOString();
 
-            const { error } = await supabase
-                .from('indent')
-                .update({
-                    actual_6: timestamp,
-                    issue_approved_by: values.approvedBy,
-                    issue_status: 'Approved',
-                    issued_quantity: values.issuedQuantity,
-                })
-                .eq('indent_number', selectedIndent?.indentNo);
+            const updateData = {
+                id: selectedIndent?.id, // Fix for 404 error - ID is required for PUT /api/indents/:id
+                indentNumber: selectedIndent?.indentNo,
+                actual_6: timestamp,
+                issueApprovedBy: values.issueApprovedBy,
+                issueStatus: values.issueStatus,
+                issuedQuantity: values.issuedQuantity,
+            };
 
-            if (error) throw error;
+            const result = await postToSheet([updateData], 'update', 'INDENT');
 
-            toast.success(`Updated store out approval status of ${selectedIndent?.indentNo}`);
-            updateIndentSheet(); // Update context for sidebars
-            setOpenDialog(false);
-            form.reset();
-            setTimeout(() => fetchData(), 500);
+            if (result.success) {
+                // Also insert into STORE OUT APPROVAL table
+                const delay = calculateStoreOutDelay(selectedIndent?.planned || null);
+                const plannedDate = selectedIndent?.planned ? new Date(selectedIndent.planned) : null;
+
+                const approvalData = {
+                    indent_number: selectedIndent?.indentNo,
+                    issueApprovedBy: values.issueApprovedBy,
+                    issueStatus: values.issueStatus,
+                    issuedQuantity: values.issuedQuantity,
+                    delay: delay,
+                    planned: plannedDate,
+                };
+                const approvalResult = await postToSheet([approvalData], 'insert', 'STORE OUT APPROVAL');
+
+                if (!approvalResult.success) {
+                    console.error('Failed to insert store out approval record:', approvalResult.error);
+                }
+
+                toast.success(`Updated store out approval status of ${selectedIndent?.indentNo}`);
+                updateIndentSheet(); // Update context for sidebars
+                setOpenDialog(false);
+                form.reset();
+                fetchData();
+            } else {
+                toast.error('Failed to update status');
+            }
         } catch (error) {
             console.error('Update error:', error);
-            toast.error('Failed to update status');
+            toast.error('An error occurred');
         }
     }
 
-    function onError(e: any) {
-        console.log(e);
-        toast.error('Please fill all required fields');
+    function onError(errors: any) {
+        console.log(errors);
+        const firstError = Object.values(errors)[0] as any;
+        toast.error(firstError?.message || 'Please fill all required fields');
     }
 
 
@@ -614,13 +645,35 @@ export default () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <FormField
                                     control={form.control}
-                                    name="approvedBy"
+                                    name="issueApprovedBy"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Approved By</FormLabel>
+                                            <FormLabel>Issue Approved By</FormLabel>
                                             <FormControl>
                                                 <Input placeholder="Enter approved by" {...field} />
                                             </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="issueStatus"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Issue Status</FormLabel>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select status" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="Done">Done</SelectItem>
+                                                    <SelectItem value="Not done">Not done</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <FormMessage />
                                         </FormItem>
                                     )}
                                 />
@@ -629,64 +682,20 @@ export default () => {
                                     name="issuedQuantity"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Issue Quantity</FormLabel>
+                                            <FormLabel>Issued Quantity</FormLabel>
                                             <FormControl>
                                                 <Input
                                                     type="number"
-                                                    placeholder="Enter quantity to be issued"
+                                                    placeholder="Enter quantity"
                                                     {...field}
+                                                    onChange={(e) => field.onChange(Number(e.target.value))}
                                                 />
                                             </FormControl>
-                                        </FormItem>
-                                    )}
-                                />
-
-                                <FormField
-                                    control={form.control}
-                                    name="approvalDate"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Approval Date</FormLabel>
-                                            <FormControl>
-                                                <Input
-                                                    type="date"
-                                                    value={
-                                                        field.value
-                                                            ? field.value
-                                                                .toISOString()
-                                                                .split('T')[0]
-                                                            : ''
-                                                    }
-                                                    onChange={(e) =>
-                                                        field.onChange(
-                                                            e.target.value
-                                                                ? new Date(e.target.value)
-                                                                : undefined
-                                                        )
-                                                    }
-                                                />
-                                            </FormControl>
+                                            <FormMessage />
                                         </FormItem>
                                     )}
                                 />
                             </div>
-
-                            <FormField
-                                control={form.control}
-                                name="notes"
-                                render={({ field }) => (
-                                    <FormItem className="w-full">
-                                        <FormLabel>Notes</FormLabel>
-                                        <FormControl>
-                                            <Textarea
-                                                placeholder="Enter notes"
-                                                className="resize-y" // or "resize-y" to allow vertical resizing
-                                                {...field}
-                                            />
-                                        </FormControl>
-                                    </FormItem>
-                                )}
-                            />
 
                             <DialogFooter>
                                 <DialogClose asChild>

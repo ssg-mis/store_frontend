@@ -13,7 +13,6 @@ import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePag
 import { useEffect, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { supabase } from '@/lib/supabaseClient';
 import {
     calculateGrandTotal,
     calculateSubtotal,
@@ -34,7 +33,7 @@ function generatePoNumber(poNumbers: string[], today = new Date()): string {
     const fyStart = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
     const fy = `${(fyStart % 100).toString().padStart(2, '0')}-${((fyStart + 1) % 100).toString().padStart(2, '0')}`;
 
-    const prefix = `JJSPL/STORES/${fy}/`;
+    const prefix = `SSPL/STORES/${fy}/`;
 
     // Step 2: Extract numbers for curre nt financial year
     const numbersInFY = poNumbers
@@ -83,7 +82,7 @@ function filterUniquePoNumbers(data: any[]): any[] {
     const result: any[] = [];
 
     for (const po of data) {
-        const poNumber = po.po_number || po.poNumber;
+        const poNumber = po.poNumber || po.po_number;
         if (!seen.has(poNumber)) {
             seen.add(poNumber);
             result.push(po);
@@ -96,6 +95,7 @@ function filterUniquePoNumbers(data: any[]): any[] {
 export default () => {
     const { updateIndentSheet, updatePoMasterSheet } = useSheets();
     const [indentSheetData, setIndentSheetData] = useState<any[]>([]);
+    const [approvalsData, setApprovalsData] = useState<any[]>([]);
     const [poMasterSheetData, setPoMasterSheetData] = useState<any[]>([]);
     const [detailsData, setDetailsData] = useState<any>(null);
     const [vendorsData, setVendorsData] = useState<any[]>([]);
@@ -112,30 +112,57 @@ export default () => {
         }
     }, [detailsData]);
 
+    const enrichAndSetData = (allIndents: any[], approvals: any[], poData: any[], masterData: any, vendors: any[]) => {
+        const enrichedIndents = (allIndents || []).map((indent: any) => {
+            const approval = (approvals || []).find((a: any) => 
+                (a.indentNumber || a.indent_number) === (indent.indentNumber || indent.indent_number)
+            );
+            
+            return {
+                ...indent,
+                indent_number: indent.indentNumber || indent.indent_number,
+                indentNumber: indent.indentNumber || indent.indent_number,
+                product_name: indent.productName || indent.product_name,
+                productName: indent.productName || indent.product_name,
+                uom: indent.uom,
+                specifications: indent.specifications,
+                approvedVendorName: approval?.approvedVendorName || indent.approvedVendorName || '',
+                approved_vendor_name: approval?.approvedVendorName || indent.approvedVendorName || '',
+                approvedRate: approval?.approvedRate ?? indent.approvedRate ?? 0,
+                approved_rate: approval?.approvedRate ?? indent.approved_rate ?? 0,
+                approvedQuantity: indent.approvedQuantity || indent.approved_quantity || indent.quantity || 0,
+                approved_quantity: indent.approvedQuantity || indent.approved_quantity || indent.quantity || 0,
+            };
+        });
+
+        setIndentSheetData(enrichedIndents);
+        if (approvals) setApprovalsData(approvals);
+        if (poData) setPoMasterSheetData(poData);
+        if (masterData) setDetailsData(masterData);
+        if (vendors) setVendorsData(vendors);
+    };
+
     // Fetch data from Supabase
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                // Fetch pending indents (Stage 4: Pending POs) with pagination
-                const indentData = await fetchFromSupabasePaginated(
+                // Fetch pending indents (Stage 4: Pending POs)
+                const allIndents = await fetchFromSupabasePaginated(
                     'indent',
                     '*',
                     { column: 'planned_4', options: { ascending: false } },
                     (q) => q.not('planned_4', 'is', null).is('actual_4', null)
                 );
 
-                // Fetch PO master data with pagination
                 const poData = await fetchFromSupabasePaginated(
                     'po_master',
                     '*',
                     { column: 'timestamp', options: { ascending: false } }
                 );
 
-                // Fetch master data using fetchSheet
                 const masterData = await fetchSheet('MASTER') as any;
 
-                // Fetch vendors from master_data table using organized fetcher
                 const vendorsRaw = await fetchVendors();
                 const vendorsMapped = vendorsRaw.map(v => ({
                     vendor_name: v.vendorName,
@@ -144,10 +171,9 @@ export default () => {
                     vendor_email: v.email
                 }));
 
-                setIndentSheetData(indentData || []);
-                setPoMasterSheetData(poData || []);
-                setDetailsData(masterData);
-                setVendorsData(vendorsMapped); // Use mapped vendors
+                const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
+                
+                enrichAndSetData(allIndents || [], approvals || [], poData || [], masterData, vendorsMapped);
             } catch (error: any) {
                 console.error('Error fetching data from Supabase:', error);
                 toast.error('Failed to fetch data: ' + error.message);
@@ -165,8 +191,8 @@ export default () => {
         supplierName: z.string().nonempty(),
         supplierAddress: z.string().nonempty(),
         gstin: z.string().nonempty(),
-        quotationNumber: z.string().nonempty(),
-        quotationDate: z.coerce.date(),
+        quotationNumber: z.string().optional().default(''),
+        quotationDate: z.coerce.date().optional(),
         ourEnqNo: z.string(),
         enquiryDate: z.coerce.date(),
         description: z.string().optional().default(''), // Made optional
@@ -188,7 +214,7 @@ export default () => {
     const form = useForm<FormData>({
         resolver: zodResolver(schema),
         defaultValues: {
-            poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.po_number).filter(po => po != null)),
+            poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null)),
             poDate: new Date(),
             supplierName: '',
             supplierAddress: '',
@@ -232,7 +258,7 @@ export default () => {
             form.setValue(
                 'poNumber',
                 generatePoNumber(
-                    poMasterSheetData.map((p: any) => p.po_number).filter(po => po != null),
+                    poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null),
                     poDate
                 )
             );
@@ -258,7 +284,7 @@ export default () => {
             });
         } else {
             form.reset({
-                poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.po_number).filter(po => po != null)),
+                poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null)),
                 poDate: new Date(),
                 supplierName: '',
                 supplierAddress: '',
@@ -278,24 +304,26 @@ export default () => {
     useEffect(() => {
         if (vendor && mode === 'create') {
             const items = indentSheetData.filter(
-                (i: any) => i.approved_vendor_name === vendor
+                (i: any) => (i.approvedVendorName || i.approved_vendor_name) === vendor
             );
 
             // Find vendor from master_data table
-            const selectedVendor = vendorsData.find((v: any) => v.vendor_name?.trim().toLowerCase() === vendor?.trim().toLowerCase());
+            const selectedVendor = vendorsData.find((v: any) => (v.vendorName || v.vendor_name)?.trim().toLowerCase() === vendor?.trim().toLowerCase());
 
             form.setValue(
                 'supplierAddress',
-                selectedVendor?.vendor_address || ''
+                selectedVendor?.vendor_address || selectedVendor?.address || ''
             );
             form.setValue(
                 'gstin',
-                selectedVendor?.vendor_gstin || ''
+                selectedVendor?.vendor_gstin || selectedVendor?.gstin || ''
             );
+            
+            // Auto-fill indents for this supplier
             form.setValue(
                 'indents',
                 items.map((i: any) => ({
-                    indentNumber: i.indent_number,
+                    indentNumber: i.indentNumber || i.indent_number,
                     gst: 18,
                     discount: 0,
                 }))
@@ -304,7 +332,7 @@ export default () => {
     }, [vendor, indentSheetData, vendorsData]);
 
     useEffect(() => {
-        const po = poMasterSheetData.find((p: any) => p.po_number === poNumber)!;
+        const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
         if (mode === 'revise' && po) {
             const vendor = vendorsData.find((v: any) => v.vendor_name?.trim().toLowerCase() === po.party_name?.trim().toLowerCase()); // Use vendor_name from master_data
             form.setValue('poDate', po.timestamp ? new Date(po.timestamp) : new Date());
@@ -321,7 +349,7 @@ export default () => {
             form.setValue(
                 'indents',
                 poMasterSheetData
-                    .filter((p: any) => p.po_number === po.po_number)
+                    .filter((p: any) => (p.poNumber || p.po_number) === (po.poNumber || po.po_number))
                     .map((po: any) => ({
                         indentNumber: po.internal_code,
                         gst: po.gst_percent || 0, // Updated from gst to gst_percent
@@ -355,8 +383,13 @@ export default () => {
 
     const getCurrentFormattedDateTime = () => {
         const now = new Date();
-        // Return in PostgreSQL timestamp format for Supabase compatibility
-        return now.toISOString().slice(0, 19).replace('T', ' ');
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
     };
 
     async function onSubmit(values: FormData) {
@@ -367,10 +400,10 @@ export default () => {
                     : incrementPoRevision(values.poNumber, poMasterSheetData as PoMasterSheet[]);
             const grandTotal = calculateGrandTotal(
                 values.indents.map((indent) => {
-                    const value = indentSheetData.find((i: any) => i.indent_number === indent.indentNumber);
+                    const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber);
                     return {
-                        quantity: value?.approved_quantity || 0,
-                        rate: value?.approved_rate || 0,
+                        quantity: value?.approvedQuantity || value?.approved_quantity || 0,
+                        rate: value?.approvedRate || value?.approved_rate || 0,
                         discountPercent: indent?.discount || 0,
                         gstPercent: indent.gst,
                     };
@@ -406,32 +439,32 @@ export default () => {
                 enqDate: formatDate(values.enquiryDate),
                 description: values.description,
                 items: values.indents.map((item) => {
-                    const indent = indentSheetData.find((i: any) => i.indent_number === item.indentNumber)!;
+                    const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === item.indentNumber)!;
                     return {
-                        internalCode: indent.indent_number,
-                        product: indent.product_name,
+                        internalCode: indent.indentNumber || indent.indent_number,
+                        product: indent.productName || indent.product_name,
                         description: indent.specifications,
-                        quantity: indent.approved_quantity,
+                        quantity: indent.approvedQuantity || indent.approved_quantity || 0,
                         unit: indent.uom,
-                        rate: indent.approved_rate,
+                        rate: indent.approvedRate || indent.approved_rate || 0,
                         gst: item.gst || 0,
                         discount: item.discount || 0,
                         amount: calculateTotal(
-                            indent.approved_rate,
+                            indent.approvedRate || indent.approved_rate || 0,
                             item.gst || 0,
                             item.discount || 0,
-                            indent.approved_quantity
+                            indent.approvedQuantity || indent.approved_quantity || 0
                         ),
                     };
                 }),
                 total: calculateSubtotal(
                     values.indents.map((indent) => {
                         const value = indentSheetData.find(
-                            (i: any) => i.indent_number === indent.indentNumber
+                            (i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber
                         );
                         return {
-                            quantity: value?.approved_quantity || 0,
-                            rate: value?.approved_rate || 0,
+                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
+                            rate: value?.approvedRate || value?.approved_rate || 0,
                             discountPercent: indent?.discount || 0,
                         };
                     })
@@ -439,11 +472,11 @@ export default () => {
                 gstAmount: calculateTotalGst(
                     values.indents.map((indent) => {
                         const value = indentSheetData.find(
-                            (i: any) => i.indent_number === indent.indentNumber
+                            (i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber
                         );
                         return {
-                            quantity: value?.approved_quantity || 0,
-                            rate: value?.approved_rate || 0,
+                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
+                            rate: value?.approvedRate || value?.approved_rate || 0,
                             discountPercent: indent?.discount || 0,
                             gstPercent: indent.gst,
                         };
@@ -459,9 +492,20 @@ export default () => {
             const file = new File([blob], `PO-${poNumber}.pdf`, {
                 type: 'application/pdf',
             });
+            
+            // Auto-download the PDF
+            const blobUrl = URL.createObjectURL(blob);
+            const downloadLink = document.createElement('a');
+            downloadLink.href = blobUrl;
+            downloadLink.download = `PO-${poNumber.replace(/\//g, '-')}.pdf`;
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+
             const email = vendorsData.find((v: any) => v.vendor_name?.trim().toLowerCase() === values.supplierName?.trim().toLowerCase())?.vendor_email; // Fixed logic to use correct column names and robust matching
 
-            let url = ''; 0
+            let url = ''; 
 
             if (email) {
                 // Email hai to PDF upload + email send
@@ -485,7 +529,7 @@ export default () => {
 
             // Insert PO data into Supabase
             const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => { // Added Type annotation
-                const indent = indentSheetData.find((i: any) => i.indent_number === v.indentNumber)!;
+                const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === v.indentNumber)!;
 
                 // Validate and process dates
                 const validateDate = (date: Date | null | undefined) => {
@@ -499,78 +543,85 @@ export default () => {
                 };
 
                 return {
-                    timestamp: new Date().toISOString(), // Convert to ISO string to match type definition
-                    party_name: values.supplierName,
-                    po_number: poNumber,
-                    internal_code: v.indentNumber,
-                    product: indent.product_name,
+                    createdAt: new Date(),
+                    partyName: values.supplierName,
+                    poNumber: poNumber,
+                    internalCode: v.indentNumber,
+                    product: indent.productName || indent.product_name,
                     description: values.description,
-                    quantity: indent.approved_quantity,
+                    quantity: indent.approvedQuantity || indent.approved_quantity,
                     unit: indent.uom,
-                    rate: indent.approved_rate,
-                    // gst: v.gst, // REMOVED - not in schema
-                    // discount: v.discount || 0, // REMOVED - not in schema
+                    rate: indent.approvedRate || indent.approved_rate,
                     amount: calculateTotal(
-                        indent.approved_rate,
+                        indent.approvedRate || indent.approved_rate,
                         v.gst,
                         v.discount || 0,
-                        indent.approved_quantity
+                        indent.approvedQuantity || indent.approved_quantity
                     ),
-                    total_po_amount: grandTotal,
-                    pdf_url: url, // Updated pdf -> pdf_url to match schema
-                    prepared_by: values.preparedBy,
-                    approved_by: values.approvedBy,
-                    quotation_number: values.quotationNumber,
-                    quotation_date: values.quotationDate ? values.quotationDate.toISOString() : null, // Convert to ISO string
-                    enquiry_number: values.ourEnqNo,
-                    enquiry_date: values.enquiryDate ? values.enquiryDate.toISOString() : null, // Convert to ISO string
-                    term_1: values.terms[0] || null, // Updated schema keys term1 -> term_1
-                    term_2: values.terms[1] || null,
-                    term_3: values.terms[2] || null,
-                    term_4: values.terms[3] || null,
-                    term_5: values.terms[4] || null,
-                    term_6: values.terms[5] || null,
-                    term_7: values.terms[6] || null,
-                    term_8: values.terms[7] || null,
-                    term_9: values.terms[8] || null,
-                    term_10: values.terms[9] || null,
-                    discount_percent: v.discount || 0,
-                    gst_percent: v.gst,
+                    totalPOAmount: grandTotal,
+                    pdf: url,
+                    preparedBy: values.preparedBy,
+                    approvedBy: values.approvedBy,
+                    quotationNumber: values.quotationNumber,
+                    quotationDate: values.quotationDate ? new Date(values.quotationDate) : null,
+                    enquiryNumber: values.ourEnqNo,
+                    enquiryDate: values.enquiryDate ? new Date(values.enquiryDate) : null,
+                    term1: values.terms[0] || null,
+                    term2: values.terms[1] || null,
+                    term3: values.terms[2] || null,
+                    term4: values.terms[3] || null,
+                    term5: values.terms[4] || null,
+                    term6: values.terms[5] || null,
+                    term7: values.terms[6] || null,
+                    term8: values.terms[7] || null,
+                    term9: values.terms[8] || null,
+                    term10: values.terms[9] || null,
+                    discountPercent: v.discount || 0,
+                    gstPercent: v.gst,
+                    indent_number: v.indentNumber
                 };
             });
 
             console.log('PO Data to be inserted:', poData); // Debug log
 
-            // Insert each PO record into the database
-            for (const record of poData) {
-                console.log('Inserting record:', record); // Debug log
-                const { error } = await supabase
-                    .from('po_master')
-                    .insert([record]); // Removed .select() to avoid potential conflicts
+            // Insert each PO record into the database using API
+            const poResult = await postToSheet(poData, 'insert', 'PO_MASTER');
+            if (!poResult.success) throw new Error('Failed to save PO records');
 
-                if (error) {
-                    console.error('Supabase insert error:', error);
-                    throw error;
-                } else {
-                    console.log('Record inserted successfully');
-                }
-            }
+            // Update corresponding indent records to sync with Receive Items and Get Purchase stages
+            const indentUpdates: any[] = values.indents.map((v) => {
+                const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === v.indentNumber)!;
+                return {
+                    id: indent.id,
+                    indentNumber: v.indentNumber,
+                    actual_4: getCurrentFormattedDateTime(), // PO Completion Date
+                    planned_5: getCurrentFormattedDateTime(), // Enable Receive Items stage
+                    po_number: poNumber,
+                    po_copy: url,
+                    planned_7: getCurrentFormattedDateTime(), // Enable Billing (Get Purchase) stage
+                };
+            });
+
+            const indentResult = await postToSheet(indentUpdates, 'update', 'INDENT');
+            if (!indentResult.success) throw new Error('Failed to update indents');
 
             toast.success(`Successfully ${mode}d purchase order`);
-            updateIndentSheet(); // Update context for sidebars
-            updatePoMasterSheet(); // Update context for PO history
+            updateIndentSheet();
+            updatePoMasterSheet();
             form.reset();
 
             // Refresh data after submission
-            const { data: updatedIndentData, error: indentError } = await supabase
-                .from('indent')
-                .select('*')
-                .not('planned_4', 'is', null)
-                .is('actual_4', null);
+            const [updatedIndents, updatedApprovals] = await Promise.all([
+                fetchFromSupabasePaginated(
+                    'indent',
+                    '*',
+                    { column: 'planned_4', options: { ascending: false } },
+                    (q) => q.not('planned_4', 'is', null).is('actual_4', null)
+                ),
+                fetchFromSupabasePaginated('three_party_approval', '*')
+            ]);
 
-            if (indentError) throw indentError;
-
-            setIndentSheetData(updatedIndentData || []);
+            enrichAndSetData(updatedIndents || [], updatedApprovals || [], null as any, null, null as any);
         } catch (e: any) {
             console.log(e);
             toast.error(`Failed to ${mode} purchase order: ${e.message}`);
@@ -621,10 +672,10 @@ export default () => {
                                     className="w-20 h-20 object-contain"
                                 />
                                 <div className="text-center">
-                                    <h1 className="text-2xl font-bold">Jay Jagannath Steel & Power Limited</h1>
+                                    <h1 className="text-2xl font-bold">Botivate Services LLP</h1>
                                     <div>
-                                        <p className="text-sm">N-2, Civil Township, Rourkela-769004</p>
-                                        <p className="text-sm">Phone No: +919437961872</p>
+                                        <p className="text-sm">Office No. 224, Shree Ram Business Park, Vidhan Sabha Rd, Block-I, Mowa, Raipur, Chhattisgarh 493111</p>
+                                        <p className="text-sm">Phone No: +919993023243</p>
                                     </div>
                                 </div>
                             </div>
@@ -657,7 +708,7 @@ export default () => {
                                                             onValueChange={field.onChange}
                                                             value={field.value}
                                                         >
-                                                            <FormLabel>PO Number</FormLabel>
+                                                            <FormLabel>PO Number <span className="text-red-500">*</span></FormLabel>
                                                             <FormControl>
                                                                 <SelectTrigger
                                                                     size="sm"
@@ -669,14 +720,16 @@ export default () => {
                                                             <SelectContent>
                                                                 {filterUniquePoNumbers(
                                                                     poMasterSheetData
-                                                                ).map((i: any, k) => (
+                                                                ).map((i: any, k) => {
+                                                                    const poNumDisplay = i.poNumber || i.po_number;
+                                                                    return (
                                                                     <SelectItem
                                                                         key={k}
-                                                                        value={i.po_number}
+                                                                        value={poNumDisplay}
                                                                     >
-                                                                        {i.po_number}
+                                                                        {poNumDisplay}
                                                                     </SelectItem>
-                                                                ))}
+                                                                )})}
                                                             </SelectContent>
                                                         </Select>
                                                     </FormControl>
@@ -727,7 +780,7 @@ export default () => {
                                                             onValueChange={field.onChange}
                                                             value={field.value}
                                                         >
-                                                            <FormLabel>Supplier Name</FormLabel>
+                                                            <FormLabel>Supplier Name <span className="text-red-500">*</span></FormLabel>
                                                             <FormControl>
                                                                 <SelectTrigger
                                                                     size="sm"
@@ -742,13 +795,14 @@ export default () => {
                                                                         indentSheetData
                                                                             .filter(
                                                                                 (i: any) =>
-                                                                                    i.approved_vendor_name !== ''
+                                                                                    (i.approvedVendorName || i.approved_vendor_name) && 
+                                                                                    (i.approvedVendorName || i.approved_vendor_name) !== ''
                                                                             )
-                                                                            .map((i: any) => [i.approved_vendor_name, i]) // Use approved_vendor_name as the key
+                                                                            .map((i: any) => [i.approvedVendorName || i.approved_vendor_name, i])
                                                                     ).values()
                                                                 ].map((i: any, k) => (
-                                                                    <SelectItem key={k} value={i.approved_vendor_name}>
-                                                                        {i.approved_vendor_name}
+                                                                    <SelectItem key={k} value={i.approvedVendorName || i.approved_vendor_name}>
+                                                                        {i.approvedVendorName || i.approved_vendor_name}
                                                                     </SelectItem>
                                                                 ))}
                                                             </SelectContent>
@@ -756,7 +810,7 @@ export default () => {
                                                     </FormControl>
                                                 ) : (
                                                     <>
-                                                        <FormLabel>Supplier Name</FormLabel>
+                                                        <FormLabel>Supplier Name<span className="text-red-500">*</span></FormLabel>
                                                         <FormControl>
                                                             <Input
                                                                 className="h-9"
@@ -775,7 +829,7 @@ export default () => {
                                         name="supplierAddress"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Supplier Address</FormLabel>
+                                                <FormLabel>Supplier Address<span className="text-red-500">*</span></FormLabel>
                                                 <FormControl>
                                                     <Input
                                                         className="h-9"
@@ -792,7 +846,7 @@ export default () => {
                                         name="gstin"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>GSTIN</FormLabel>
+                                                <FormLabel>GSTIN<span className="text-red-500">*</span></FormLabel>
                                                 <FormControl>
                                                     <Input
                                                         className="h-9"
@@ -874,7 +928,7 @@ export default () => {
                                         name="enquiryDate"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Enquiry Date</FormLabel>
+                                                <FormLabel>Enquiry Date<span className="text-red-500">*</span></FormLabel>
                                                 <FormControl>
                                                     <Input
                                                         className="h-9"
@@ -928,9 +982,9 @@ export default () => {
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent className="p-5 text-sm">
-                                        <p>M/S  Jay Jagannath Steel & Power Limited
+                                        <p>M/S  shri shyam oil extractions pvt.ltd
 
-                                            N-2, CIVIL TOWNSHIP, ROURKELA-769004 DIST. SUNDARGARH (ODISHA){detailsData?.company_name}</p>
+                                            Banari, Janjgir Champa-495668, Chhattisgarh{detailsData?.company_name}</p>
                                         <p>{detailsData?.billing_address}</p>
                                     </CardContent>
                                 </Card>
@@ -954,7 +1008,7 @@ export default () => {
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent className="p-5 text-sm">
-                                        <p>M/S Jay Jagannath Steel & Power Limited{detailsData?.company_name}</p>
+                                        <p>Shri Shyam Oil Extractions Pvt. Ltd.</p>
                                         {isEditingDestination ? (
                                             <div className="flex items-center gap-2 mt-1">
                                                 <Input
@@ -1038,9 +1092,9 @@ export default () => {
                                                 <TableRow key={field.id}>
                                                     <TableCell>{index + 1}</TableCell>
                                                     <TableCell>
-                                                        {indent?.indent_number}
+                                                        {indent?.indentNumber || indent?.indent_number}
                                                     </TableCell>
-                                                    <TableCell>{indent?.product_name}</TableCell>
+                                                    <TableCell>{indent?.productName || indent?.product_name}</TableCell>
                                                     <TableCell>
                                                         {indent?.specifications || (
                                                             <span className="text-muted-foreground">
@@ -1049,33 +1103,26 @@ export default () => {
                                                         )}
                                                     </TableCell>
                                                     <TableCell>
-                                                        {indent?.approved_quantity}
+                                                        {indent?.approvedQuantity || indent?.approved_quantity}
                                                     </TableCell>
                                                     <TableCell>{indent?.uom}</TableCell>
                                                     <TableCell>
-                                                        {indent?.approved_rate}
+                                                        {indent?.approvedRate || indent?.approved_rate}
                                                     </TableCell>
                                                     <TableCell>
                                                         <FormField
                                                             control={form.control}
                                                             name={`indents.${index}.gst`}
                                                             render={({ field: indentField }) => (
-                                                                <FormItem>
-                                                                    <Select
-                                                                        onValueChange={(value) => indentField.onChange(Number(value))}
-                                                                        value={indentField.value?.toString()}
-                                                                    >
-                                                                        <FormControl>
-                                                                            <SelectTrigger className="h-9 w-20">
-                                                                                <SelectValue placeholder="GST%" />
-                                                                            </SelectTrigger>
-                                                                        </FormControl>
-                                                                        <SelectContent>
-                                                                            <SelectItem value="18">18%</SelectItem>
-                                                                            <SelectItem value="5">5%</SelectItem>
-                                                                            <SelectItem value="0">0%</SelectItem>
-                                                                        </SelectContent>
-                                                                    </Select>
+                                                                <FormItem className="flex justify-center items-center gap-1">
+                                                                    <FormControl>
+                                                                        <Input
+                                                                            type="number"
+                                                                            className="rounded-sm h-9 w-20 p-0 text-center"
+                                                                            {...indentField}
+                                                                        />
+                                                                    </FormControl>
+                                                                    %
                                                                 </FormItem>
                                                             )}
                                                         />
@@ -1103,10 +1150,10 @@ export default () => {
                                                     </TableCell>
                                                     <TableCell>
                                                         {calculateTotal(
-                                                            indent?.approved_rate || 0,
+                                                            indent?.approvedRate || indent?.approved_rate || 0,
                                                             value.gst,
                                                             value.discount || 0,
-                                                            indent?.approved_quantity || 0
+                                                            indent?.approvedQuantity || indent?.approved_quantity || 0
                                                         )}
                                                     </TableCell>
                                                     <TableCell>
@@ -1142,8 +1189,8 @@ export default () => {
                                                                 indent.indentNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approved_quantity || 0,
-                                                            rate: value?.approved_rate || 0,
+                                                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
+                                                            rate: value?.approvedRate || value?.approved_rate || 0,
                                                             discountPercent: indent?.discount || 0,
                                                         };
                                                     })
@@ -1162,8 +1209,8 @@ export default () => {
                                                                 indent.indentNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approved_quantity || 0,
-                                                            rate: value?.approved_rate || 0,
+                                                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
+                                                            rate: value?.approvedRate || value?.approved_rate || 0,
                                                             discountPercent: indent?.discount || 0,
                                                             gstPercent: indent.gst,
                                                         };
@@ -1299,7 +1346,7 @@ export default () => {
                                     name="preparedBy"
                                     render={({ field }) => (
                                         <FormItem className="flex flex-col justify-center items-center w-full">
-                                            <FormLabel>Prepared By</FormLabel>
+                                            <FormLabel>Prepared By<span className="text-red-500">*</span></FormLabel>
                                             <FormControl>
                                                 <Input
                                                     className="h-9 w-full text-center"
@@ -1315,7 +1362,7 @@ export default () => {
                                     name="approvedBy"
                                     render={({ field }) => (
                                         <FormItem className="flex flex-col justify-center items-center w-full">
-                                            <FormLabel>Approved By</FormLabel>
+                                            <FormLabel>Approved By<span className="text-red-500">*</span></FormLabel>
                                             <FormControl>
                                                 <Input
                                                     className="h-9 w-full text-center"
@@ -1327,7 +1374,7 @@ export default () => {
                                     )}
                                 />
                                 <div className="text-center">
-                                    <p className="font-semibold text-sm">For Jay Jagannath Steel & Power Limited</p>
+                                    <p className="font-semibold text-sm">For Shri Shyam Oil Extractions Pvt. Ltd.</p>
                                 </div>
                             </div>
                         </div>

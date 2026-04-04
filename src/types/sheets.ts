@@ -1,4 +1,4 @@
-export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'INVENTORY' | 'QUOTATION HISTORY';
+export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'GET PURCHASE' | 'GET_PURCHASE' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE';
 
 export type IndentSheet = {
     timestamp: string;
@@ -166,7 +166,20 @@ export type Vendor = {
     email: string;
 };
 
-export type MasterSheet = {
+export type MasterDataRow = {
+    id?: number;
+    vendor_name: string;
+    vendor_gstin?: string | null;
+    vendor_address?: string | null;
+    vendor_email?: string | null;
+    payment_term?: string | null;
+    department?: string | null;
+    group_head?: string | null;
+    item_name?: string | null;
+    created_at?: string | null;
+};
+
+export type MasterConfigSheet = {
     vendors: Vendor[];
     paymentTerms: string[];
     departments: string[];
@@ -253,3 +266,12 @@ export type QuotationHistorySheet = {
     pdfLink: string;
 
 };
+
+export type SheetData = 
+    | IndentSheet 
+    | ReceivedSheet 
+    | UserPermissions 
+    | PoMasterSheet 
+    | InventorySheet 
+    | QuotationHistorySheet
+    | MasterDataRow;

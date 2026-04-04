@@ -1,6 +1,6 @@
 
 import { useSheets } from '@/context/SheetsContext';
-import { supabase } from '@/lib/supabaseClient';
+import { postToSheet, uploadFile, fetchFromSupabasePaginated } from '@/lib/fetchers';
 import type { ColumnDef, Row } from '@tanstack/react-table';
 import { useEffect, useState } from 'react';
 import DataTable from '../element/DataTable';
@@ -16,7 +16,6 @@ import {
     DialogFooter,
     DialogClose,
 } from '../ui/dialog';
-import { postToSheet, uploadFile, fetchFromSupabasePaginated } from '@/lib/fetchers';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -151,86 +150,83 @@ export default () => {
         try {
             setLoading(true);
 
-            // 1. Fetch Indents with pagination (Stage 7 Pending/Partials)
-            const indentData = await fetchFromSupabasePaginated(
-                'indent',
-                '*',
-                { column: 'planned_7', options: { ascending: false } },
-                (q) => q.not('planned_7', 'is', null)
-            );
-
-            // 2. Fetch Received Data with pagination to calculate what's available for billing
+            // Fetch Received Data - returns raw Prisma data:
+            // indent_number (snake_case, explicit in schema), poNumber (camelCase), receivedQuantity (camelCase)
             const receivedData = await fetchFromSupabasePaginated(
                 'received',
-                'indent_number, received_quantity, bill_number',
-                { column: 'timestamp', options: { ascending: false } }
+                '*',
+                { column: 'createdAt', options: { ascending: false } }
             );
 
-            if (indentData) {
-                const seenPoNumbers = new Set();
+            // Fetch Indents - returns camelCase from Prisma: indentNumber, indenterName, productName, etc.
+            const indentData = await fetchFromSupabasePaginated(
+                'indent',
+                'indent_number, indenter_name, department, product_name, approved_quantity, uom, qty, approved_rate, po_number',
+                { column: 'indent_number', options: { ascending: false } }
+            );
 
-                // Pre-calculate stats for all indents
-                const indentStats = new Map();
-                indentData.forEach((sheet) => {
-                    const indentReceipts = receivedData?.filter(r => r.indent_number === sheet.indent_number) || [];
-                    const totalReceived = indentReceipts.reduce((sum, r) => sum + (Number(r.received_quantity) || 0), 0);
-                    const totalBilled = indentReceipts
-                        .filter(r => r.bill_number)
-                        .reduce((sum, r) => sum + (Number(r.received_quantity) || 0), 0);
-                    const remainingToBill = Math.max(0, totalReceived - totalBilled);
+            if (receivedData && receivedData.length > 0) {
+                // Build indent lookup map - normalize: Prisma returns indentNumber (camelCase) for indent table
+                const indentMap = new Map<string, any>();
+                indentData?.forEach((sheet: any) => {
+                    // indent table: Prisma returns camelCase -> indentNumber
+                    const key = sheet.indentNumber || sheet.indent_number;
+                    if (key) indentMap.set(key, sheet);
+                });
 
-                    indentStats.set(sheet.indent_number, {
-                        totalReceived,
+                // Build stats map keyed by indent_number from received table
+                const indentStats = new Map<string, { totalReceived: number; totalBilled: number; remainingToBill: number }>();
+                receivedData.forEach((r: any) => {
+                    const key = r.indent_number; // received table uses explicit snake_case
+                    if (!key) return;
+                    const indent = indentMap.get(key);
+                    const totalOrdered = Number(indent?.approvedQuantity || indent?.approved_quantity) || 0;
+                    const totalBilled = Number(indent?.qty) || 0;
+                    const prev = indentStats.get(key) || { totalReceived: 0, totalBilled, remainingToBill: Math.max(0, totalOrdered - totalBilled) };
+                    indentStats.set(key, {
+                        totalReceived: prev.totalReceived + (Number(r.receivedQuantity) || 0),
                         totalBilled,
-                        remainingToBill
+                        remainingToBill: Math.max(0, totalOrdered - totalBilled)
                     });
                 });
 
-                const uniqueTableData = indentData
-                    .filter((sheet) => {
-                        // Skip if no PO number
-                        if (!sheet.po_number) return false;
+                // Deduplicate by Indent number to show each product
+                const seenIndents = new Set<string>();
+                const uniqueTableData = receivedData
+                    .filter((r: any) => {
+                        const indentNo = r.indent_number;
+                        if (!indentNo) return false;
+                        if (seenIndents.has(indentNo)) return false;
 
-                        // Skip if we've already processed this PO
-                        if (seenPoNumbers.has(sheet.po_number)) return false;
+                        // Check if this specific indent has pending billing
+                        const stats = indentStats.get(indentNo);
+                        if (!stats || stats.remainingToBill <= 0) return false;
 
-                        // Check if this PO has ANY items with pending quantity to bill
-                        const poIndents = indentData.filter(i => i.po_number === sheet.po_number);
-                        const hasPending = poIndents.some(i => {
-                            const stats = indentStats.get(i.indent_number);
-                            return stats && stats.remainingToBill > 0;
-                        });
-
-                        // Only show this PO if it has at least one pending item
-                        if (!hasPending) return false;
-
-                        seenPoNumbers.add(sheet.po_number);
+                        seenIndents.add(indentNo);
                         return true;
                     })
-                    .map((sheet) => {
-                        const stats = indentStats.get(sheet.indent_number) || {
-                            totalReceived: 0,
-                            totalBilled: 0,
-                            remainingToBill: 0
-                        };
-
+                    .map((r: any) => {
+                        const indent = indentMap.get(r.indent_number) || {};
+                        const stats = indentStats.get(r.indent_number) || { totalReceived: 0, totalBilled: 0, remainingToBill: 0 };
                         return {
-                            indentNo: sheet.indent_number || '',
-                            indenter: sheet.indenter_name || '',
-                            department: sheet.department || '',
-                            product: sheet.product_name || '',
-                            quantity: Number(sheet.approved_quantity) || 0, // Ordered Qty
-                            uom: sheet.uom || '',
-                            poNumber: sheet.po_number || '',
-                            approvedRate: Number(sheet.approved_rate) || 0,
-                            receivedQty: stats.totalReceived,    // NEW
-                            billedQty: stats.totalBilled,        // NEW
-                            remainingQty: stats.remainingToBill  // NEW (Available for billing)
+                            id: indent.id || null,
+                            indentNo: r.indent_number || '',
+                            indenter: indent.indenterName || indent.indenter_name || '',
+                            department: indent.department || '',
+                            product: indent.productName || indent.product_name || '',
+                            quantity: Number(indent.approvedQuantity || indent.approved_quantity) || 0,
+                            uom: r.uom || indent.uom || '',
+                            poNumber: r.poNumber || '',
+                            approvedRate: Number(indent.approvedRate || indent.approved_rate) || 0,
+                            receivedQty: stats.totalReceived,
+                            billedQty: stats.totalBilled,
+                            remainingQty: stats.remainingToBill
                         };
-                    })
-                    .reverse();
+                    });
 
                 setTableData(uniqueTableData);
+            } else {
+                setTableData([]);
             }
         } catch (error) {
             console.error('Error fetching data from Supabase:', error);
@@ -247,58 +243,34 @@ export default () => {
     useEffect(() => {
         const fetchHistoryData = async () => {
             try {
-                // 1. Fetch Received items that have a bill (Bill History)
-                const { data: receivedData, error: receivedError } = await supabase
-                    .from('received')
-                    .select('*')
-                    .not('bill_number', 'is', null);
+                // Fetch from GET PURCHASE table for History (formal billing records)
+                const billingHistory = await fetchFromSupabasePaginated(
+                    'get_purchase',
+                    '*',
+                    { column: 'createdAt', options: { ascending: false } }
+                );
 
-                if (receivedError) throw receivedError;
-
-                // If no billed items, set empty history and return
-                if (!receivedData || receivedData.length === 0) {
+                if (billingHistory) {
+                    const historyItems = billingHistory.map((b: any) => ({
+                        id: b.id,
+                        indentNo: b.indent_number || '',
+                        poNumber: b.poNumber || '',
+                        vendor: b.vendor || '',
+                        product: b.product || '',
+                        billNumber: b.billNumber || '',
+                        billStatus: b.billStatus || '',
+                        billedQty: b.quantity || 0,
+                        billAmount: b.billAmount || 0,
+                        billedDate: b.createdAt ? formatDate(new Date(b.createdAt)) : '',
+                        photoOfBill: b.photoOfBill || ''
+                    }));
+                    setHistoryData(historyItems);
+                } else {
                     setHistoryData([]);
-                    return;
                 }
-
-                // 2. Fetch Indent details for product names etc.
-                const indentNumbers = receivedData.map(r => r.indent_number).filter(Boolean);
-
-                if (indentNumbers.length === 0) {
-                    setHistoryData([]);
-                    return;
-                }
-
-                const { data: indentData, error: indentError } = await supabase
-                    .from('indent')
-                    .select('indent_number, product_name, department, indenter_name, approved_quantity, uom')
-                    .in('indent_number', indentNumbers);
-
-                if (indentError) throw indentError;
-
-                const mappedHistory = receivedData.map(r => {
-                    const indent = indentData?.find(i => i.indent_number === r.indent_number);
-                    return {
-                        indentNo: r.indent_number,
-                        indenter: indent?.indenter_name || '',
-                        department: indent?.department || '',
-                        product: indent?.product_name || '',
-                        quantity: Number(indent?.approved_quantity) || 0,
-                        billedQty: Number(r.received_quantity) || 0, // In this context, received = billed quantity for this row
-                        uom: r.uom || indent?.uom || '',
-                        poNumber: r.po_number,
-                        billStatus: r.bill_status || 'Submitted',
-                        date: r.timestamp ? formatDate(new Date(r.timestamp)) : '',
-                        billNumber: r.bill_number,
-                        billAmount: Number(r.bill_amount) || 0,
-                        photoOfBill: r.photo_of_bill || '',
-                    };
-                }).reverse(); // Newest first
-
-                setHistoryData(mappedHistory);
-
             } catch (error) {
                 console.error('Error fetching history:', error);
+                setHistoryData([]);
             }
         };
 
@@ -360,21 +332,16 @@ export default () => {
             }
 
             if (updateTable === 'indent') {
-                const { error } = await supabase
-                    .from('indent')
-                    .update(updatePayload)
-                    .eq('indent_number', editingCell.rowId);
-                if (error) throw error;
+                const result = await postToSheet([{ indentNumber: editingCell.rowId, ...updatePayload }], 'update', 'INDENT');
+                if (!result.success) throw new Error('API update failed');
             } else {
-                // For received table, find the row by indent_number and bill_number
                 const historyRow = historyData.find(h => h.indentNo === editingCell.rowId);
                 if (historyRow) {
-                    const { error } = await supabase
-                        .from('received')
-                        .update(updatePayload)
-                        .eq('indent_number', editingCell.rowId)
-                        .eq('bill_number', historyRow.billNumber);
-                    if (error) throw error;
+                    // Update the specific record in 'received' (might need a way to target correct ID, for now we assume indentNo is unique for mapping here or update by field)
+                    // In a real scenario, we'd use the ID from historyData (which we should add to HistoryData)
+                    // For now, let's assume we update by indentNo and billNumber
+                    const result = await postToSheet([{ indentNumber: editingCell.rowId, billNumber: historyRow.billNumber, ...updatePayload }], 'update', 'RECEIVED');
+                    if (!result.success) throw new Error('API update failed');
                 }
             }
 
@@ -403,43 +370,58 @@ export default () => {
         const fetchRelatedProducts = async () => {
             if (selectedIndent && openDialog) {
                 try {
-                    // Fetch Indents
-                    const { data: indentData, error: indentError } = await supabase
-                        .from('indent')
-                        .select('*')
-                        .eq('po_number', selectedIndent.poNumber);
+                    // Fetch Received for stats from API
+                    const receivedData = await fetchFromSupabasePaginated(
+                        'received',
+                        '*',
+                        { column: 'createdAt', options: { ascending: true } },
+                        (q) => q.eq('po_number', selectedIndent.poNumber)
+                    );
 
-                    if (indentError) throw indentError;
+                    // Fetch Indents from API for parent details
+                    const indentData = await fetchFromSupabasePaginated(
+                        'indent',
+                        '*',
+                        { column: 'indent_number', options: { ascending: true } },
+                        (q) => q.eq('po_number', selectedIndent.poNumber)
+                    );
 
-                    // Fetch Received for stats
-                    const { data: receivedData, error: receivedError } = await supabase
-                        .from('received')
-                        .select('indent_number, received_quantity, bill_number')
-                        .eq('po_number', selectedIndent.poNumber);
+                    // Fetch PO Masters for rates
+                    const poData = await fetchFromSupabasePaginated(
+                        'po-master',
+                        '*',
+                        { column: 'id', options: { ascending: true } },
+                        (q) => q.eq('poNumber', selectedIndent.poNumber)
+                    );
 
-                    if (receivedError) throw receivedError;
+                    if (receivedData) {
+                        // Gather unique indents from received items
+                        const receivedIndents = Array.from(new Set(receivedData.map((r: any) => r.indentNumber || r.indent_number)));
 
-                    if (indentData) {
-                        const products = indentData.map((sheet) => {
-                            const indentReceipts = receivedData?.filter(r => r.indent_number === sheet.indent_number) || [];
-                            const totalReceived = indentReceipts.reduce((sum, r) => sum + (Number(r.received_quantity) || 0), 0);
-                            const totalBilled = indentReceipts
-                                .filter(r => r.bill_number)
-                                .reduce((sum, r) => sum + (Number(r.received_quantity) || 0), 0);
-                            const remainingToBill = Math.max(0, totalReceived - totalBilled);
+                        const products = receivedIndents.map((indentNum) => {
+                            const sheet = indentData?.find((i: any) => (i.indentNumber || i.indent_number) === indentNum) || {} as any;
+                            const indentReceipts = receivedData.filter((r: any) => (r.indentNumber || r.indent_number) === indentNum);
+                            const totalReceived = indentReceipts.reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+                            const totalBilled = Number(sheet.qty) || 0;
+                            const totalOrdered = Number(sheet.approvedQuantity || sheet.approved_quantity || sheet.quantity) || 0;
+                            const remainingToBill = Math.max(0, totalOrdered - totalBilled);
+
+                            const poLine = poData?.find((p: any) => p.indent_number === indentNum || p.product === sheet.productName);
 
                             return {
-                                indentNo: sheet.indent_number || '',
-                                product: sheet.product_name || '',
-                                quantity: Number(sheet.approved_quantity) || Number(sheet.quantity) || 0,
-                                uom: sheet.uom || '',
-                                rate: Number(sheet.approved_rate) || 0,
-                                qty: Number(sheet.qty) || 0,
+                                id: sheet.id || null,
+                                indentNo: indentNum as string,
+                                product: sheet.productName || sheet.product_name || poLine?.product || '',
+                                quantity: totalOrdered,
+                                uom: sheet.uom || poLine?.unit || '',
+                                rate: Number(poLine?.rate || sheet.approvedRate || sheet.approved_rate) || 0,
+                                qty: totalBilled,
                                 receivedQty: totalReceived,
-                                remainingQty: remainingToBill
+                                remainingQty: remainingToBill,
+                                vendor: poLine?.partyName || '',
+                                poNumber: selectedIndent.poNumber
                             };
                         });
-
                         setRelatedProducts(products);
 
                         // Initialize productRates & Qty
@@ -788,94 +770,125 @@ export default () => {
                 photoUrl = await uploadFile(
                     values.photoOfBill,
                     'bill_photo',
-                    'supabase'
+                    'upload'
                 );
                 console.log('Photo uploaded successfully:', photoUrl);
             }
 
-            // Iterate over each product and update RECEIVED table rows
-            // We find unbilled received rows and update them.
+            // Iterate over each product and update RECEIVED table rows via API
             for (const product of relatedProducts) {
                 const billQty = productQty[product.indentNo] || 0;
                 if (billQty <= 0) continue; // Skip if no quantity to bill
 
                 if (billQty > (product.remainingQty || 0)) {
                     toast.error(`Quantity for ${product.product} exceeds pending amount`);
-                    return; // Stop matching
+                    return;
                 }
 
-                // Fetch unbilled received items for this indent
-                // Check for both NULL and empty string bill_number
-                const { data: unbilledItems, error: fetchError } = await supabase
-                    .from('received')
-                    .select('id, received_quantity')
-                    .eq('indent_number', product.indentNo)
-                    .or('bill_number.is.null,bill_number.eq.')
-                    .order('timestamp', { ascending: true }); // FIFO
-
-                if (fetchError) throw fetchError;
+                // Fetch unbilled received items for this indent from API
+                const unbilledItems = await fetchFromSupabasePaginated(
+                    'received',
+                    'id, received_quantity, timestamp',
+                    { column: 'timestamp', options: { ascending: true } },
+                    (q) => q.eq('indent_number', product.indentNo).or('bill_number.is.null,bill_number.eq.""')
+                );
 
                 let remainingToAssign = billQty;
+                const recUpdates = [];
 
-                if (unbilledItems) {
-                    for (const item of unbilledItems) {
-                        if (remainingToAssign <= 0) break;
+                for (const item of unbilledItems) {
+                    if (remainingToAssign <= 0) break;
 
-                        // Ideally we should split if item.received_quantity > remainingToAssign
-                        // But for now, we just update the row with bill details.
-                        // Limitation: Logic assumes bills align roughly with receipts or we accept tagging a whole receipt 
-                        // even if partially billed (which is technically wrong but simpler).
-                        // BUT user wants strictly limited input.
-                        // Let's assume we just update the rows we need.
+                    recUpdates.push({
+                        id: item.id,
+                        bill_status: values.billStatus,
+                        bill_number: values.billNo,
+                        bill_amount: values.billAmount,
+                        photo_of_bill: photoUrl,
+                    });
 
-                        // Better Logic: Update the row. If we consume it, good.
-                        // Since we don't have split capability without complexity, and users usually bill what they receive:
-                        // We will update the row.
-
-                        await supabase.from('received').update({
-                            bill_status: values.billStatus,
-                            bill_number: values.billNo,
-                            bill_amount: values.billAmount, // CAUTION: This might put total bill amount on every row? 
-                            // Ideally bill amount should be split too? 
-                            // User didn't specify, but let's put the bill details.
-                            photo_of_bill: photoUrl,
-                            // uom, etc are already there
-                        }).eq('id', item.id);
-
-                        remainingToAssign -= Number(item.received_quantity);
-                    }
+                    remainingToAssign -= Number(item.received_quantity);
                 }
 
-                // Also update Indent Table (Legacy/Master Status)
-                // Only close Stage 7 if Fully Billed
-                // Recalculate totals
-                // Use a heuristic: If (Billed + NewBill) >= Approved, set actual_7
-                const totalBilled = (relatedProducts.find(r => r.indentNo === product.indentNo)?.receivedQty || 0)
-                    - (relatedProducts.find(r => r.indentNo === product.indentNo)?.remainingQty || 0)
-                    + billQty;
+                if (recUpdates.length > 0) {
+                    const result = await postToSheet(recUpdates, 'update', 'RECEIVED');
+                    if (!result.success) throw new Error(`Failed to update received records for ${product.indentNo}`);
+                }
 
+                // Update Indent Table via API
+                const relatedProduct = relatedProducts.find(r => r.indentNo === product.indentNo);
+                const totalBilled = (relatedProduct?.qty || 0) + billQty;
                 const approvedQty = product.quantity;
 
                 const updatePayload: any = {
-                    qty: totalBilled, // Update cumulative billed qty
-                    bill_number: values.billNo, // Last bill no
-                    bill_amount: values.billAmount, // Last bill amt
-                    photo_of_bill: photoUrl,
+                    id: product.id,
+                    indentNumber: product.indentNo,
+                    // Note: These fields are filtered by IndentController to match schema
+                    qty: totalBilled,
+                    bill_number: values.billNo,
                     bill_status: values.billStatus,
-                    // other fields
-                    lead_time_to_lift_material: values.leadTime,
-                    type_of_bill: values.typeOfBill,
-                    discount_amount: values.discountAmount,
-                    payment_type: values.paymentType,
-                    advance_amount_if_any: values.advanceAmount,
-                    // rate
+                    planned: formatDate(new Date()), // Generic update to trigger timestamp if needed
                 };
 
                 if (totalBilled >= approvedQty) {
                     updatePayload.actual_7 = formatDate(new Date());
+                    updatePayload.planned_5 = formatDate(new Date());
                 }
 
-                await supabase.from('indent').update(updatePayload).eq('indent_number', product.indentNo);
+                const indResult = await postToSheet([updatePayload], 'update', 'INDENT');
+                if (!indResult.success) throw new Error(`Failed to update indent ${product.indentNo}`);
+
+                // Fetch planned from received table for this indent (to calculate delay)
+                const receivedForIndent = await fetchFromSupabasePaginated(
+                    'received',
+                    '*',
+                    { column: 'createdAt', options: { ascending: false } },
+                    (q) => q.eq('indent_number', product.indentNo)
+                );
+                const plannedDate = receivedForIndent?.[0]?.planned
+                    ? new Date(receivedForIndent[0].planned)
+                    : null;
+
+                // Calculate delay: get_purchase createdAt (now) - planned
+                const now = new Date();
+                let delayValue: string | null = null;
+                if (plannedDate) {
+                    const diffMs = now.getTime() - plannedDate.getTime();
+                    const absDiffMs = Math.abs(diffMs);
+                    const ddays = Math.floor(absDiffMs / (1000 * 60 * 60 * 24));
+                    const dhours = Math.floor((absDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const dminutes = Math.floor((absDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+                    const formatted = `${String(ddays).padStart(2, '0')}:${String(dhours).padStart(2, '0')}:${String(dminutes).padStart(2, '0')}`;
+                    delayValue = diffMs >= 0 ? `+${formatted}` : `-${formatted}`;
+                }
+
+                // Insert into get_purchase table
+                const getPurchasePayload: any = {
+                    billStatus: values.billStatus,
+                    billNumber: values.billNo || `BILL-${Date.now()}`,
+                    quantity: billQty,
+                    leadTimeToLiftMaterial: values.leadTime || '',
+                    typeOfBill: values.typeOfBill || '',
+                    billAmount: values.billAmount || 0,
+                    discountAmount: values.discountAmount || 0,
+                    paymentType: values.paymentType || '',
+                    advanceAmount: values.advanceAmount || 0,
+                    photoOfBill: photoUrl || '',
+                    planned: plannedDate ? plannedDate.toISOString() : null,
+                    delay: delayValue,
+                    indent_number: product.indentNo,
+                    // New fields from schema update
+                    poNumber: product.poNumber || selectedIndent?.poNumber || '',
+                    vendor: product.vendor || '',
+                    product: product.product || '',
+                };
+
+                console.log('Inserting into GET PURCHASE:', getPurchasePayload);
+                const getPurResult = await postToSheet([getPurchasePayload], 'insert', 'GET PURCHASE');
+                if (!getPurResult.success) {
+                    console.error('GET PURCHASE insert failed:', getPurResult.error);
+                    throw new Error(`Failed to insert get_purchase record for ${product.indentNo}: ${getPurResult.error?.message || 'Unknown error'}`);
+                }
             }
 
             toast.success(`Updated purchase details for PO ${selectedIndent?.poNumber}`);

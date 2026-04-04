@@ -1,8 +1,7 @@
 import { Database, Plus } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -187,7 +186,7 @@ export default function MasterData() {
         setDataLoading(true);
         try {
             const data = await fetchFromSupabasePaginated(
-                'master_data',
+                'MASTER',
                 '*',
                 { column: 'id', options: { ascending: false } }
             );
@@ -223,19 +222,19 @@ export default function MasterData() {
         }
         setSubmitting(true);
         try {
-            const { error } = await supabase.from('master_data').insert([
-                {
-                    vendor_name: form.vendor_name.trim(),
-                    vendor_gstin: form.vendor_gstin.trim() || null,
-                    vendor_address: form.vendor_address.trim() || null,
-                    vendor_email: form.vendor_email.trim() || null,
-                    payment_term: form.payment_term.trim() || null,
-                    department: form.department.trim() || null,
-                    group_head: form.group_head.trim() || null,
-                    item_name: form.item_name.trim() || null,
-                },
-            ]);
-            if (error) throw error;
+            const result = await postToSheet([{
+                vendor_name: form.vendor_name.trim(),
+                vendor_gstin: form.vendor_gstin.trim() || null,
+                vendor_address: form.vendor_address.trim() || null,
+                vendor_email: form.vendor_email.trim() || null,
+                payment_term: form.payment_term.trim() || null,
+                department: form.department.trim() || null,
+                group_head: form.group_head.trim() || null,
+                groupHead: form.group_head.trim() || null,
+                itemName: form.item_name.trim() || null,
+            }], 'insert', 'MASTER');
+
+            if (!result.success) throw new Error('Failed to save master data');
             toast.success('Master data saved successfully!');
             setSheetOpen(false);
             fetchData();
@@ -247,7 +246,7 @@ export default function MasterData() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 w-full overflow-x-hidden">
             <Heading
                 heading="Master Data"
                 subtext="Manage vendor master records"
@@ -256,7 +255,7 @@ export default function MasterData() {
             </Heading>
 
             {/* ── Table & Toolbar ── */}
-            <div className="w-full overflow-x-auto">
+            <div className="w-full max-w-full overflow-x-auto">
                 <DataTable
                     data={filteredData}
                     columns={columns}

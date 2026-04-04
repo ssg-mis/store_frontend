@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { formatDate } from '@/lib/utils';
 import DataTable from '../element/DataTable';
-import { supabase } from '@/lib/supabaseClient';
+// supabase removed - using dummy data via fetchers
 
 import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 
@@ -29,25 +29,39 @@ export default () => {
         const fetchData = async () => {
             setDataLoading(true);
             try {
+                // Fetch indents for Stage 4 (Pending POs)
                 const data = await fetchFromSupabasePaginated(
                     'indent',
                     '*',
-                    { column: 'created_at', options: { ascending: false } },
+                    { column: 'planned_4', options: { ascending: false } },
                     (q) => q.not('planned_4', 'is', null).is('actual_4', null)
                 );
 
+                // Fetch approvals to get vendor names and rates
+                const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
+                const approvalMap: Record<string, any> = {};
+                (approvals || []).forEach((a: any) => {
+                    const key = a.indentNumber || a.indent_number;
+                    if (key) approvalMap[key] = a;
+                });
+
                 if (data) {
-                    const tableData = data.map((record: any) => ({
-                        date: formatDate(new Date(record.created_at)),
-                        indentNo: record.indent_number || '',
-                        product: record.product_name || '',
-                        quantity: record.approved_quantity || 0,
-                        rate: record.approved_rate || 0,
-                        uom: record.uom || '',
-                        vendorName: record.approved_vendor_name || '',
-                        paymentTerm: record.approved_payment_term || '',
-                        specifications: record.specifications || '',
-                    }));
+                    const tableData = data.map((record: any) => {
+                        const indentNo = record.indentNumber || record.indent_number || '';
+                        const approval = approvalMap[indentNo];
+                        
+                        return {
+                            date: formatDate(new Date(record.createdAt || record.created_at)),
+                            indentNo: indentNo,
+                            product: record.productName || record.product_name || '',
+                            quantity: record.approvedQuantity || record.approved_quantity || record.quantity || 0,
+                            rate: approval?.approvedRate || record.approvedRate || record.approved_rate || 0,
+                            uom: record.uom || '',
+                            vendorName: approval?.approvedVendorName || record.approvedVendorName || record.approved_vendor_name || '',
+                            paymentTerm: approval?.approvedPaymentTerm || record.approvedPaymentTerm || record.approved_payment_term || '',
+                            specifications: record.specifications || '',
+                        };
+                    });
 
                     setTableData(tableData);
                 }

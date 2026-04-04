@@ -75,26 +75,28 @@ export default function DataTable<TData, TValue>({
     });
 
     return (
-        <div className="p-5 grid gap-4">
-            <div className="flex justify-between items-center w-full gap-3">
+        <div className="px-2 sm:px-5 py-5 grid gap-4 w-full overflow-hidden">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full gap-3 mb-2">
                 {searchFields.length !== 0 && (
-                    <div className="flex items-center w-full">
+                    <div className="flex items-center w-full sm:w-auto">
                         <Input
                             placeholder={`Search...`}
                             value={globalFilter}
                             onChange={(e) => setGlobalFilter(e.target.value)}
-                            className="w-230"
+                            className="w-full sm:max-w-sm"
                         />
                     </div>
                 )}
-                {extraActions && extraActions}
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    {extraActions && extraActions}
+                </div>
             </div>
 
-            <div className="relative max-w-full">
+            <div className="relative max-w-full min-w-0">
                 <ScrollArea
                     className={cn('rounded-sm border h-[74dvh] w-full', className)}
                 >
-                    <Table containerClassName="overflow-visible">
+                    <Table containerClassName="overflow-visible" className="min-w-max">
                         <TableHeader>
                             {table.getHeaderGroups().map((headerGroup) => (
                                 <TableRow key={headerGroup.id}>

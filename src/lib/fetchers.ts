@@ -1,6 +1,11 @@
-import type { IndentSheet, MasterSheet, ReceivedSheet, Sheet } from '@/types';
-import type { InventorySheet, PoMasterSheet, QuotationHistorySheet, UserPermissions, Vendor } from '@/types/sheets';
-import { supabase } from './supabaseClient';
+import { type IndentSheet, type ReceivedSheet, type UserPermissions, type PoMasterSheet, type QuotationHistorySheet, type Sheet, type SheetData, type MasterConfigSheet } from '@/types/sheets';
+import type {
+    InventorySheet,
+    Vendor,
+} from '@/types/sheets';
+import { dataStore, getNextId } from './dummyData';
+
+const API_BASE_URL = 'http://localhost:5001/api';
 
 // Helper to convert snake_case keys to camelCase
 export function toCamelCase(obj: any): any {
@@ -10,24 +15,20 @@ export function toCamelCase(obj: any): any {
     }
 
     if (Array.isArray(obj)) {
-        return obj.map(v => toCamelCase(v));
+        return obj.map((v) => toCamelCase(v));
     } else if (typeof obj === 'object' && obj.constructor === Object) {
-        return Object.keys(obj).reduce(
-            (result, key) => {
-                // actual_7 -> actual7, indent_number -> indentNumber
-                const camelKey = key.replace(/([_][a-z0-9])/g, m => m[1].toUpperCase());
-                return {
-                    ...result,
-                    [camelKey]: toCamelCase(obj[key]),
-                };
-            },
-            {},
-        );
+        return Object.keys(obj).reduce((result, key) => {
+            // actual_7 -> actual7, indent_number -> indentNumber
+            const camelKey = key.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            return {
+                ...result,
+                [camelKey]: toCamelCase(obj[key]),
+            };
+        }, {});
     }
     return obj;
 }
 
-// Helper to convert camelCase keys to snake_case
 function toSnakeCase(obj: any): any {
     // Safety guard for null/undefined
     if (obj === null || obj === undefined) {
@@ -35,636 +36,416 @@ function toSnakeCase(obj: any): any {
     }
 
     if (Array.isArray(obj)) {
-        return obj.map(v => toSnakeCase(v));
+        return obj.map((v) => toSnakeCase(v));
     } else if (typeof obj === 'object' && obj.constructor === Object) {
-        return Object.keys(obj).reduce(
-            (result, key) => {
-                // If the key is already snake_case, don't change it
-                if (key.includes('_')) {
-                    return { ...result, [key]: toSnakeCase(obj[key]) };
-                }
-                // camelCase -> snake_case (handles actual7 -> actual_7)
-                const snakeKey = key
-                    .replace(/([A-Z0-9])/g, "_$1")
-                    .toLowerCase()
-                    .replace(/^_/, ""); // Remove leading underscore if any
-                return {
-                    ...result,
-                    [snakeKey]: toSnakeCase(obj[key]),
-                };
-            },
-            {},
-        );
+        return Object.keys(obj).reduce((result, key) => {
+            // If the key is already snake_case, don't change it
+            if (key.includes('_')) {
+                return { ...result, [key]: toSnakeCase(obj[key]) };
+            }
+            // camelCase -> snake_case (handles actual7 -> actual_7)
+            const snakeKey = key
+                .replace(/([A-Z0-9])/g, '_$1')
+                .toLowerCase()
+                .replace(/^_/, ''); // Remove leading underscore if any
+            return {
+                ...result,
+                [snakeKey]: toSnakeCase(obj[key]),
+            };
+        }, {});
     }
     return obj;
 }
 
-
-export async function uploadFile(file: File, folderId: string, uploadType: 'upload' | 'email' | 'supabase' = 'upload', email?: string): Promise<string> {
-    // If uploadType is 'supabase', upload to Supabase storage
-    if (uploadType === 'supabase') {
-        // Use the folderId as the bucket name
-        // Use the existing Supabase client instance to ensure proper authentication
-        const { data, error } = await supabase.storage
-            .from(folderId) // Use the dynamic bucket name passed as folderId
-            .upload(`${Date.now()}_${file.name}`, file, {
-                cacheControl: '3600',
-                upsert: false
-            });
-
-        if (error) {
-            console.error('Supabase upload error:', error);
-            throw new Error(`Failed to upload file to Supabase: ${error.message}`);
-        }
-
-        // Get the public URL for the uploaded file
-        const { data: { publicUrl } } = supabase.storage
-            .from(folderId)
-            .getPublicUrl(data.path);
-
-        return publicUrl;
-    }
-
-    // Otherwise, use the existing Google Apps Script upload
-    const base64: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const base64String = (reader.result as string)?.split(',')[1]; // Remove data:type;base64, prefix
-            resolve(base64String);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-
-    const form = new FormData();
-    form.append('action', 'upload');
-    form.append('fileName', file.name);
-    form.append('mimeType', file.type);
-    form.append('fileData', base64);
-    form.append('folderId', folderId);
-    form.append('uploadType', uploadType);
-    if (uploadType === "email") {
-        form.append('email', email!);
-        form.append('emailSubject', "Purchase Order");
-        form.append('emailBody', "Please find attached PO.");
-    }
-
-    const response = await fetch(import.meta.env.VITE_APP_SCRIPT_URL, {
-        method: 'POST',
-        body: form,
-        redirect: 'follow',
-    });
-
-    console.log(response)
-    if (!response.ok) throw new Error('Failed to upload file');
-    const res = await response.json();
-    console.log(res)
-    if (!res.success) throw new Error('Failed to upload data');
-
-    return res.fileUrl as string;
+export async function uploadFile(
+    file: File,
+    folderId: string,
+    uploadType: 'upload' | 'email' | 'supabase' = 'upload',
+    email?: string
+): Promise<string> {
+    // Demo mode: return a fake URL
+    await new Promise((r) => setTimeout(r, 300)); // Simulate upload delay
+    return `https://demo.example.com/uploads/${Date.now()}_${file.name}`;
 }
 
 export async function fetchIndentMasterData() {
-    // Fetch all records from 'master' table with pagination
-    const allData = await fetchFromSupabasePaginated(
-        'master',
-        '*',
-        { column: 'item_name', options: { ascending: true } }
-    );
+    try {
+        const response = await fetch(`${API_BASE_URL}/masters`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        const camelData = toCamelCase(data);
 
-    const data = allData;
+        const departments = [...new Set(camelData.map((d: any) => d.department))].filter(Boolean) as string[];
+        const groupHeads = [...new Set(camelData.map((d: any) => d.groupHead))].filter(Boolean) as string[];
 
-    // 🔹 STEP 1: Categories (Union of create_group_head and group_head to handle nulls)
-    const categories = Array.from(
-        new Set([
-            ...data.map(d => d.create_group_head?.trim()),
-            ...data.map(d => d.group_head?.trim())
-        ])
-    ).filter(Boolean) as string[];
+        const groupHeadItems: Record<string, string[]> = {};
+        groupHeads.forEach(gh => {
+            groupHeadItems[gh] = [...new Set(camelData.filter((d: any) => d.groupHead === gh).map((d: any) => d.itemName))].filter(Boolean) as string[];
+        });
 
-    // 🔹 STEP 2: Mapping Categories → item_name
-    // Logic: Match selected category against 'group_head' column
-    const groupHeadItems: Record<string, string[]> = {};
-
-    categories.forEach(categoryName => {
-        const matchedItems = data
-            .filter(row => {
-                const head = row.group_head?.toLowerCase().trim();
-                const selection = categoryName.toLowerCase().trim();
-                return head === selection;
-            })
-            .map(row => row.item_name)
-            .filter(Boolean);
-
-        groupHeadItems[categoryName] = Array.from(new Set(matchedItems));
-    });
-
-    return {
-        departments: Array.from(
-            new Set(data.map(d => d.department).filter(Boolean))
-        ),
-        createGroupHeads: categories,
-        groupHeadItems
-    };
+        return {
+            departments,
+            createGroupHeads: groupHeads,
+            groupHeadItems
+        };
+    } catch (error) {
+        console.error('Error fetching indent master data:', error);
+        return {
+            departments: [],
+            createGroupHeads: [],
+            groupHeadItems: {}
+        };
+    }
 }
 
-// Helper to fetch all records from a Supabase table with pagination
+// Helper to fetch from in-memory dummy data (replaces fetchFromSupabasePaginated)
 export async function fetchFromSupabasePaginated(
     tableName: string,
     select: string = '*',
-    orderBy: { column: string; options?: { ascending?: boolean } } = { column: 'created_at', options: { ascending: false } },
+    orderBy: { column: string; options?: { ascending?: boolean } } = {
+        column: 'created_at',
+        options: { ascending: false },
+    },
     queryBuilder?: (query: any) => any,
     pagination?: { from: number; to: number }
 ) {
-    // If pagination is provided, fetch just that range
-    if (pagination) {
-        let query = supabase
-            .from(tableName)
-            .select(select)
-            .range(pagination.from, pagination.to);
+    // Map table names to API endpoints
+    const endpointMap: Record<string, string> = {
+        'indent': '/indents',
+        'approved_indent': '/approved-indents',
+        'po_master': '/po-masters',
+        'received': '/received',
+        'inventory': '/inventory',
+        'store_out_approval': '/store-out-approvals',
+        'get_purchase': '/get-purchases',
+        'master_data': '/masters',
+        'vendor_rate_update': '/vendor-rate-updates',
+        'three_party_approvals': '/three-party-approvals',
+        'three_party_approval': '/three-party-approvals',
+    };
 
+    const endpoint = endpointMap[tableName] || `/${tableName.replace(/_/g, '-')}`;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        let data = await response.json();
+
+        // Filter using queryBuilder if provided
         if (queryBuilder) {
-            query = queryBuilder(query);
+            data = queryBuilder(createFakeQuery(data))._data;
         }
 
+        // Sorting
         if (orderBy.column) {
-            query = query.order(orderBy.column, orderBy.options || { ascending: false });
+            const asc = orderBy.options?.ascending ?? false;
+            const col = toCamelCase(orderBy.column);
+            data.sort((a: any, b: any) => {
+                const va = a[orderBy.column] ?? a[col] ?? '';
+                const vb = b[orderBy.column] ?? b[col] ?? '';
+                if (va < vb) return asc ? -1 : 1;
+                if (va > vb) return asc ? 1 : -1;
+                return 0;
+            });
         }
 
-        const { data, error } = await query;
-
-        if (error) {
-            console.error(`Error fetching from ${tableName}:`, error);
-            throw error;
+        // Pagination
+        if (pagination) {
+            data = data.slice(pagination.from, pagination.to + 1);
         }
 
-        return data || [];
+        return data;
+    } catch (error) {
+        console.error(`Error fetching ${tableName}:`, error);
+        return [];
     }
+}
 
-    let allData: any[] = [];
-    let from = 0;
-    let hasMore = true;
-    const limit = 1000;
+// Simple fake query builder to support .not(), .eq(), .or() chains
+function createFakeQuery(data: any[]) {
+    const q: any = {
+        _data: data,
+        not(column: string, op: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            const getVal = (row: any) => row[column] ?? row[camelColumn];
 
-    while (hasMore) {
-        let query = supabase
-            .from(tableName)
-            .select(select)
-            .range(from, from + limit - 1);
+            if (op === 'is') {
+                if (value === null) {
+                    q._data = q._data.filter(
+                        (row: any) => {
+                            const val = getVal(row);
+                            return val !== null && val !== undefined && val !== '';
+                        }
+                    );
+                } else {
+                    q._data = q._data.filter((row: any) => getVal(row) !== value);
+                }
+            } else if (op === 'eq') {
+                q._data = q._data.filter((row: any) => getVal(row) !== value);
+            }
+            return q;
+        },
+        is(column: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            const getVal = (row: any) => row[column] ?? row[camelColumn];
 
-        if (queryBuilder) {
-            query = queryBuilder(query);
-        }
-
-        if (orderBy.column) {
-            query = query.order(orderBy.column, orderBy.options || { ascending: false });
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-            console.error(`Error fetching from ${tableName}:`, error);
-            throw error;
-        }
-
-        if (data && data.length > 0) {
-            allData = [...allData, ...data];
-            from += limit;
-            if (data.length < limit) hasMore = false;
-        } else {
-            hasMore = false;
-        }
-    }
-    return allData;
+            if (value === null) {
+                q._data = q._data.filter(
+                    (row: any) => {
+                        const val = getVal(row);
+                        return val === null || val === undefined || val === '';
+                    }
+                );
+            } else {
+                q._data = q._data.filter((row: any) => getVal(row) === value);
+            }
+            return q;
+        },
+        in(column: string, values: any[]) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            q._data = q._data.filter((row: any) => values.includes(row[column] ?? row[camelColumn]));
+            return q;
+        },
+        gt(column: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            q._data = q._data.filter((row: any) => (row[column] ?? row[camelColumn]) > value);
+            return q;
+        },
+        lt(column: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            q._data = q._data.filter((row: any) => (row[column] ?? row[camelColumn]) < value);
+            return q;
+        },
+        gte(column: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            q._data = q._data.filter((row: any) => (row[column] ?? row[camelColumn]) >= value);
+            return q;
+        },
+        lte(column: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            q._data = q._data.filter((row: any) => (row[column] ?? row[camelColumn]) <= value);
+            return q;
+        },
+        like(column: string, pattern: string) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            const regex = new RegExp(`^${pattern.replace(/%/g, '.*')}$`, 'i');
+            q._data = q._data.filter((row: any) => regex.test(String(row[column] ?? row[camelColumn])));
+            return q;
+        },
+        ilike(column: string, pattern: string) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            const regex = new RegExp(`^${pattern.replace(/%/g, '.*')}$`, 'i');
+            q._data = q._data.filter((row: any) => regex.test(String(row[column] ?? row[camelColumn])));
+            return q;
+        },
+        eq(column: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            q._data = q._data.filter((row: any) => (row[column] ?? row[camelColumn]) === value);
+            return q;
+        },
+        neq(column: string, value: any) {
+            const camelColumn = column.replace(/([_][a-z0-9])/g, (m) => m[1].toUpperCase());
+            q._data = q._data.filter((row: any) => (row[column] ?? row[camelColumn]) !== value);
+            return q;
+        },
+        or(expr: string) {
+            // Simple parser for "col.is.null,col.eq." type expressions
+            // Just return data as-is for demo
+            return q;
+        },
+        order(column: string, options?: { ascending?: boolean }) {
+            const asc = options?.ascending ?? false;
+            q._data.sort((a: any, b: any) => {
+                if (a[column] < b[column]) return asc ? -1 : 1;
+                if (a[column] > b[column]) return asc ? 1 : -1;
+                return 0;
+            });
+            return q;
+        },
+        select(cols: string) {
+            return q;
+        },
+        range(from: number, to: number) {
+            q._data = q._data.slice(from, to + 1);
+            return q;
+        },
+    };
+    return q;
 }
 
 export async function fetchSheet(
     sheetName: Sheet
-): Promise<MasterSheet | IndentSheet[] | ReceivedSheet[] | UserPermissions[] | PoMasterSheet[] | InventorySheet[]> {
+): Promise<
+    | MasterConfigSheet
+    | IndentSheet[]
+    | ReceivedSheet[]
+    | UserPermissions[]
+    | PoMasterSheet[]
+    | InventorySheet[]
+> {
     if (sheetName === 'INDENT') {
-        console.log("Fetching all indents from Supabase for notifications and views");
-        const allData = await fetchFromSupabasePaginated('indent', '*', { column: 'created_at', options: { ascending: false } });
-        return toCamelCase(allData) as IndentSheet[];
+        const data = await fetchFromSupabasePaginated('indent');
+        return toCamelCase(data) as IndentSheet[];
     }
 
     if (sheetName === 'PO MASTER') {
-        console.log("Fetching PO Master from Supabase");
-        const allData = await fetchFromSupabasePaginated('po_master', '*', { column: 'timestamp', options: { ascending: false } });
-        return toCamelCase(allData) as PoMasterSheet[];
+        const data = await fetchFromSupabasePaginated('po_master');
+        return toCamelCase(data) as PoMasterSheet[];
     }
 
     if (sheetName === 'RECEIVED') {
-        console.log("Fetching Received items from Supabase");
-        const allData = await fetchFromSupabasePaginated('received', '*', { column: 'timestamp', options: { ascending: false } });
-        return toCamelCase(allData) as ReceivedSheet[];
+        const data = await fetchFromSupabasePaginated('received');
+        return toCamelCase(data) as ReceivedSheet[];
+    }
+
+    if (sheetName === 'INVENTORY') {
+        const data = await fetchFromSupabasePaginated('inventory');
+        return toCamelCase(data) as InventorySheet[];
     }
 
     if (sheetName === 'USER') {
-        console.log("Fetching users from Supabase");
-        const allData = await fetchFromSupabasePaginated('user_access_master', '*', { column: 'id', options: { ascending: true } });
-        // Map database 'id' to 'rowIndex' so the frontend logic doesn't break
-        const mappedData = (allData || []).map((u: any) => ({ ...u, row_index: u.id }));
-        return toCamelCase(mappedData) as UserPermissions[];
+        // Assume user endpoint or dummy for now as no prisma model shown for user yet
+        return toCamelCase([...dataStore.user_access_master]) as UserPermissions[];
     }
 
     if (sheetName === 'MASTER') {
-        // Fetch company data from master_data table
-        let masterData: any = null;
-        let companyInfo: any = {};
-
         try {
-            // Fetch all records from master_data table to get complete header information
-            const companyRes = await fetchFromSupabasePaginated('master_data', '*', { column: 'id', options: { ascending: true } });
+            const data = await fetchFromSupabasePaginated('master_data');
+            const camelData = toCamelCase(data);
+            const vendors = await fetchVendors();
 
-            if (companyRes && companyRes.length > 0) {
-                // Use the first record as the primary source of company information
-                masterData = companyRes[0];
-
-                // Collect all unique values for arrays from all records
-                const allCompanyNames = [...new Set(companyRes.map(r => r.company_name).filter(Boolean))];
-                const allCompanyAddresses = [...new Set(companyRes.map(r => r.company_address).filter(Boolean))];
-                const allCompanyPhones = [...new Set(companyRes.map(r => r.company_phone).filter(Boolean))];
-                const allCompanyGstins = [...new Set(companyRes.map(r => r.company_gstin).filter(Boolean))];
-                const allCompanyPans = [...new Set(companyRes.map(r => r.company_pan).filter(Boolean))];
-                const allBillingAddresses = [...new Set(companyRes.map(r => r.billing_address).filter(Boolean))];
-                const allDestinationAddresses = [...new Set(companyRes.map(r => r.destination_address).filter(Boolean))];
-                const allDefaultTerms = [...new Set(companyRes.map(r => r.default_terms).filter(Boolean))];
-
-                // Collect all unique vendor names
-                const allVendorNames = [...new Set(companyRes.map(r => r.vendor_name).filter(Boolean))];
-
-                // Collect all unique payment terms
-                const allPaymentTerms = [...new Set(companyRes.map(r => r.payment_term).filter(Boolean))];
-
-                companyInfo = {
-                    companyName: allCompanyNames[0] || 'JJSPL STORES', // Use first available
-                    companyAddress: allCompanyAddresses[0] || 'Default Company Address',
-                    companyPhone: allCompanyPhones[0] || 'Default Phone Number',
-                    companyGstin: allCompanyGstins[0] || 'Default GSTIN',
-                    companyPan: allCompanyPans[0] || 'Default PAN',
-                    billingAddress: allBillingAddresses[0] || 'Default Billing Address',
-                    destinationAddress: allDestinationAddresses[0] || 'Default Destination Address',
-                    defaultTerms: allDefaultTerms,
-                    vendors: allVendorNames.map(vendorName => ({ vendorName, gstin: '', address: '', email: '' })),
-                    paymentTerms: allPaymentTerms
-                };
-            } else {
-                console.warn('Master data table not found or empty');
-                // Provide default company info if master_data table is not found
-                companyInfo = {
-                    companyName: 'JJSPL STORES',
-                    companyAddress: 'Default Company Address',
-                    companyPhone: 'Default Phone Number',
-                    companyGstin: 'Default GSTIN',
-                    companyPan: 'Default PAN',
-                    billingAddress: 'Default Billing Address',
-                    destinationAddress: 'Default Destination Address',
-                    defaultTerms: [],
-                    vendors: [],
-                    paymentTerms: []
-                };
-            }
-        } catch (error) {
-            console.error('Master data table not found:', error);
-            // Provide default company info if master_data table is not accessible
-            companyInfo = {
-                companyName: 'JJSPL STORES',
-                companyAddress: 'Default Company Address',
-                companyPhone: 'Default Phone Number',
-                companyGstin: 'Default GSTIN',
-                companyPan: 'Default PAN',
-                billingAddress: 'Default Billing Address',
-                destinationAddress: 'Default Destination Address',
-                defaultTerms: [],
-                vendors: [],
-                paymentTerms: []
-            };
+            // For now, return the first row as config or a default object
+            // Ideally, we'd have a separate config table
+            return {
+                ...(camelData[0] || {}),
+                vendors: vendors,
+                departments: [...new Set(camelData.map((d: any) => d.department))].filter(Boolean),
+                groupHeads: {},
+                paymentTerms: [...new Set(camelData.map((d: any) => d.paymentTerm || d.payment_term))].filter(Boolean),
+                companyName: 'Botivate Services LLP',
+                companyAddress: 'Default Address',
+                companyPhone: '1234567890',
+                companyGstin: 'GSTIN123',
+                companyPan: 'PAN123',
+                billingAddress: 'Billing Address',
+                destinationAddress: 'Destination Address',
+                defaultTerms: []
+            } as MasterConfigSheet;
+        } catch (err) {
+            console.error('Error fetching MASTER:', err);
+            return {} as MasterConfigSheet;
         }
-
-        // Fetch dropdown data from master table (for CreateIndent page)
-        const masterTableData = await fetchFromSupabasePaginated('master', 'department, create_group_head, group_head, item_name', { column: 'id', options: { ascending: true } });
-
-        if (!masterTableData) {
-            console.error('Error fetching master table');
-        }
-
-        // Process dropdown data from master table with strict dependent flow
-        let departments: string[] = [];
-        let groupHeads: Record<string, string[]> = {}; // This maps create_group_head to item_names following the strict flow
-
-        if (masterTableData && masterTableData.length > 0) {
-            // Get unique departments
-            const uniqueDepartments = Array.from(
-                new Set(masterTableData.map(d => d.department).filter(Boolean))
-            ) as string[];
-            departments = uniqueDepartments;
-
-            // Get unique create_group_head values (only non-null values)
-            const createGroupHeads = Array.from(
-                new Set(masterTableData.map(d => d.create_group_head).filter(value => value !== null && value !== undefined && value !== ''))
-            ) as string[];
-
-            // Create mapping of create_group_head -> item_name[] using the strict dependent flow
-            // where group_head must equal create_group_head
-            groupHeads = {};
-
-            createGroupHeads.forEach(createGroupHead => {
-                // Find all rows where group_head equals the selected create_group_head value
-                const matchingRows = masterTableData.filter(row =>
-                    row.group_head === createGroupHead && row.item_name
-                );
-
-                // Extract unique item_names for these matched rows
-                const uniqueItems = Array.from(
-                    new Set(matchingRows.map(row => row.item_name).filter(Boolean))
-                ) as string[];
-
-                groupHeads[createGroupHead as string] = uniqueItems;
-            });
-        }
-
-        // Handle vendors from masterData if they exist
-        let vendors: any[] = [];
-        if (companyInfo.vendors && Array.isArray(companyInfo.vendors)) {
-            // If vendors is already an array of objects
-            if (companyInfo.vendors.length > 0 && typeof companyInfo.vendors[0] === 'object') {
-                vendors = companyInfo.vendors.map(v => ({
-                    vendorName: v.name || v.vendorName || v.vendor_name || '',
-                    gstin: v.gstin ?? '',
-                    address: v.address ?? '',
-                    email: v.email ?? ''
-                }));
-            }
-            // If vendors is an array of strings
-            else if (companyInfo.vendors.length > 0 && typeof companyInfo.vendors[0] === 'string') {
-                vendors = companyInfo.vendors.map(vendorName => ({
-                    vendorName: vendorName || '',
-                    gstin: '',
-                    address: '',
-                    email: ''
-                }));
-            }
-        }
-
-        return {
-            vendors: vendors,
-            departments: departments,
-            paymentTerms: companyInfo.paymentTerms,
-            groupHeads: groupHeads,
-
-            companyName: companyInfo.companyName,
-            companyAddress: companyInfo.companyAddress,
-            companyPhone: companyInfo.companyPhone,
-            companyGstin: companyInfo.companyGstin,
-            companyPan: companyInfo.companyPan,
-            billingAddress: companyInfo.billingAddress,
-            destinationAddress: companyInfo.destinationAddress,
-            defaultTerms: companyInfo.defaultTerms
-        } as MasterSheet;
     }
 
-    // For other sheet types, fetch from Google Apps Script
-    const url = `${import.meta.env.VITE_APP_SCRIPT_URL}?sheetName=${encodeURIComponent(sheetName)}`;
-    const response = await fetch(url);
-
-    if (!response.ok) throw new Error('Failed to fetch data');
-    const raw = await response.json();
-    if (!raw.success) throw new Error('Something went wrong when parsing data');
-
-    return raw.rows.filter((r: IndentSheet) => r.timestamp !== '');
+    return [];
 }
-
-
-// lib/fetchers.ts में या जहां postToSheet function है
 
 export async function postToQuotationHistory(rows: any[]) {
-    try {
-        const formData = new FormData();
-        formData.append('action', 'insertQuotation');
-        formData.append('rows', JSON.stringify(rows));
-
-        const response = await fetch(import.meta.env.VITE_APPS_SCRIPT_URL, {
-            method: 'POST',
-            body: formData,
-        });
-
-        const result = await response.json();
-
-        if (!result.success) {
-            throw new Error(result.error || 'Failed to submit quotation');
-        }
-
-        return result;
-    } catch (error) {
-        console.error('Error posting quotation:', error);
-        throw error;
-    }
+    await new Promise((r) => setTimeout(r, 200));
+    rows.forEach((row) => {
+        dataStore.quotation_history.push({ ...row, id: getNextId() });
+    });
+    return { success: true };
 }
-
 
 export async function fetchVendors() {
     try {
-        // Fetch vendors from master_data table with pagination
-        const allData = await fetchFromSupabasePaginated(
-            'master_data',
-            'vendor_name, vendor_gstin, vendor_address, vendor_email',
-            { column: 'id', options: { ascending: true } }
-        );
+        const data = await fetchFromSupabasePaginated('master_data');
+        if (!data) return [];
 
-        const uniqueVendors = new Map<string, {
-            vendorName: string;
-            gstin: string;
-            address: string;
-            email: string;
-        }>();
+        const uniqueVendors = new Map<string, Vendor>();
 
-        allData.forEach(row => {
-            const vendorNames = row.vendor_name;
-            const gstin = row.vendor_gstin || '';
-            const address = row.vendor_address || '';
-            const email = row.vendor_email || '';
+        data.forEach((row: any) => {
+            const name = row.vendor_name;
+            if (!name) return;
 
-            // Helper to add vendor if not already present or if present but has empty fields
-            const addVendor = (name: string) => {
-                if (!name || name.trim() === '') return;
-                const trimmedName = name.trim();
-
-                if (!uniqueVendors.has(trimmedName)) {
-                    uniqueVendors.set(trimmedName, {
-                        vendorName: trimmedName,
-                        gstin: gstin,
-                        address: address,
-                        email: email
-                    });
-                } else {
-                    // Optional: If already exists but current row has more info, update it
-                    const existing = uniqueVendors.get(trimmedName)!;
-                    if (!existing.gstin && gstin) existing.gstin = gstin;
-                    if (!existing.address && address) existing.address = address;
-                    if (!existing.email && email) existing.email = email;
-                }
-            };
-
-            // If vendor_name is an array
-            if (Array.isArray(vendorNames)) {
-                vendorNames.forEach(name => addVendor(name));
-            }
-            // If vendor_name is a single string
-            else if (typeof vendorNames === 'string') {
-                addVendor(vendorNames);
+            const trimmedName = name.trim();
+            if (!uniqueVendors.has(trimmedName)) {
+                uniqueVendors.set(trimmedName, {
+                    vendorName: trimmedName,
+                    gstin: row.vendor_gstin || '',
+                    address: row.vendor_address || '',
+                    email: row.vendor_email || '',
+                });
             }
         });
 
-        const sortedVendors = Array.from(uniqueVendors.values()).sort((a, b) =>
+        return Array.from(uniqueVendors.values()).sort((a, b) =>
             a.vendorName.localeCompare(b.vendorName)
         );
-
-        return sortedVendors;
     } catch (error) {
         console.error('Error fetching vendors:', error);
         return [];
     }
 }
 
-
 export async function postToSheet(
-    data:
-        | Partial<IndentSheet>[]
-        | Partial<ReceivedSheet>[]
-        | Partial<UserPermissions>[]
-        | Partial<PoMasterSheet>[]
-        | Partial<QuotationHistorySheet>[],
-    action: 'insert' | 'update' | 'delete' | 'insertQuotation' = 'insert', // Add insertQuotation
+    data: Partial<SheetData>[],
+    action: 'insert' | 'update' | 'delete' | 'insertQuotation' = 'insert',
     sheet: Sheet = 'INDENT'
 ) {
-    if (sheet === 'INDENT') {
-        if (action === 'insert') {
-            // Use upsert instead of insert to handle potential duplicate keys
-            // Strip Supabase internal fields that shouldn't be inserted
-            const processedData = data.map(row => {
-                const snakeRow = toSnakeCase(row);
-                const { id, created_at, updated_at, ...insertData } = snakeRow;
-                return insertData;
-            });
+    const endpointMap: Record<string, string> = {
+        'INDENT': '/indents',
+        'PO MASTER': '/po-masters',
+        'PO_MASTER': '/po-masters',
+        'RECEIVED': '/received',
+        'INVENTORY': '/inventory',
+        'USER': '/users',
+        'MASTER': '/masters',
+        'GET PURCHASE': '/get-purchases',
+        'GET_PURCHASE': '/get-purchases',
+        'STORE OUT APPROVAL': '/store-out-approvals',
+        'VENDOR_RATE_UPDATE': '/vendor-rate-updates',
+        'THREE_PARTY_APPROVAL': '/three-party-approvals',
+    };
 
-            const { error } = await supabase.from('indent').upsert(processedData, {
-                onConflict: 'indent_number',
-                ignoreDuplicates: false // Update if exists
-            });
-            if (error) {
-                console.error('Error upserting into Supabase:', error);
-                throw error;
-            }
-            return { success: true };
-        } else if (action === 'update') {
-            // Bulk update in Supabase is tricky, usually done one by one if they don't have a common ID
-            // or using upsert if we have a primary key.
-            // Assuming indentNumber is the primary key.
-            for (const row of data) {
-                const snakeRow = toSnakeCase(row);
-                // Strip Supabase internal fields that shouldn't be updated
-                const { id, created_at, updated_at, ...updateData } = snakeRow;
+    const endpoint = endpointMap[sheet] || `/${sheet.toLowerCase().replace(/ /g, '-')}`;
 
-                const { error } = await supabase
-                    .from('indent')
-                    .update(updateData)
-                    .eq('indent_number', snakeRow.indent_number);
-                if (error) {
-                    console.error('Supabase update error:', error);
-                    throw error;
-                }
+    for (const row of data) {
+        const url = (action === 'update' || action === 'delete') && (row as any).id
+            ? `${API_BASE_URL}${endpoint}/${(row as any).id}`
+            : `${API_BASE_URL}${endpoint}`;
+
+        const method = action === 'update' ? 'PUT' : action === 'delete' ? 'DELETE' : 'POST';
+
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(row) // Send as-is (camelCase)
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
             }
-            return { success: true };
+        } catch (error) {
+            console.error(`Error ${action}ing ${sheet}:`, error);
+            return { success: false, error };
         }
     }
 
-    if (sheet === 'USER') {
-        if (action === 'insert') {
-            const processedData = data.map(row => {
-                const snakeRow = toSnakeCase(row);
-                // Strip fields that shouldn't be inserted
-                const { id, row_index, created_at, ...insertData } = snakeRow;
-                return insertData;
-            });
-
-            const { error } = await supabase.from('user_access_master').insert(processedData);
-            if (error) {
-                console.error('Error inserting into user_access_master:', error);
-                throw error;
-            }
-            return { success: true };
-        } else if (action === 'update') {
-            for (const row of data) {
-                const snakeRow = toSnakeCase(row);
-                // Use row_index (which we mapped from id) as the primary key for updates
-                const idToUpdate = snakeRow.row_index || snakeRow.id;
-                const { id, row_index, created_at, ...updateData } = snakeRow;
-
-                const { error } = await supabase
-                    .from('user_access_master')
-                    .update(updateData)
-                    .eq('id', idToUpdate);
-                if (error) {
-                    console.error('Error updating user_access_master:', error);
-                    throw error;
-                }
-            }
-            return { success: true };
-        } else if (action === 'delete') {
-            for (const row of data) {
-                const snakeRow = toSnakeCase(row);
-                const idToDelete = snakeRow.row_index || snakeRow.id;
-
-                const { error } = await supabase
-                    .from('user_access_master')
-                    .delete()
-                    .eq('id', idToDelete);
-                if (error) {
-                    console.error('Error deleting from user_access_master:', error);
-                    throw error;
-                }
-            }
-            return { success: true };
-        }
-    }
-
-    const form = new FormData();
-    form.append('action', action);
-    form.append('sheetName', sheet);
-    form.append('rows', JSON.stringify(data));
-    const response = await fetch(import.meta.env.VITE_APP_SCRIPT_URL, {
-        method: 'POST',
-        body: form,
-    });
-    if (!response.ok) {
-        console.error(`Error in fetch: ${response.status} - ${response.statusText}`);
-        throw new Error(`Failed to ${action} data`);
-    }
-    const res = await response.json();
-    if (!res.success) {
-        console.error(`Error in response: ${res.message}`);
-        throw new Error('Something went wrong in the API');
-    }
-    return res;
+    return { success: true };
 }
+
 // Add this new function in fetchers.ts
 export async function postToMasterSheet(data: any[]) {
+    await new Promise((r) => setTimeout(r, 200));
+    data.forEach((row) => {
+        dataStore.master.push({ ...row, id: getNextId() });
+    });
+    return { success: true };
+}
+export async function approveIndent(id: string | number, data: any) {
     try {
-        const response = await fetch('/api/master-sheet', {
+        const response = await fetch(`${API_BASE_URL}/indents/${id}/approve`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(data),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
         });
-
-        if (!response.ok) {
-            throw new Error('Failed to post to master sheet');
-        }
-
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (error) {
-        console.error('Error posting to master sheet:', error);
-        throw new Error('Something went wrong in the API');
+        console.error(`Error approving indent ${id}:`, error);
+        return { success: false, error };
     }
 }

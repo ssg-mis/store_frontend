@@ -7,9 +7,7 @@
         "dev": "vite",
         "build": "tsc -b && vite build",
         "lint": "eslint .",
-        "preview": "vite preview",
-        "migrate": "tsx migrate-data.ts",
-        "test-migrate": "tsx test-migration.ts"
+        "preview": "vite preview"
     },
     "dependencies": {
         "@ant-design/icons": "^6.0.0",
@@ -28,7 +26,6 @@
         "@radix-ui/react-tabs": "^1.1.12",
         "@radix-ui/react-tooltip": "^1.2.7",
         "@react-pdf/renderer": "^4.3.0",
-        "@supabase/supabase-js": "^2.91.0",
         "@tailwindcss/vite": "^4.1.8",
         "@tanstack/react-table": "^8.21.3",
         "class-variance-authority": "^0.7.1",

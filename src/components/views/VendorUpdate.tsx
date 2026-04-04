@@ -12,7 +12,7 @@ import {
     DialogFooter,
     DialogClose,
 } from '../ui/dialog';
-import { postToSheet, uploadFile, fetchVendors, fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { postToSheet, uploadFile, fetchVendors, fetchFromSupabasePaginated, fetchIndentMasterData } from '@/lib/fetchers';
 import { z } from 'zod';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -28,7 +28,6 @@ import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
 import { Pill } from '../ui/pill';
 import { formatDate } from '@/lib/utils';
-import { supabase } from '@/lib/supabaseClient';
 
 const AddVendorSection = ({ onVendorAdded }: { onVendorAdded: () => Promise<void> }) => {
     const [name, setName] = useState('');
@@ -41,14 +40,14 @@ const AddVendorSection = ({ onVendorAdded }: { onVendorAdded: () => Promise<void
         }
         setIsAdding(true);
         try {
-            const { error } = await supabase
-                .from('master_data')
-                .insert([{ vendor_name: name.trim() }]);
-
-            if (error) throw error;
-            toast.success('New vendor added');
-            setName('');
-            await onVendorAdded();
+            const result = await postToSheet([{ itemName: '-', groupHead: '-', createGroupHead: '-', department: '-', vendorName: name.trim() } as any], 'insert', 'MASTER');
+            if (result.success) {
+                toast.success('New vendor added');
+                setName('');
+                await onVendorAdded();
+            } else {
+                throw new Error('API save failed');
+            }
         } catch (error: any) {
             toast.error('Failed to add vendor: ' + error.message);
         } finally {
@@ -94,6 +93,8 @@ const AddVendorSection = ({ onVendorAdded }: { onVendorAdded: () => Promise<void
 };
 
 interface VendorUpdateData {
+    id: number;
+    indentId: number;
     indentNo: string;
     indenter: string;
     department: string;
@@ -102,8 +103,12 @@ interface VendorUpdateData {
     uom: string;
     vendorType: 'Three Party' | 'Regular';
     vendorName?: string;
+    requestDate: string;
+    approvalDate: string;
 }
 interface HistoryData {
+    id: number;
+    source?: 'rate_update' | 'three_party';
     indentNo: string;
     indenter: string;
     department: string;
@@ -116,6 +121,8 @@ interface HistoryData {
     date: string;
     lastUpdated?: string;
     vendorName?: string;
+    requestDate: string;
+    approvalDate: string;
 }
 
 export default () => {
@@ -157,13 +164,11 @@ export default () => {
         const fetchPaymentTerms = async () => {
             setPaymentTermsLoading(true);
             try {
-                const { data, error } = await supabase
-                    .from('master_data')
-                    .select('payment_term')
-                    .not('payment_term', 'is', null);
-                if (error) throw error;
+                const response = await fetch('http://localhost:5001/api/masters');
+                if (!response.ok) throw new Error('API error');
+                const data = await response.json();
                 const terms = [...new Set(
-                    (data || []).map((d: any) => d.payment_term).filter(Boolean)
+                    data.map((d: any) => d.paymentTerm || d.payment_term).filter(Boolean)
                 )] as string[];
                 setPaymentTerms(terms);
             } catch (err) {
@@ -186,76 +191,112 @@ export default () => {
             return;
         }
         try {
-            const { error } = await supabase
-                .from('master_data')
-                .insert([{ vendor_name: '-', payment_term: trimmed }]);
-            if (error) throw error;
-            setPaymentTerms(prev => [...prev, trimmed]);
-            setNewPaymentTerm('');
-            toast.success(`Added payment term: ${trimmed}`);
+            const result = await postToSheet([{ itemName: '-', groupHead: '-', createGroupHead: '-', department: '-', paymentTerm: trimmed } as any], 'insert', 'MASTER');
+            if (result.success) {
+                setPaymentTerms(prev => [...prev, trimmed]);
+                setNewPaymentTerm('');
+                toast.success(`Added payment term: ${trimmed}`);
+            } else {
+                throw new Error('API save failed');
+            }
         } catch (err: any) {
             toast.error('Failed to add: ' + err.message);
         }
     };
 
-    // Fetching table data
-    useEffect(() => {
-        const fetchData = async () => {
-            setDataLoading(true);
-            try {
-                // Fetch pending data with pagination
-                const pendingData = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'created_at', options: { ascending: false } },
-                    (q) => q.not('planned_2', 'is', null).is('actual_2', null)
-                );
+    const fetchData = async () => {
+        setDataLoading(true);
+        try {
+            // 1. Fetch Approved Indents for the PENDING tab
+            const approvedIndentsData = await fetchFromSupabasePaginated(
+                'approved_indent',
+                '*',
+                { column: 'createdAt', options: { ascending: false } }
+            );
 
-                if (pendingData) {
-                    const pendingTableData = pendingData.map((record: any) => ({
-                        indentNo: record.indent_number || '',
-                        indenter: record.indenter_name || '',
+            if (approvedIndentsData) {
+                // Filter out indents that already have a vendor rate update OR a three-party approval
+                const pendingTableData = approvedIndentsData
+                    .filter((record: any) => {
+                        return !(record.hasRateUpdate || record.hasThreeParty);
+                    })
+                    .map((record: any) => ({
+                        id: record.id,
+                        indentId: record.indentId,
+                        indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                        indenter: record.indenterName || '',
                         department: record.department || '',
-                        product: record.product_name || '',
-                        quantity: record.approved_quantity || 0,
+                        product: record.productName || '',
+                        quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
-                        vendorType: record.vendor_type as VendorUpdateData['vendorType'],
-                        vendorName: record.approved_vendor_name || record.vendor_name_1 || '',
+                        vendorType: record.vendorType as VendorUpdateData['vendorType'],
+                        requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
                     }));
-                    setTableData(pendingTableData);
-                }
-
-                // Fetch history data with pagination
-                const historyDataResult = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'created_at', options: { ascending: false } },
-                    (q) => q.not('planned_2', 'is', null).not('actual_2', 'is', null)
-                );
-
-                if (historyDataResult) {
-                    const historyTableData = historyDataResult.map((record: any) => ({
-                        date: formatDate(new Date(record.actual_2)),
-                        indentNo: record.indent_number || '',
-                        indenter: record.indenter_name || '',
-                        department: record.department || '',
-                        product: record.product_name || '',
-                        quantity: record.quantity || 0,
-                        uom: record.uom || '',
-                        rate: record.approved_rate || 0,
-                        vendorType: record.vendor_type as HistoryData['vendorType'],
-                        vendorName: record.approved_vendor_name || record.vendor_name_1 || '',
-                    }));
-                    setHistoryData(historyTableData);
-                }
-            } catch (error: any) {
-                console.error('Error fetching data from Supabase:', error);
-                toast.error('Failed to fetch data: ' + error.message);
-            } finally {
-                setDataLoading(false);
+                setTableData(pendingTableData);
             }
-        };
 
+            // 2. Fetch History from BOTH tables
+            const [rateUpdates, threePartyApprovals] = await Promise.all([
+                fetchFromSupabasePaginated('vendor_rate_update', '*'),
+                fetchFromSupabasePaginated('three_party_approval', '*')
+            ]);
+
+            const historyItems: any[] = [];
+
+            if (rateUpdates) {
+                rateUpdates.forEach((record: any) => {
+                    historyItems.push({
+                        id: record.id,
+                        source: 'rate_update',
+                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                        indenter: record.indenterName || '',
+                        department: record.department || '',
+                        product: record.productName || '',
+                        quantity: record.approvedQuantity || 0,
+                        uom: record.uom || '',
+                        rate: record.rate1 || 0,
+                        vendorType: record.vendorType as HistoryData['vendorType'],
+                        vendorName: record.vendorName1 || '',
+                        requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
+                    });
+                });
+            }
+
+            if (threePartyApprovals) {
+                threePartyApprovals.forEach((record: any) => {
+                    historyItems.push({
+                        id: record.id,
+                        source: 'three_party',
+                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                        indenter: record.indenterName || '',
+                        department: record.department || '',
+                        product: record.productName || '',
+                        quantity: record.approvedQuantity || 0,
+                        uom: record.uom || '',
+                        rate: record.approvedRate || 0,
+                        vendorType: 'Regular',
+                        vendorName: record.approvedVendorName || '',
+                        requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
+                    });
+                });
+            }
+
+            setHistoryData(historyItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        } catch (error: any) {
+            console.error('Error fetching data for Vendor Update:', error);
+            toast.error('Failed to fetch data: ' + error.message);
+        } finally {
+            setDataLoading(false);
+        }
+    };
+
+    // Fetching table data on mount
+    useEffect(() => {
         fetchData();
     }, []);
 
@@ -280,70 +321,44 @@ export default () => {
 
     const handleSaveEdit = async (indentNo: string) => {
         try {
-            const updatePayload: any = {};
+            const row = historyData.find(d => d.indentNo === indentNo);
+            if (!row) throw new Error('Row not found');
 
-            if (editValues.quantity !== undefined) {
-                updatePayload.quantity = editValues.quantity;
-            }
-            if (editValues.uom) {
-                updatePayload.uom = editValues.uom;
-            }
-            if (editValues.vendorType) {
-                updatePayload.vendor_type = editValues.vendorType;
-            }
+            const isThreePartySource = row.source === 'three_party';
+            const table = isThreePartySource ? 'THREE_PARTY_APPROVAL' : 'VENDOR_RATE_UPDATE';
+
+            const updatePayload: any = {
+                id: row.id,
+                indent_number: indentNo,
+            };
+
             if (editValues.rate !== undefined) {
-                updatePayload.rate_1 = editValues.rate.toString();
-                updatePayload.approved_rate = editValues.rate;
-            }
-            if (editValues.product) {
-                updatePayload.product_name = editValues.product;
+                if (isThreePartySource) {
+                    updatePayload.approvedRate = editValues.rate;
+                } else {
+                    updatePayload.rate1 = editValues.rate;
+                }
             }
             if (editValues.vendorName) {
-                updatePayload.approved_vendor_name = editValues.vendorName;
-                updatePayload.vendor_name_1 = editValues.vendorName;
+                if (isThreePartySource) {
+                    updatePayload.approvedVendorName = editValues.vendorName;
+                } else {
+                    updatePayload.vendorName1 = editValues.vendorName;
+                }
             }
 
-            const { error } = await supabase
-                .from('indent')
-                .update(updatePayload)
-                .eq('indent_number', indentNo);
+            const result = await postToSheet([updatePayload], 'update', table as any);
 
-            if (error) throw error;
+            if (!result.success) throw new Error('API update failed');
 
-            toast.success(`Updated indent ${indentNo}`);
-            updateIndentSheet(); // Update context to sync sidebar counts
-
-            // Refresh the data after update
-            const { data: historyDataResult, error: historyError } = await supabase
-                .from('indent')
-                .select('*')
-                .not('planned_2', 'is', null)
-                .not('actual_2', 'is', null)
-                .order('created_at', { ascending: false });
-
-            if (historyError) throw historyError;
-
-            if (historyDataResult) {
-                const historyTableData = historyDataResult.map((record: any) => ({
-                    date: formatDate(new Date(record.actual_2)),
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
-                    department: record.department || '',
-                    product: record.product_name || '',
-                    quantity: record.quantity || 0,
-                    uom: record.uom || '',
-                    rate: record.approved_rate || 0,
-                    vendorType: record.vendor_type as HistoryData['vendorType'],
-                    vendorName: record.approved_vendor_name || record.vendor_name_1 || '',
-                }));
-                setHistoryData(historyTableData);
-            }
-
+            toast.success(`Updated rate for ${indentNo}`);
+            
+            await fetchData();
             setEditingRow(null);
             setEditValues({});
         } catch (error: any) {
-            console.error('Error updating indent:', error);
-            toast.error('Failed to update indent: ' + error.message);
+            console.error('Error updating vendor rate:', error);
+            toast.error('Failed to update: ' + error.message);
         }
     };
 
@@ -363,16 +378,15 @@ export default () => {
 
                         return (
                             <div>
-                                <DialogTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => {
-                                            setSelectedIndent(indent);
-                                        }}
-                                    >
-                                        Update
-                                    </Button>
-                                </DialogTrigger>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setSelectedIndent(indent);
+                                        setOpenDialog(true);
+                                    }}
+                                >
+                                    Update
+                                </Button>
                             </div>
                         );
                     },
@@ -382,6 +396,14 @@ export default () => {
         {
             accessorKey: 'indentNo',
             header: 'Indent No.',
+        },
+        {
+            accessorKey: 'requestDate',
+            header: 'Request Date',
+        },
+        {
+            accessorKey: 'approvalDate',
+            header: 'Approval Date',
         },
         {
             accessorKey: 'indenter',
@@ -428,17 +450,16 @@ export default () => {
 
                     return (
                         <div>
-                            <DialogTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    disabled={indent.vendorType === "Three Party"}
-                                    onClick={() => {
-                                        setSelectedHistory(indent);
-                                    }}
-                                >
-                                    Update
-                                </Button>
-                            </DialogTrigger>
+                            <Button
+                                variant="outline"
+                                disabled={indent.vendorType === "Three Party"}
+                                onClick={() => {
+                                    setSelectedHistory(indent);
+                                    setOpenDialog(true);
+                                }}
+                            >
+                                Update
+                            </Button>
                         </div>
                     );
                 },
@@ -451,6 +472,14 @@ export default () => {
         {
             accessorKey: 'indentNo',
             header: 'Indent No.',
+        },
+        {
+            accessorKey: 'requestDate',
+            header: 'Request Date',
+        },
+        {
+            accessorKey: 'approvalDate',
+            header: 'Approval Date',
         },
         {
             accessorKey: 'indenter',
@@ -467,7 +496,7 @@ export default () => {
                 const isEditing = editingRow === row.original.indentNo;
                 return isEditing ? (
                     <Input
-                        value={editValues.product ?? row.original.product}
+                        value={editValues.product ?? row.original.product ?? ''}
                         onChange={(e) => handleInputChange('product', e.target.value)}
                         className="w-[150px]"
                     />
@@ -497,7 +526,7 @@ export default () => {
                 return isEditing ? (
                     <Input
                         type="number"
-                        value={editValues.quantity ?? row.original.quantity}
+                        value={editValues.quantity ?? row.original.quantity ?? 0}
                         onChange={(e) => handleInputChange('quantity', Number(e.target.value))}
                         className="w-20"
                     />
@@ -535,7 +564,7 @@ export default () => {
                 return isEditing ? (
                     <Input
                         type="number"
-                        value={editValues.rate ?? rate}
+                        value={editValues.rate ?? rate ?? 0}
                         onChange={(e) => handleInputChange('rate', Number(e.target.value))}
                         className="w-20"
                     />
@@ -564,7 +593,7 @@ export default () => {
                 const isEditing = editingRow === row.original.indentNo;
                 return isEditing ? (
                     <Input
-                        value={editValues.uom ?? row.original.uom}
+                        value={editValues.uom ?? row.original.uom ?? ''}
                         onChange={(e) => handleInputChange('uom', e.target.value)}
                         className="w-20"
                     />
@@ -592,7 +621,7 @@ export default () => {
                 const isEditing = editingRow === row.original.indentNo;
                 return isEditing ? (
                     <Select
-                        value={editValues.vendorName ?? row.original.vendorName}
+                        value={editValues.vendorName ?? row.original.vendorName ?? ''}
                         onValueChange={(value) => handleInputChange('vendorName', value)}
                     >
                         <SelectTrigger className="w-[200px]">
@@ -644,7 +673,7 @@ export default () => {
                 const isEditing = editingRow === row.original.indentNo;
                 return isEditing ? (
                     <Select
-                        value={editValues.vendorType ?? row.original.vendorType}
+                        value={editValues.vendorType ?? row.original.vendorType ?? ''}
                         onValueChange={(value) => handleInputChange('vendorType', value)}
                     >
                         <SelectTrigger className="w-[150px]">
@@ -716,21 +745,10 @@ export default () => {
         resolver: zodResolver(regularSchema),
         defaultValues: {
             vendorName: '',
-            rate: undefined,
+            rate: 0,
             paymentTerm: '',
         },
     });
-
-    // const getCurrentFormattedDate = () => {
-    //     const now = new Date();
-    //     const day = String(now.getDate()).padStart(2, '0');
-    //     const month = String(now.getMonth() + 1).padStart(2, '0');
-    //     const year = now.getFullYear();
-    //     const hours = String(now.getHours()).padStart(2, '0');
-    //     const minutes = String(now.getMinutes()).padStart(2, '0');
-    //     const seconds = String(now.getSeconds()).padStart(2, '0');
-    //     return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-    // };
 
     const getCurrentFormattedDateOnly = () => {
         const now = new Date();
@@ -747,52 +765,33 @@ export default () => {
 
     async function onSubmitRegular(values: z.infer<typeof regularSchema>) {
         try {
-            const { error } = await supabase
-                .from('indent')
-                .update({
-                    actual_2: getCurrentFormattedDateOnly(),
-                    vendor_name_1: values.vendorName,
-                    rate_1: values.rate.toString(),
-                    payment_term_1: values.paymentTerm,
-                    approved_vendor_name: values.vendorName,
-                    approved_rate: values.rate,
-                    approved_payment_term: values.paymentTerm,
-                })
-                .eq('indent_number', selectedIndent?.indentNo);
+            const result = await postToSheet([{
+                indent_number: selectedIndent?.indentNo,
+                approvedVendorName: values.vendorName,
+                approvedRate: values.rate,
+                approvedPaymentTerm: values.paymentTerm,
+            } as any], 'insert', 'THREE_PARTY_APPROVAL');
 
-            if (error) throw error;
+            if (!result.success) throw new Error('API submission failed');
 
-            toast.success(`Updated vendor of ${selectedIndent?.indentNo}`);
-            updateIndentSheet(); // Update context to sync sidebar counts
+            toast.success(`Directly approved vendor rate for ${selectedIndent?.indentNo}`);
+            
+            // Still update the Indent tracking
+            await postToSheet([{
+                id: selectedIndent?.indentId,
+                indentNumber: selectedIndent?.indentNo,
+                actual_2: getCurrentFormattedDateOnly(),
+                actual_3: getCurrentFormattedDateOnly(),
+                planned_4: getCurrentFormattedDateOnly(),
+            } as any], 'update', 'INDENT');
+
             setOpenDialog(false);
             regularForm.reset();
 
-            // Refresh the data after update
-            const { data: pendingData, error: pendingError } = await supabase
-                .from('indent')
-                .select('*')
-                .not('planned_2', 'is', null)
-                .is('actual_2', null)
-                .order('created_at', { ascending: false });
-
-            if (pendingError) throw pendingError;
-
-            if (pendingData) {
-                const pendingTableData = pendingData.map((record: any) => ({
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
-                    department: record.department || '',
-                    product: record.product_name || '',
-                    quantity: record.approved_quantity || 0,
-                    uom: record.uom || '',
-                    vendorType: record.vendor_type as VendorUpdateData['vendorType'],
-                    vendorName: record.approved_vendor_name || record.vendor_name_1 || '',
-                }));
-                setTableData(pendingTableData);
-            }
+            await fetchData();
         } catch (error: any) {
-            console.error('Error updating vendor:', error);
-            toast.error('Failed to update vendor: ' + error.message);
+            console.error('Error submitting regular vendor rate:', error);
+            toast.error('Failed to submit: ' + error.message);
         }
     }
 
@@ -847,56 +846,44 @@ export default () => {
                 );
             }
 
-            const { error } = await supabase
-                .from('indent')
-                .update({
-                    actual_2: getCurrentFormattedDateOnly(),
-                    vendor_name_1: values.vendors[0].vendorName,
-                    rate_1: values.vendors[0].rate.toString(),
-                    payment_term_1: values.vendors[0].paymentTerm,
-                    vendor_name_2: values.vendors[1].vendorName,
-                    rate_2: values.vendors[1].rate.toString(),
-                    payment_term_2: values.vendors[1].paymentTerm,
-                    vendor_name_3: values.vendors[2].vendorName,
-                    rate_3: values.vendors[2].rate.toString(),
-                    payment_term_3: values.vendors[2].paymentTerm,
-                    comparison_sheet: url,
-                })
-                .eq('indent_number', selectedIndent?.indentNo);
+            const updatePayload: any = {
+                indent_number: selectedIndent?.indentNo,
+                vendorName1: values.vendors[0].vendorName,
+                rate1: values.vendors[0].rate,
+                paymentTerm1: values.vendors[0].paymentTerm,
+                vendorName2: values.vendors[1].vendorName,
+                rate2: values.vendors[1].rate,
+                paymentTerm2: values.vendors[1].paymentTerm,
+                vendorName3: values.vendors[2].vendorName,
+                rate3: values.vendors[2].rate,
+                paymentTerm3: values.vendors[2].paymentTerm,
+                planned: new Date().toISOString(),
+            };
 
-            if (error) throw error;
+            if (url) {
+                updatePayload.comparisonSheet = url;
+            }
 
-            toast.success(`Updated vendors of ${selectedIndent?.indentNo}`);
-            updateIndentSheet(); // Update context to sync sidebar counts
+            const result = await postToSheet([updatePayload], 'insert', 'VENDOR_RATE_UPDATE');
+            if (!result.success) throw new Error('API update failed');
+
+            toast.success(`Submitted three-party rates for ${selectedIndent?.indentNo}`);
+
+            // Still update the Indent tracking
+            await postToSheet([{
+                id: selectedIndent?.indentId,
+                indentNumber: selectedIndent?.indentNo,
+                actual_2: getCurrentFormattedDateOnly(),
+                planned_3: getCurrentFormattedDateOnly(),
+            } as any], 'update', 'INDENT');
+
             setOpenDialog(false);
             threePartyForm.reset();
 
-            // Refresh the data after update
-            const { data: pendingData, error: pendingError } = await supabase
-                .from('indent')
-                .select('*')
-                .not('planned_2', 'is', null)
-                .is('actual_2', null)
-                .order('created_at', { ascending: false });
-
-            if (pendingError) throw pendingError;
-
-            if (pendingData) {
-                const pendingTableData = pendingData.map((record: any) => ({
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
-                    department: record.department || '',
-                    product: record.product_name || '',
-                    quantity: record.approved_quantity || 0,
-                    uom: record.uom || '',
-                    vendorType: record.vendor_type as VendorUpdateData['vendorType'],
-                    vendorName: record.approved_vendor_name || record.vendor_name_1 || '',
-                }));
-                setTableData(pendingTableData);
-            }
+            await fetchData();
         } catch (error: any) {
-            console.error('Error updating vendor:', error);
-            toast.error('Failed to update vendor: ' + error.message);
+            console.error('Error submitting vendor rates:', error);
+            toast.error('Failed to submit: ' + error.message);
         }
     }
 
@@ -922,47 +909,32 @@ export default () => {
 
     async function onSubmitHistoryUpdate(values: z.infer<typeof historyUpdateSchema>) {
         try {
-            const { error } = await supabase
-                .from('indent')
-                .update({
-                    actual_2: getCurrentFormattedDateOnly(),
-                    rate_1: values.rate.toString(),
-                    approved_rate: values.rate,
-                })
-                .eq('indent_number', selectedHistory?.indentNo);
+            const isThreePartySource = selectedHistory?.source === 'three_party';
+            const table = isThreePartySource ? 'THREE_PARTY_APPROVAL' : 'VENDOR_RATE_UPDATE';
 
-            if (error) throw error;
+            const payload: any = {
+                id: selectedHistory?.id,
+                indent_number: selectedHistory?.indentNo
+            };
 
-            toast.success(`Updated rate of ${selectedHistory?.indentNo}`);
+            if (isThreePartySource) {
+                payload.approvedRate = values.rate;
+            } else {
+                payload.rate1 = values.rate;
+            }
+
+            const result = await postToSheet([payload], 'update', table as any);
+
+            if (!result.success) throw new Error('API update failed');
+
+            toast.success(`Updated rate for ${selectedHistory?.indentNo}`);
             setOpenDialog(false);
             historyUpdateForm.reset({ rate: undefined });
 
-            // Refresh the data after update with pagination
-            const historyDataResult = await fetchFromSupabasePaginated(
-                'indent',
-                '*',
-                { column: 'created_at', options: { ascending: false } },
-                (q) => q.not('planned_2', 'is', null).not('actual_2', 'is', null)
-            );
-
-            if (historyDataResult) {
-                const historyTableData = historyDataResult.map((record: any) => ({
-                    date: formatDate(new Date(record.actual_2)),
-                    indentNo: record.indent_number || '',
-                    indenter: record.indenter_name || '',
-                    department: record.department || '',
-                    product: record.product_name || '',
-                    quantity: record.quantity || 0,
-                    uom: record.uom || '',
-                    rate: record.approved_rate || 0,
-                    vendorType: record.vendor_type as HistoryData['vendorType'],
-                    vendorName: record.approved_vendor_name || record.vendor_name_1 || '',
-                }));
-                setHistoryData(historyTableData);
-            }
+            await fetchData();
         } catch (error: any) {
-            console.error('Error updating vendor:', error);
-            toast.error('Failed to update vendor: ' + error.message);
+            console.error('Error updating history rate:', error);
+            toast.error('Failed to update: ' + error.message);
         }
     }
     function onError(e: any) {
@@ -972,7 +944,16 @@ export default () => {
 
     return (
         <div>
-            <Dialog open={openDialog} onOpenChange={setOpenDialog}>
+            <Dialog
+                open={openDialog}
+                onOpenChange={(open) => {
+                    setOpenDialog(open);
+                    if (!open) {
+                        setSelectedIndent(null);
+                        setSelectedHistory(null);
+                    }
+                }}
+            >
                 <Tabs defaultValue="pending">
                     <Heading
                         heading="Vendor Rate Update"
@@ -999,8 +980,8 @@ export default () => {
                     </TabsContent>
 
                 </Tabs>
-                {selectedIndent &&
-                    (selectedIndent.vendorType === 'Three Party' ? (
+                {selectedIndent ? (
+                    selectedIndent.vendorType === 'Three Party' ? (
                         <DialogContent>
                             <Form {...threePartyForm}>
                                 <form
@@ -1241,59 +1222,6 @@ export default () => {
                                         </div>
                                     </div>
                                     <div className="grid gap-3">
-                                        {/* <FormField
-                                            control={regularForm.control}
-                                            name="vendorName"
-                                            render={({ field }) => {
-                                                const filteredVendors = options?.vendors?.filter(vendor =>
-                                                    vendor.vendorName.toLowerCase().includes(vendorSearch.toLowerCase())
-                                                );
-
-                                                return (
-                                                    <FormItem>
-                                                        <FormLabel>Vendor Name</FormLabel>
-                                                        <Select
-                                                            onValueChange={field.onChange}
-                                                            value={field.value}
-                                                            onOpenChange={(open) => {
-                                                                if (!open) setVendorSearch(""); // Close hone pe search clear karo
-                                                            }}
-                                                        >
-                                                            <FormControl>
-                                                                <SelectTrigger className="w-full">
-                                                                    <SelectValue placeholder="Select vendor" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                <div className="flex items-center border-b px-3 pb-2">
-                                                                    <Input
-                                                                        placeholder="Search vendors..."
-                                                                        className="h-8 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                                                                        value={vendorSearch}
-                                                                        onChange={(e) => setVendorSearch(e.target.value)}
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                        onKeyDown={(e) => e.stopPropagation()}
-                                                                    />
-                                                                </div>
-                                                                <div className="max-h-[200px] overflow-y-auto">
-                                                                    {filteredVendors?.map((vendor, i) => (
-                                                                        <SelectItem key={i} value={vendor.vendorName}>
-                                                                            {vendor.vendorName}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                    {filteredVendors?.length === 0 && (
-                                                                        <div className="py-6 text-center text-sm text-muted-foreground">
-                                                                            No vendors found
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </FormItem>
-                                                );
-                                            }}
-                                        /> */}
-
                                         <FormField
                                             control={regularForm.control}
                                             name="vendorName"
@@ -1443,60 +1371,58 @@ export default () => {
                                 </form>
                             </Form>
                         </DialogContent>
-                    ))}
+                    )
+                ) : selectedHistory && selectedHistory.vendorType === "Regular" ? (
+                    <DialogContent>
+                        <Form {...historyUpdateForm}>
+                            <form onSubmit={historyUpdateForm.handleSubmit(onSubmitHistoryUpdate, onError)} className="space-y-7">
+                                <DialogHeader className="space-y-1">
+                                    <DialogTitle>Update Rate</DialogTitle>
+                                    <DialogDescription>
+                                        Update rate for{' '}
+                                        <span className="font-medium">
+                                            {selectedHistory.indentNo}
+                                        </span>
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <div className="grid gap-3">
+                                    <FormField
+                                        control={historyUpdateForm.control}
+                                        name="rate"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Rate</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" {...field} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
 
-                {selectedHistory &&
-                    selectedHistory.vendorType === "Regular" && (
-                        <DialogContent>
-                            <Form {...historyUpdateForm}>
-                                <form onSubmit={historyUpdateForm.handleSubmit(onSubmitHistoryUpdate, onError)} className="space-y-7">
-                                    <DialogHeader className="space-y-1">
-                                        <DialogTitle>Update Rate</DialogTitle>
-                                        <DialogDescription>
-                                            Update rate for{' '}
-                                            <span className="font-medium">
-                                                {selectedHistory.indentNo}
-                                            </span>
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <div className="grid gap-3">
-                                        <FormField
-                                            control={historyUpdateForm.control}
-                                            name="rate"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Rate</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="number" {...field} />
-                                                    </FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-                                    </div>
+                                <DialogFooter>
+                                    <DialogClose asChild>
+                                        <Button variant="outline">Close</Button>
+                                    </DialogClose>
 
-                                    <DialogFooter>
-                                        <DialogClose asChild>
-                                            <Button variant="outline">Close</Button>
-                                        </DialogClose>
-
-                                        <Button
-                                            type="submit"
-                                            disabled={historyUpdateForm.formState.isSubmitting}
-                                        >
-                                            {historyUpdateForm.formState.isSubmitting && (
-                                                <Loader
-                                                    size={20}
-                                                    color="white"
-                                                    aria-label="Loading Spinner"
-                                                />
-                                            )}
-                                            Update
-                                        </Button>
-                                    </DialogFooter>
-                                </form>
-                            </Form>
-                        </DialogContent>
-                    )}
+                                    <Button
+                                        type="submit"
+                                        disabled={historyUpdateForm.formState.isSubmitting}
+                                    >
+                                        {historyUpdateForm.formState.isSubmitting && (
+                                            <Loader
+                                                size={20}
+                                                color="white"
+                                                aria-label="Loading Spinner"
+                                            />
+                                        )}
+                                        Update
+                                    </Button>
+                                </DialogFooter>
+                            </form>
+                        </Form>
+                    </DialogContent>
+                ) : null}
             </Dialog>
         </div>
     )

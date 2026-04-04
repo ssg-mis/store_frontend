@@ -19,10 +19,9 @@ import { ClipboardList, Trash, Search, Plus } from 'lucide-react'; // Plus ko im
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
-import { fetchIndentMasterData } from '@/lib/fetchers';
+import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated } from '@/lib/fetchers';
 import Heading from '../element/Heading';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
 
 const AddMasterDataSection = ({
     placeholder,
@@ -158,25 +157,16 @@ export default () => {
     });
 
     // Function to generate next indent number
-    // Function to generate next indent number from Supabase
+    // Function to generate next indent number from dummy data
     const getNextIndentNumber = async () => {
         try {
-            // Fetch all indent records ordered by indent_number
-            const { data, error } = await supabase
-                .from('indent')
-                .select('indent_number')
-                .order('indent_number', { ascending: false })
-                .limit(1);
-
-            if (error) throw error;
-
-            if (!data || data.length === 0) {
+            const indents = await fetchFromSupabasePaginated('indent', 'indentNumber', { column: 'indentNumber', options: { ascending: false } }, undefined, { from: 0, to: 0 });
+            
+            if (!indents || indents.length === 0) {
                 return 'SI-0001';
             }
 
-            const lastIndentNumber = data[0].indent_number;
-
-            // Extract the number from SI-0001 format
+            const lastIndentNumber = indents[0].indentNumber || indents[0].indent_number;
             const lastNumber = parseInt(lastIndentNumber.replace('SI-', ''), 10);
 
             if (isNaN(lastNumber)) {
@@ -187,34 +177,38 @@ export default () => {
             return `SI-${String(nextNumber).padStart(4, '0')}`;
         } catch (err) {
             console.error('Error generating indent number:', err);
-            // Fallback to SI-0001 on error
             return 'SI-0001';
         }
     };
 
-    // Function to submit new product to Supabase master table
+    // Function to submit new product to master table
     const handleAddMasterData = async (columnName: string, value: string, additionalData: any = {}) => {
-        const { error } = await supabase.from('master').insert({
+        const payload = {
             [columnName]: value,
             ...additionalData
-        });
-
-        if (error) throw error;
-        await refreshMaster();
+        };
+        const result = await postToSheet([payload], 'insert', 'MASTER');
+        if (result.success) {
+            await refreshMaster();
+        } else {
+            throw new Error('Failed to save to master');
+        }
     };
 
     async function onSubmit(data: z.infer<typeof schema>) {
         try {
-            // Format timestamp as YYYY-MM-DD HH:MM:SS for PostgreSQL compatibility
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            const seconds = String(now.getSeconds()).padStart(2, '0');
-            const timestamp = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            const formatDate = (date: Date) => {
+                const d = String(date.getDate()).padStart(2, '0');
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const y = date.getFullYear();
+                const h = String(date.getHours()).padStart(2, '0');
+                const min = String(date.getMinutes()).padStart(2, '0');
+                const s = String(date.getSeconds()).padStart(2, '0');
+                return `${d}/${m}/${y} ${h}:${min}:${s}`;
+            };
 
+            const createdAt = new Date().toISOString();
+            const plannedStr = formatDate(new Date()); // For the planned string field
             const rows: any[] = [];
 
             // Get the starting indent number
@@ -230,34 +224,36 @@ export default () => {
                 }
 
                 const row = {
-                    timestamp: timestamp,
-                    indent_number: currentIndentNumber,
-                    indenter_name: data.indenterName,
+                    createdAt: createdAt,
+                    indentNumber: currentIndentNumber,
+                    indenterName: data.indenterName,
                     department: product.department,
-                    area_of_use: product.areaOfUse,
-                    group_head: product.createGroupHead,
-                    product_name: product.productName,
+                    areaOfUse: product.areaOfUse,
+                    groupHead: product.createGroupHead,
+                    productName: product.productName,
                     quantity: product.quantity,
                     uom: product.uom,
                     specifications: product.specifications || '',
-                    indent_approved_by: data.indentApproveBy,
-                    indent_type: data.indentType,
+                    indentApprovedBy: data.indentApproveBy,
+                    indentType: data.indentType,
+                    planned: plannedStr, // Store current date in same format as requested
                 };
 
                 if (product.attachment !== undefined) {
                     (row as any).attachment = await uploadFile(
                         product.attachment,
-                        'indent_file', // folderId is not used for Supabase upload
-                        'supabase' // Use 'supabase' upload type
+                        'indent_file',
+                        'upload'
                     );
                 }
 
                 rows.push(row);
             }
 
-            // Insert all rows into Supabase with snake_case columns
-            const { error } = await supabase.from('indent').insert(rows);
-            if (error) throw error;
+            // Insert all rows via API
+            const result = await postToSheet(rows, 'insert', 'INDENT');
+
+            if (!result.success) throw new Error('API insertion failed');
 
             setTimeout(() => {
                 fetchIndentData();
@@ -432,14 +428,15 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                <AddMasterDataSection
+                                                                 <AddMasterDataSection
                                                                     placeholder="Department"
                                                                     onAdd={async (val) => {
                                                                         await handleAddMasterData('department', val, {
-                                                                            item_name: '-', // Satisfy not-null constraint
-                                                                            create_group_head: '-', // Optional placeholder
-                                                                            group_head: '-', // Optional placeholder
-                                                                            inventory_status: 'Show' // Satisfy not-null constraint
+                                                                            vendor_name: '-', 
+                                                                            itemName: '-', 
+                                                                            groupHead: '-', 
+                                                                            group_head: '-', 
+                                                                            inventoryStatus: 'Show'
                                                                         });
                                                                         form.setValue(`products.${index}.department`, val);
                                                                     }}
@@ -504,13 +501,15 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                <AddMasterDataSection
+                                                                 <AddMasterDataSection
                                                                     placeholder="Category"
                                                                     onAdd={async (val) => {
-                                                                        await handleAddMasterData('create_group_head', val, {
+                                                                        await handleAddMasterData('groupHead', val, {
+                                                                            vendor_name: '-',
                                                                             group_head: val, // Keep both in sync
-                                                                            item_name: '-', // Satisfy not-null constraint
-                                                                            inventory_status: 'Show' // Satisfy not-null constraint
+                                                                            itemName: '-', 
+                                                                            department: '-',
+                                                                            inventoryStatus: 'Show'
                                                                         });
                                                                         form.setValue(`products.${index}.createGroupHead`, val);
                                                                     }}
@@ -596,17 +595,19 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                <AddMasterDataSection
+                                                                 <AddMasterDataSection
                                                                     placeholder="Product"
                                                                     onAdd={async (val) => {
                                                                         if (!createGroupHead) {
                                                                             toast.error('Please select a category first');
                                                                             return;
                                                                         }
-                                                                        await handleAddMasterData('item_name', val, {
-                                                                            create_group_head: createGroupHead,
-                                                                            group_head: createGroupHead, // Satisfy not-null constraint
-                                                                            inventory_status: 'Show' // Satisfy not-null constraint
+                                                                        await handleAddMasterData('itemName', val, {
+                                                                            vendor_name: '-',
+                                                                            groupHead: createGroupHead,
+                                                                            group_head: createGroupHead,
+                                                                            department: '-',
+                                                                            inventoryStatus: 'Show'
                                                                         });
                                                                         form.setValue(`products.${index}.productName`, val);
                                                                     }}

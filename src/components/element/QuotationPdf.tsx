@@ -299,7 +299,7 @@ export default ({
                                 <Text style={styles.detailLabel}>Quotation Number:</Text>
                                 <Text style={styles.detailValue}>{quotationNumber}</Text>
                             </View>
-                           
+
                         </View>
                     </View>
 
@@ -364,7 +364,7 @@ export default ({
                             <Text style={styles.tableCell4}>Description</Text>
                             <Text style={styles.tableCell5}>Qty</Text>
                             <Text style={styles.tableCell6}>Unit</Text>
-                            
+
                         </View>
 
                         {items.map((item, i) => (
@@ -375,14 +375,14 @@ export default ({
                                 <Text style={styles.tableCell4}>{item.description}</Text>
                                 <Text style={styles.tableCell5}>{item.quantity}</Text>
                                 <Text style={styles.tableCell6}>{item.unit}</Text>
-                               
+
                             </View>
                         ))}
-                     
-                       
-                   
 
-                   
+
+
+
+
                         <Text style={styles.companySignature}>For {companyName}</Text>
                     </View>
                 </View>

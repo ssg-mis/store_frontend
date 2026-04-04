@@ -4,7 +4,6 @@ import Heading from '../element/Heading';
 import { useEffect, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { formatDate } from '@/lib/utils';
-import { supabase } from '@/lib/supabaseClient';
 import DataTable from '../element/DataTable';
 import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 
@@ -75,7 +74,7 @@ export default () => {
                 const data = await fetchFromSupabasePaginated(
                     'po_master',
                     '*',
-                    { column: 'timestamp', options: { ascending: true } }
+                    { column: 'createdAt', options: { ascending: true } }
                 );
 
                 if (data) {
@@ -87,31 +86,31 @@ export default () => {
                                 // For now, showing all records
                                 return true;
                             })
-                            .map((sheet) => {
+                            .map((sheet: any) => {
                                 // Try different possible property names for GST
-                                let gstValue = sheet.gst_percent || 0; // Updated to gst_percent
+                                let gstValue = sheet.gstPercent || 0; 
 
                                 return {
-                                    timestamp: sheet.timestamp ? formatDate(new Date(sheet.timestamp)) : '',
-                                    partyName: sheet.party_name || '',
-                                    poNumber: sheet.po_number || '',
-                                    quotationNumber: sheet.quotation_number || '', // Database uses quotation_number
-                                    quotationDate: sheet.quotation_date ? formatDate(new Date(sheet.quotation_date)) : '',
-                                    enquiryNumber: sheet.enquiry_number || '',
-                                    enquiryDate: sheet.enquiry_date ? formatDate(new Date(sheet.enquiry_date)) : '',
-                                    internalCode: sheet.internal_code || '',
+                                    timestamp: sheet.createdAt ? formatDate(new Date(sheet.createdAt)) : '',
+                                    partyName: sheet.partyName || '',
+                                    poNumber: sheet.poNumber || '',
+                                    quotationNumber: sheet.quotationNumber || '', 
+                                    quotationDate: sheet.quotationDate ? formatDate(new Date(sheet.quotationDate)) : '',
+                                    enquiryNumber: sheet.enquiryNumber || '',
+                                    enquiryDate: sheet.enquiryDate ? formatDate(new Date(sheet.enquiryDate)) : '',
+                                    internalCode: sheet.internalCode || '',
                                     product: sheet.product || '',
                                     description: sheet.description || '',
                                     quantity: Number(sheet.quantity) || 0,
                                     unit: sheet.unit || '',
                                     rate: Number(sheet.rate) || 0,
                                     gstPercent: parseGSTPercent(gstValue),
-                                    discountPercent: Number(sheet.discount_percent) || 0,
+                                    discountPercent: Number(sheet.discountPercent) || 0,
                                     amount: Number(sheet.amount) || 0,
-                                    totalPoAmount: Number(sheet.total_po_amount) || 0,
-                                    preparedBy: sheet.prepared_by || '',
-                                    approvedBy: sheet.approved_by || '',
-                                    pdf: sheet.pdf_link || sheet.pdf_url || '', // Database likely uses pdf_link based on previous files, checking both
+                                    totalPoAmount: Number(sheet.totalPOAmount || sheet.totalPoAmount) || 0,
+                                    preparedBy: sheet.preparedBy || '',
+                                    approvedBy: sheet.approvedBy || '',
+                                    pdf: sheet.pdf || '', 
                                 };
                             })
                             .reverse()

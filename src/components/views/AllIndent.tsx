@@ -11,8 +11,8 @@ import { ClipboardList, Search } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
-import { supabase } from '@/lib/supabaseClient';
-import { fetchIndentMasterData, fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
+import { useSheets } from '@/context/SheetsContext';
 
 interface AllIndentTableData {
     id: string;
@@ -34,6 +34,7 @@ interface AllIndentTableData {
 
 export default () => {
     const { user } = useAuth();
+    const { updateIndentSheet } = useSheets();
     const [tableData, setTableData] = useState<AllIndentTableData[]>([]);
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
     const [bulkUpdates, setBulkUpdates] = useState<Map<string, Partial<AllIndentTableData>>>(new Map());
@@ -74,20 +75,20 @@ export default () => {
             if (data) {
                 const transformedData = data.map((record: any) => ({
                     id: record.id ? record.id.toString() : Math.random().toString(),
-                    timestamp: formatDate(new Date(record.created_at)),
-                    indentNumber: record.indent_number || '',
-                    indenterName: record.indenter_name || '',
-                    indentApproveBy: record.indent_approve_by || '',
-                    indentType: record.indent_type as 'Purchase' | 'Store Out' || 'Purchase',
+                    timestamp: formatDate(new Date(record.createdAt || record.created_at)),
+                    indentNumber: record.indentNumber || record.indent_number || '',
+                    indenterName: record.indenterName || record.indenter_name || '',
+                    indentApproveBy: record.indentApprovedBy || record.indent_approve_by || '',
+                    indentType: (record.indentType || record.indent_type) as 'Purchase' | 'Store Out' || 'Purchase',
                     department: record.department || '',
-                    groupHead: record.group_head || '',
-                    productName: record.product_name || '',
+                    groupHead: record.groupHead || record.group_head || '',
+                    productName: record.productName || record.product_name || '',
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
-                    areaOfUse: record.area_of_use || '',
+                    areaOfUse: record.areaOfUse || record.area_of_use || '',
                     specifications: record.specifications || '',
                     attachment: record.attachment || '',
-                    vendorType: record.vendor_type || '',
+                    vendorType: record.vendorType || record.vendor_type || '',
                 }));
 
                 if (isLoadMore) {
@@ -184,22 +185,22 @@ export default () => {
                 const updatePayload: any = {};
 
                 if (update.indenterName !== originalRecord.indenterName) {
-                    updatePayload.indenter_name = update.indenterName;
+                    updatePayload.indenterName = update.indenterName;
                 }
                 if (update.indentApproveBy !== originalRecord.indentApproveBy) {
-                    updatePayload.indent_approve_by = update.indentApproveBy;
+                    updatePayload.indentApprovedBy = update.indentApproveBy;
                 }
                 if (update.indentType !== originalRecord.indentType) {
-                    updatePayload.indent_type = update.indentType;
+                    updatePayload.indentType = update.indentType;
                 }
                 if (update.department !== originalRecord.department) {
                     updatePayload.department = update.department;
                 }
                 if (update.groupHead !== originalRecord.groupHead) {
-                    updatePayload.group_head = update.groupHead;
+                    updatePayload.groupHead = update.groupHead;
                 }
                 if (update.productName !== originalRecord.productName) {
-                    updatePayload.product_name = update.productName;
+                    updatePayload.productName = update.productName;
                 }
                 if (update.quantity !== originalRecord.quantity) {
                     updatePayload.quantity = update.quantity;
@@ -208,7 +209,7 @@ export default () => {
                     updatePayload.uom = update.uom;
                 }
                 if (update.areaOfUse !== originalRecord.areaOfUse) {
-                    updatePayload.area_of_use = update.areaOfUse;
+                    updatePayload.areaOfUse = update.areaOfUse;
                 }
                 if (update.specifications !== originalRecord.specifications) {
                     updatePayload.specifications = update.specifications;
@@ -220,22 +221,22 @@ export default () => {
                 };
             }).filter((item): item is NonNullable<typeof item> => item !== null);
 
-            // Process each update individually
-            for (const updateItem of updatesToProcess) {
-                const { data, error } = await supabase
-                    .from('indent')
-                    .update(updateItem.updatePayload)
-                    .eq('id', updateItem.id);
+            // Prepare the bulk update data
+            const bulkUpdateData = updatesToProcess.map(item => ({
+                id: item.id,
+                ...item.updatePayload
+            }));
 
-                if (error) {
-                    throw error;
-                }
-            }
+            // Process bulk updates via API
+            const result = await postToSheet(bulkUpdateData, 'update', 'INDENT');
+
+            if (!result.success) throw new Error('API update failed');
 
             toast.success(`Updated ${updatesToProcess.length} indents successfully`);
 
             // Refresh the data after updates with pagination (refresh only loaded pages or just reset)
             await fetchIndents(false);
+            updateIndentSheet();
 
             setSelectedRows(new Set());
             setBulkUpdates(new Map());
