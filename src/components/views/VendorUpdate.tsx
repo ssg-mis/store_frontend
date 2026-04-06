@@ -369,30 +369,26 @@ export default () => {
 
     // Creating table columns
     const columns: ColumnDef<VendorUpdateData>[] = [
-        ...(user.updateVendorAction
-            ? [
-                {
-                    header: 'Action',
-                    cell: ({ row }: { row: Row<VendorUpdateData> }) => {
-                        const indent = row.original;
+        {
+            header: 'Action',
+            cell: ({ row }: { row: Row<VendorUpdateData> }) => {
+                const indent = row.original;
 
-                        return (
-                            <div>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                        setSelectedIndent(indent);
-                                        setOpenDialog(true);
-                                    }}
-                                >
-                                    Update
-                                </Button>
-                            </div>
-                        );
-                    },
-                },
-            ]
-            : []),
+                return (
+                    <div>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setSelectedIndent(indent);
+                                setOpenDialog(true);
+                            }}
+                        >
+                            Update
+                        </Button>
+                    </div>
+                );
+            },
+        },
         {
             accessorKey: 'indentNo',
             header: 'Indent No.',
@@ -442,29 +438,27 @@ export default () => {
     ];
 
     const historyColumns: ColumnDef<HistoryData>[] = [
-        ...(user.updateVendorAction ? [
-            {
-                header: 'Action',
-                cell: ({ row }: { row: Row<HistoryData> }) => {
-                    const indent = row.original;
+        {
+            header: 'Action',
+            cell: ({ row }: { row: Row<HistoryData> }) => {
+                const indent = row.original;
 
-                    return (
-                        <div>
-                            <Button
-                                variant="outline"
-                                disabled={indent.vendorType === "Three Party"}
-                                onClick={() => {
-                                    setSelectedHistory(indent);
-                                    setOpenDialog(true);
-                                }}
-                            >
-                                Update
-                            </Button>
-                        </div>
-                    );
-                },
+                return (
+                    <div>
+                        <Button
+                            variant="outline"
+                            disabled={indent.vendorType === "Three Party"}
+                            onClick={() => {
+                                setSelectedHistory(indent);
+                                setOpenDialog(true);
+                            }}
+                        >
+                            Update
+                        </Button>
+                    </div>
+                );
             },
-        ] : []),
+        },
         {
             accessorKey: 'date',
             header: 'Date',
@@ -503,16 +497,14 @@ export default () => {
                 ) : (
                     <div className="max-w-[150px] break-words whitespace-normal flex items-center gap-2">
                         {row.original.product}
-                        {user.updateVendorAction && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
-                                onClick={() => handleEditClick(row.original)}
-                            >
-                                <PenSquare className="h-3 w-3" />
-                            </Button>
-                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-4 w-4"
+                            onClick={() => handleEditClick(row.original)}
+                        >
+                            <PenSquare className="h-3 w-3" />
+                        </Button>
                     </div>
                 );
             },
@@ -533,16 +525,14 @@ export default () => {
                 ) : (
                     <div className="flex items-center gap-2">
                         {row.original.quantity}
-                        {user.updateVendorAction && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
-                                onClick={() => handleEditClick(row.original)}
-                            >
-                                <PenSquare className="h-3 w-3" />
-                            </Button>
-                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-4 w-4"
+                            onClick={() => handleEditClick(row.original)}
+                        >
+                            <PenSquare className="h-3 w-3" />
+                        </Button>
                     </div>
                 );
             },
@@ -571,16 +561,14 @@ export default () => {
                 ) : (
                     <div className="flex items-center gap-2">
                         &#8377;{rate}
-                        {user.updateVendorAction && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
-                                onClick={() => handleEditClick(row.original)}
-                            >
-                                <PenSquare className="h-3 w-3" />
-                            </Button>
-                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-4 w-4"
+                            onClick={() => handleEditClick(row.original)}
+                        >
+                            <PenSquare className="h-3 w-3" />
+                        </Button>
                     </div>
                 );
             },
@@ -600,7 +588,7 @@ export default () => {
                 ) : (
                     <div className="flex items-center gap-2">
                         {row.original.uom}
-                        {user.updateVendorAction && editingRow !== row.original.indentNo && (
+                        {editingRow !== row.original.indentNo && (
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -651,16 +639,14 @@ export default () => {
                 ) : (
                     <div className="flex items-center gap-2">
                         {row.original.vendorName}
-                        {user.updateVendorAction && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
-                                onClick={() => handleEditClick(row.original)}
-                            >
-                                <PenSquare className="h-3 w-3" />
-                            </Button>
-                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-4 w-4"
+                            onClick={() => handleEditClick(row.original)}
+                        >
+                            <PenSquare className="h-3 w-3" />
+                        </Button>
                     </div>
                 );
             },
@@ -691,7 +677,7 @@ export default () => {
                         >
                             {row.original.vendorType}
                         </Pill>
-                        {user.updateVendorAction && editingRow !== row.original.indentNo && (
+                        {editingRow !== row.original.indentNo && (
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -705,33 +691,29 @@ export default () => {
                 );
             },
         },
-        ...(user.updateVendorAction
-            ? [
-                {
-                    id: 'editActions',
-                    cell: ({ row }: { row: Row<HistoryData> }) => {
-                        const isEditing = editingRow === row.original.indentNo;
-                        return isEditing ? (
-                            <div className="flex gap-2">
-                                <Button
-                                    size="sm"
-                                    onClick={() => handleSaveEdit(row.original.indentNo)}
-                                >
-                                    Save
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleCancelEdit}
-                                >
-                                    Cancel
-                                </Button>
-                            </div>
-                        ) : null;
-                    },
-                },
-            ]
-            : []),
+        {
+            id: 'editActions',
+            cell: ({ row }: { row: Row<HistoryData> }) => {
+                const isEditing = editingRow === row.original.indentNo;
+                return isEditing ? (
+                    <div className="flex gap-2">
+                        <Button
+                            size="sm"
+                            onClick={() => handleSaveEdit(row.original.indentNo)}
+                        >
+                            Save
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleCancelEdit}
+                        >
+                            Cancel
+                        </Button>
+                    </div>
+                ) : null;
+            },
+        },
     ];
 
     // Creating Regular Vendor form

@@ -112,6 +112,7 @@ export async function fetchFromSupabasePaginated(
     // Map table names to API endpoints
     const endpointMap: Record<string, string> = {
         'indent': '/indents',
+        'users': '/users',
         'approved_indent': '/approved-indents',
         'po_master': '/po-masters',
         'received': '/received',
@@ -304,8 +305,8 @@ export async function fetchSheet(
     }
 
     if (sheetName === 'USER') {
-        // Assume user endpoint or dummy for now as no prisma model shown for user yet
-        return toCamelCase([...dataStore.user_access_master]) as UserPermissions[];
+        const data = await fetchFromSupabasePaginated('users');
+        return toCamelCase(data) as UserPermissions[];
     }
 
     if (sheetName === 'MASTER') {
@@ -402,11 +403,12 @@ export async function postToSheet(
     const endpoint = endpointMap[sheet] || `/${sheet.toLowerCase().replace(/ /g, '-')}`;
 
     for (const row of data) {
+        const method = action === 'update' ? 'PUT' : action === 'delete' ? 'DELETE' : 'POST';
         const url = (action === 'update' || action === 'delete') && (row as any).id
             ? `${API_BASE_URL}${endpoint}/${(row as any).id}`
             : `${API_BASE_URL}${endpoint}`;
 
-        const method = action === 'update' ? 'PUT' : action === 'delete' ? 'DELETE' : 'POST';
+        console.log(`[postToSheet] Calling ${method} ${url} for ${sheet}`, row);
 
         try {
             const response = await fetch(url, {

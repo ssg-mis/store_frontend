@@ -23,39 +23,63 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(true);
         const stored = localStorage.getItem('auth');
         if (stored) {
-            const { username } = JSON.parse(stored);
-
-            // Look up user from dummy data
-            const userData = dataStore.user_access_master.find(
-                (u) => u.username === username
-            );
-
-            if (userData) {
-                const user = toCamelCase({ ...userData, row_index: userData.id }) as UserPermissions;
-                setUserPermissions(user);
-                setLoggedIn(true);
+            try {
+                const { user } = JSON.parse(stored);
+                if (user) {
+                    const permissions = user.permissions || {};
+                    const camelPermissions = toCamelCase(permissions);
+                    const flattenedUser = { 
+                        ...user, 
+                        ...permissions, 
+                        ...camelPermissions 
+                    };
+                    setUserPermissions(flattenedUser);
+                    setLoggedIn(true);
+                }
+            } catch (error) {
+                console.error('Session Restoration Error:', error);
+                localStorage.removeItem('auth');
             }
-            setLoading(false);
-        } else {
-            setLoading(false);
         }
+        setLoading(false);
     }, []);
 
     async function login(username: string, password: string) {
-        // Check credentials against dummy users
-        const userData = dataStore.user_access_master.find(
-            (u) => u.username === username && u.password === password
-        );
+        try {
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username, password }),
+            });
 
-        if (!userData) {
+            const data = await response.json();
+
+            if (data.success) {
+                // Manually flatten and ensure both cases are supported for the Sidebar mapping
+                const permissions = data.user.permissions || {};
+                const camelPermissions = toCamelCase(permissions);
+                
+                const userData = {
+                    ...toCamelCase(data.user),
+                    ...permissions, // keeping snake_case as fallback
+                    ...camelPermissions, // ensuring camelCase for Sidebar
+                    row_index: data.user.id
+                } as UserPermissions;
+
+                
+                // Store in localStorage
+                localStorage.setItem('auth', JSON.stringify({ user: userData }));
+                setUserPermissions(userData);
+                setLoggedIn(true);
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Login Fetch Error:', error);
             return false;
         }
-
-        const user = toCamelCase({ ...userData, row_index: userData.id }) as UserPermissions;
-        localStorage.setItem('auth', JSON.stringify({ username }));
-        setUserPermissions(user);
-        setLoggedIn(true);
-        return true;
     }
 
     function logout() {

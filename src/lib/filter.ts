@@ -1,58 +1,18 @@
-import type { IndentSheet, ReceivedSheet } from '@/types';
-
-type Filters = {
-    startDate?: string; // ISO date string
-    endDate?: string; // ISO date string
-    vendors?: string[];
-    products?: string[];
-};
-
-const parseDate = (dateStr: string) => {
-    if (!dateStr) return new Date('Invalid Date');
-    // Handle both ISO and DD/MM/YYYY formats
-    if (dateStr.includes('-') && !dateStr.includes('/')) {
-        return new Date(dateStr);
-    }
-    const [datePart, timePart] = dateStr.split(' ');
-    const parts = datePart.split('/');
-    if (parts.length === 3) {
-        const [day, month, year] = parts.map(Number);
-        const d = new Date(year, month - 1, day);
-        if (timePart) {
-            const [h, m, s] = timePart.split(':').map(Number);
-            if (!isNaN(h)) d.setHours(h);
-            if (!isNaN(m)) d.setMinutes(m);
-            if (!isNaN(s)) d.setSeconds(s);
-        }
-        return d;
-    }
-    return new Date(dateStr);
-};
+import type { IndentSheet, InventorySheet, PoMasterSheet, ReceivedSheet } from '@/types';
 
 export function analyzeData(
     {
         indentSheet,
         receivedSheet,
+        poMasterSheet,
+        inventorySheet,
     }: {
         indentSheet: IndentSheet[];
         receivedSheet: ReceivedSheet[];
-    },
-    filters: Filters = {}
+        poMasterSheet?: PoMasterSheet[];
+        inventorySheet?: InventorySheet[];
+    }
 ) {
-    const start = filters.startDate ? new Date(filters.startDate) : null;
-    const end = filters.endDate ? new Date(filters.endDate) : null;
-
-    const vendorSet = new Set(filters.vendors ?? []);
-    const productSet = new Set(filters.products ?? []);
-
-    const isWithinDate = (dateStr: string) => {
-        const d = parseDate(dateStr);
-        return d.toString() !== 'Invalid Date' && (!start || d >= start) && (!end || d <= end);
-    };
-
-    const isVendorMatch = (name: string) => vendorSet.size === 0 || vendorSet.has(name);
-    const isProductMatch = (name: string) => productSet.size === 0 || productSet.has(name);
-
     // Map from indentNumber to productName and approvedVendorName
     const indentMap = new Map<string, { product: string; vendor: string }>();
     for (const indent of indentSheet) {
@@ -62,44 +22,14 @@ export function analyzeData(
         });
     }
 
-    // -------------------------------
-    // Total Indents (all indents)
-    const allIndents = indentSheet.filter(
-        (i) =>
-            isWithinDate(i.timestamp) &&
-            isProductMatch(i.productName) &&
-            isVendorMatch(i.approvedVendorName)
-    );
-
-    const totalIndentedQuantity = allIndents.reduce(
+    // 1. Total Indents & Issued Indents
+    const totalIndentedQuantity = indentSheet.reduce(
         (sum, i) => sum + (i.quantity ?? 0),
         0
     );
 
-    // -------------------------------
-    // Purchases
-    const receivedPurchases = receivedSheet.filter((r) => {
-        const indentInfo = indentMap.get(r.indentNumber);
-        return (
-            isWithinDate(r.timestamp) &&
-            isVendorMatch(r.vendor) &&
-            (!indentInfo || isProductMatch(indentInfo.product))
-        );
-    });
-
-    const totalPurchasedQuantity = receivedPurchases.reduce(
-        (sum, r) => sum + (r.receivedQuantity ?? 0),
-        0
-    );
-
-    // -------------------------------
-    // Issued Indents
     const issuedIndents = indentSheet.filter(
-        (i) =>
-            (i.issueStatus ?? '').toLowerCase() === 'issued' &&
-            isWithinDate(i.timestamp) &&
-            isProductMatch(i.productName) &&
-            isVendorMatch(i.approvedVendorName)
+        (i) => (i.issueStatus ?? '').toLowerCase() === 'issued'
     );
 
     const totalIssuedQuantity = issuedIndents.reduce(
@@ -107,16 +37,32 @@ export function analyzeData(
         0
     );
 
-    // -------------------------------
-    // Top 10 Products
+    // 2. PO Analysis (From PO Master)
+    const totalPOCount = poMasterSheet?.length || 0;
+    const totalPOAmount = poMasterSheet?.reduce(
+        (sum, po) => sum + Number(po.totalPOAmount || 0),
+        0
+    ) || 0;
+
+    // 3. Received Analysis (Purchases)
+    const totalPurchasedQuantity = receivedSheet.reduce(
+        (sum, r) => sum + (r.receivedQuantity ?? 0),
+        0
+    );
+
+    // 4. Inventory Alerts
+    // Out of Stock: Current level is 0 or less
+    const outOfStock = inventorySheet?.filter(i => (i.current || 0) <= 0).length || 0;
+    // Low Stock: Current level is positive but below 10 (default threshold)
+    const lowStock = inventorySheet?.filter(i => (i.current || 0) > 0 && (i.current || 0) < 10).length || 0;
+
+    // 5. Top 10 Products (By frequency in Received Sheet)
     const productFrequencyMap = new Map<string, { freq: number; quantity: number }>();
 
     for (const r of receivedSheet) {
-        if (!isWithinDate(r.timestamp) || !isVendorMatch(r.vendor)) continue;
         const indentInfo = indentMap.get(r.indentNumber);
-        if (!indentInfo || !isProductMatch(indentInfo.product)) continue;
-
-        const productName = indentInfo.product;
+        const productName = indentInfo?.product || 'Unknown Product';
+        
         if (!productFrequencyMap.has(productName)) {
             productFrequencyMap.set(productName, { freq: 0, quantity: 0 });
         }
@@ -130,19 +76,16 @@ export function analyzeData(
         .slice(0, 10)
         .map(([name, data]) => ({ name, ...data }));
 
-    // -------------------------------
-    // Top 10 Vendors
+    // 6. Top 10 Vendors (By order count in Received Sheet)
     const vendorMap = new Map<string, { orders: number; quantity: number }>();
 
     for (const r of receivedSheet) {
-        if (!isWithinDate(r.timestamp) || !isVendorMatch(r.vendor)) continue;
-        const indentInfo = indentMap.get(r.indentNumber);
-        if (indentInfo && !isProductMatch(indentInfo.product)) continue;
-
-        if (!vendorMap.has(r.vendor)) {
-            vendorMap.set(r.vendor, { orders: 0, quantity: 0 });
+        if (!r.vendor) continue;
+        const vendorName = r.vendor.trim();
+        if (!vendorMap.has(vendorName)) {
+            vendorMap.set(vendorName, { orders: 0, quantity: 0 });
         }
-        const entry = vendorMap.get(r.vendor)!;
+        const entry = vendorMap.get(vendorName)!;
         entry.orders += 1;
         entry.quantity += r.receivedQuantity;
     }
@@ -152,14 +95,17 @@ export function analyzeData(
         .slice(0, 10)
         .map(([name, data]) => ({ name, ...data }));
 
-    // -------------------------------
     return {
-        totalIndentCount: allIndents.length,
+        totalIndentCount: indentSheet.length,
         totalIndentedQuantity,
-        receivedPurchaseCount: receivedPurchases.length,
+        receivedPurchaseCount: receivedSheet.length,
         totalPurchasedQuantity,
         issuedIndentCount: issuedIndents.length,
         totalIssuedQuantity,
+        totalPOCount,
+        totalPOAmount,
+        outOfStock,
+        lowStock,
         topProducts,
         topVendors,
     };

@@ -29,7 +29,10 @@ export default () => {
         password: z.string().nonempty(),
     });
 
-    const form = useForm({ resolver: zodResolver(schema) });
+    const form = useForm({
+        resolver: zodResolver(schema),
+        defaultValues: { username: '', password: '' }
+    });
 
     async function onSubmit(values: z.infer<typeof schema>) {
         try {

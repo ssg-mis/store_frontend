@@ -30,19 +30,19 @@ export default () => {
     useEffect(() => {
         setTableData(
             inventorySheet.map((i) => ({
-                totalPrice: i.totalPrice,
-                approvedIndents: i.approved,
-                uom: i.uom,
-                rate: i.individualRate,
-                current: i.current,
-                status: i.colorCode,
-                indented: i.indented,
-                opening: i.opening,
-                itemName: i.itemName,
-                groupHead: i.groupHead,
-                purchaseQuantity: i.purchaseQuantity,
-                approved: i.approved,
-                outQuantity: i.outQuantity,
+                totalPrice: Number(i.totalPrice || 0),
+                approvedIndents: Number(i.approved || 0),
+                uom: i.uom || '-',
+                rate: Number(i.individualRate || 0),
+                current: Number(i.current || 0),
+                status: i.colorCode || 'green',
+                indented: Number(i.indented || 0),
+                opening: Number(i.opening || 0),
+                itemName: i.itemName || 'Unknown Item',
+                groupHead: i.groupHead || 'Unknown Group',
+                purchaseQuantity: Number(i.purchaseQuantity || 0),
+                approved: Number(i.approved || 0),
+                outQuantity: Number(i.outQuantity || 0),
             }))
             .reverse()
         );
@@ -63,15 +63,15 @@ export default () => {
             accessorKey: 'rate',
             header: 'Rate',
             cell: ({ row }) => {
-                return <>&#8377;{row.original.rate}</>;
+                return <>&#8377;{Number(row.original.rate).toFixed(2)}</>;
             },
         },
         {
             accessorKey: 'status',
             header: 'Status',
             cell: ({ row }) => {
-                const code = row.original.status.toLowerCase();
-                if (row.original.current === 0) {
+                const code = (row.original.status || 'green').toLowerCase();
+                if (row.original.current <= 0) {
                     return <Pill variant="reject">Out of Stock</Pill>;
                 }
                 if (code === 'red') {
@@ -91,9 +91,8 @@ export default () => {
         {
             accessorKey: 'totalPrice',
             header: 'Total Price',
-
             cell: ({ row }) => {
-                return <>&#8377;{row.original.totalPrice}</>;
+                return <>&#8377;{Number(row.original.totalPrice).toFixed(2)}</>;
             },
         },
     ];

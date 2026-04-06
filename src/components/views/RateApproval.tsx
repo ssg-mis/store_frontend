@@ -145,32 +145,28 @@ export default () => {
 
     // Creating table columns
     const columns: ColumnDef<RateApprovalData>[] = [
-        ...(user.threePartyApprovalAction
-            ? [
-                {
-                    header: 'Action',
-                    id: 'action',
-                    cell: ({ row }: { row: Row<RateApprovalData> }) => {
-                        const indent = row.original;
+        {
+            header: 'Action',
+            id: 'action',
+            cell: ({ row }: { row: Row<RateApprovalData> }) => {
+                const indent = row.original;
 
-                        return (
-                            <div>
-                                <DialogTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => {
-                                            setSelectedIndent(indent);
-                                        }}
-                                    >
-                                        Approve
-                                    </Button>
-                                </DialogTrigger>
-                            </div>
-                        );
-                    },
-                },
-            ]
-            : []),
+                return (
+                    <div>
+                        <DialogTrigger asChild>
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setSelectedIndent(indent);
+                                }}
+                            >
+                                Approve
+                            </Button>
+                        </DialogTrigger>
+                    </div>
+                );
+            },
+        },
         { accessorKey: 'indentNo', header: 'Indent No.' },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
@@ -211,29 +207,27 @@ export default () => {
     ];
 
     const historyColumns: ColumnDef<HistoryData>[] = [
-        ...(user.updateVendorAction ? [
-            {
-                header: 'Action',
-                cell: ({ row }: { row: Row<HistoryData> }) => {
-                    const indent = row.original;
+        {
+            header: 'Action',
+            cell: ({ row }: { row: Row<HistoryData> }) => {
+                const indent = row.original;
 
-                    return (
-                        <div>
-                            <DialogTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                        setSelectedHistory(indent);
-                                    }}
-                                >
-                                    Update
-                                </Button>
-                            </DialogTrigger>
-                        </div>
-                    );
-                },
+                return (
+                    <div>
+                        <DialogTrigger asChild>
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setSelectedHistory(indent);
+                                }}
+                            >
+                                Update
+                            </Button>
+                        </DialogTrigger>
+                    </div>
+                );
             },
-        ] : []),
+        },
         { accessorKey: 'indentNo', header: 'Indent No.' },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },

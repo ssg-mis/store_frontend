@@ -195,7 +195,8 @@ export type MasterConfigSheet = {
 };
 
 export type UserPermissions = {
-    rowIndex: number;
+    id?: number;
+    rowIndex?: number;
     username: string;
     password: string;
     name: string;

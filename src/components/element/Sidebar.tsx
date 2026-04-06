@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/sidebar';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
-import type { RouteAttributes, UserPermissions } from '@/types';
+import type { RouteAttributes } from '@/types';
 import { LogOut, RotateCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -23,74 +23,57 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
     const { indentSheet, updateAll, allLoading } = useSheets();
     const { user, logout } = useAuth();
 
-    // Memoize the permission checking function to avoid re-creation on every render
-    // Fix the permission checking logic
+    // The logic to check if a user has permission for a specific route item
     const hasPermission = useMemo(() => {
         return (routeItem: RouteAttributes) => {
-            // In the Sidebar component, update the pathToPermissionMap:
+            // Priority 1: If the item has no gateKey, it's a public/master page, show it by default
+            if (!routeItem.gateKey) return true;
 
-            const pathToPermissionMap: Record<string, keyof UserPermissions> = {
-                '': 'dashboard', // Dashboard route
-                'dashboard': 'dashboard',
-                'inventory': 'inventory',
-                'setting': 'setting',
-                'create-indent': 'createIndent',
-                // 'all-indent': 'allIndent',
-                'create-po': 'createPo',
-                'get-purchase': 'getPurchase',
-                'approve-indent': 'indentApprovalView',
-                'po-history': 'ordersView',
-                'po-master': 'poMaster',
-                'pending-pos': 'pendingIndentsView',
-                'receive-items': 'receiveItemView',
-                'store-out-approval': 'storeOutApprovalView',
-                'quotation': 'quotation',
-                'three-party-approval': 'threePartyApprovalView',
-                'vendor-rate-update': 'updateVendorView',
-            };
+            // Priority 2: Check the permission value from the user object (synced from DB)
+            const userPermission = (user as any)?.[routeItem.gateKey];
 
-            const permissionKey = pathToPermissionMap[routeItem.path];
-            if (!permissionKey) return true; // Show by default if no mapping found
-
-            // Fix: Handle both string and boolean values safely with type assertion
-            const userPermission = (user as any)?.[permissionKey];
+            // If the permission data is missing entirely from the DB JSON, hide it as requested
+            if (userPermission === undefined || userPermission === null) {
+                return false; 
+            }
 
             // Handle string values like 'TRUE', 'FALSE', 'No Access'
             if (typeof userPermission === 'string') {
                 return userPermission.toUpperCase() === 'TRUE';
             }
 
-            // Handle boolean values
+            // Handle boolean values (like inventory: false)
             if (typeof userPermission === 'boolean') {
                 return userPermission;
             }
 
-            // Handle numbers (0 = false, 1 = true) or other types
+            // Handle numbers (0 = false, 1 = true)
             if (typeof userPermission === 'number') {
                 return userPermission !== 0;
             }
 
-            // Default to false if undefined or null
-            return false;
+            // Default to false for any other non-truthy values
+            return !!userPermission;
         };
     }, [user]);
 
-    // Memoize filtered items to prevent unnecessary re-renders
+    // Filter items based on the permission logic
     const filteredItems = useMemo(() => {
         if (!user) return [];
 
         return items.filter((item) => {
-            // First check existing gateKey condition
+            // Check legacy gateKey 'No Access' condition first if applicable
             if (item.gateKey && (user as any)[item.gateKey] === 'No Access') {
                 return false;
             }
 
-            // Then check new permission-based condition
-            return hasPermission(item);
+            // Apply the new refined permission check
+            const allowed = hasPermission(item);
+            return allowed;
         });
     }, [items, user, hasPermission]);
 
-    // Early return if user is not loaded
+    // Early return if user context is missing
     if (!user) {
         return null;
     }
@@ -112,6 +95,7 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
                         onClick={() => updateAll()}
                         disabled={allLoading}
                     >
+                        <RotateCw className={`size-4 ${allLoading ? 'animate-spin' : ''}`} />
                     </Button>
                 </div>
                 <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />

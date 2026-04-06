@@ -34,11 +34,11 @@ import { Pill } from '../ui/pill';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 
 interface UsersTableData {
+    id?: number;
     username: string;
     name: string;
     password: string;
     permissions: string[];
-    rowIndex: number;
 }
 
 function camelToTitleCase(str: string): string {
@@ -74,11 +74,11 @@ export default () => {
                     );
 
                     return {
+                        id: user.id,
                         username: user.username,
                         name: user.name,
                         password: user.password,
                         permissions: permissionKeys,
-                        rowIndex: user.rowIndex,
                     };
                 })
             );
@@ -149,7 +149,7 @@ export default () => {
                                 if (window.confirm(`Are you sure you want to delete ${user.name}?`)) {
                                     try {
                                         await postToSheet(
-                                            [{ rowIndex: user.rowIndex }],
+                                            [{ id: user.id }],
                                             'delete',
                                             'USER'
                                         );
@@ -207,7 +207,7 @@ export default () => {
         if (selectedUser) {
             try {
                 const row: Partial<UserPermissions> = {
-                    rowIndex: selectedUser.rowIndex,
+                    id: selectedUser.id,
                     username: value.username,
                     name: value.name,
                     password: value.password,
