@@ -23,7 +23,7 @@ interface InventoryTable {
 }
 
 export default () => {
-    const { inventorySheet, inventoryLoading } = useSheets();
+    const { inventorySheet, inventoryLoading, updateInventorySheet } = useSheets();
 
     const [tableData, setTableData] = useState<InventoryTable[]>([]);
 
@@ -47,6 +47,13 @@ export default () => {
             .reverse()
         );
     }, [inventorySheet]);
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            updateInventorySheet(true);
+        }, 5000); // 5 seconds
+
+        return () => clearInterval(intervalId);
+    }, [updateInventorySheet]);
     const columns: ColumnDef<InventoryTable>[] = [
         {
             accessorKey: 'itemName',
@@ -87,7 +94,7 @@ export default () => {
         { accessorKey: 'approved', header: 'Approved' },
         { accessorKey: 'purchaseQuantity', header: 'Purchased' },
         { accessorKey: 'outQuantity', header: 'Issued' },
-        { accessorKey: 'current', header: 'Quantity' },
+        { accessorKey: 'current', header: 'Current Stock' },
         {
             accessorKey: 'totalPrice',
             header: 'Total Price',

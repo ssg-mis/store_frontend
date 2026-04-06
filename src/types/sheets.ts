@@ -83,6 +83,13 @@ export type IndentSheet = {
     photo_of_bill?: string;
     product_name?: string;
     approved_quantity?: number;
+
+    // Backend virtual/relation fields
+    status?: string;
+    approvedIndents?: any[];
+    threePartyApproval?: any[];
+    vendorRateUpdates?: any[];
+    poMasters?: any[];
 };
 
 export type ReceivedSheet = {
@@ -168,15 +175,23 @@ export type Vendor = {
 
 export type MasterDataRow = {
     id?: number;
-    vendor_name: string;
+    vendorName?: string;
+    vendorGstin?: string | null;
+    vendorAddress?: string | null;
+    vendorEmail?: string | null;
+    paymentTerm?: string | null;
+    department?: string | null;
+    groupHead?: string | null;
+    itemName?: string | null;
+    createdAt?: string | null;
+
+    // Snake case equivalents for Database compatibility
+    vendor_name?: string;
     vendor_gstin?: string | null;
     vendor_address?: string | null;
     vendor_email?: string | null;
     payment_term?: string | null;
-    department?: string | null;
     group_head?: string | null;
-    item_name?: string | null;
-    created_at?: string | null;
 };
 
 export type MasterConfigSheet = {

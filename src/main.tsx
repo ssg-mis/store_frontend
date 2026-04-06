@@ -258,14 +258,14 @@ const routes: RouteAttributes[] = [
                     sheet.indentType === 'Store Out'
             ).length,
     },
-    {
-        path: 'quotation',
-        gateKey: 'quotation',
-        name: 'Quotation',
-        icon: <ClipboardList size={20} />,
-        element: <Quotation />,
-        notifications: () => 0,
-    },
+    // {
+    //     path: 'quotation',
+    //     gateKey: 'quotation',
+    //     name: 'Quotation',
+    //     icon: <ClipboardList size={20} />,
+    //     element: <Quotation />,
+    //     notifications: () => 0,
+    // },
     {
         path: 'master-data',
         name: 'Master Data',

@@ -40,7 +40,8 @@ const AddVendorSection = ({ onVendorAdded }: { onVendorAdded: () => Promise<void
         }
         setIsAdding(true);
         try {
-            const result = await postToSheet([{ itemName: '-', groupHead: '-', createGroupHead: '-', department: '-', vendorName: name.trim() } as any], 'insert', 'MASTER');
+            const payload = { vendor_name: name.trim() };
+            const result = await postToSheet([payload as any], 'insert', 'MASTER');
             if (result.success) {
                 toast.success('New vendor added');
                 setName('');
@@ -164,7 +165,7 @@ export default () => {
         const fetchPaymentTerms = async () => {
             setPaymentTermsLoading(true);
             try {
-                const response = await fetch('http://localhost:5001/api/masters');
+                const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/masters`);
                 if (!response.ok) throw new Error('API error');
                 const data = await response.json();
                 const terms = [...new Set(
@@ -191,7 +192,8 @@ export default () => {
             return;
         }
         try {
-            const result = await postToSheet([{ itemName: '-', groupHead: '-', createGroupHead: '-', department: '-', paymentTerm: trimmed } as any], 'insert', 'MASTER');
+            const payload = { payment_term: trimmed };
+            const result = await postToSheet([payload as any], 'insert', 'MASTER');
             if (result.success) {
                 setPaymentTerms(prev => [...prev, trimmed]);
                 setNewPaymentTerm('');
@@ -246,18 +248,23 @@ export default () => {
 
             if (rateUpdates) {
                 rateUpdates.forEach((record: any) => {
+                    const indentNo = record.indentNumber || record.indent_number || record.indentNo || '';
+                    const approvalMatch = approvedIndentsData?.find((a: any) => 
+                        (a.indentNumber === indentNo || a.indent_number === indentNo || a.indentNo === indentNo)
+                    );
+
                     historyItems.push({
                         id: record.id,
                         source: 'rate_update',
                         date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                        indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                        indentNo: indentNo,
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
                         rate: record.rate1 || 0,
-                        vendorType: record.vendorType as HistoryData['vendorType'],
+                        vendorType: approvalMatch?.vendorType || 'Regular',
                         vendorName: record.vendorName1 || '',
                         requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
@@ -267,18 +274,23 @@ export default () => {
 
             if (threePartyApprovals) {
                 threePartyApprovals.forEach((record: any) => {
+                    const indentNo = record.indentNumber || record.indent_number || record.indentNo || '';
+                    const approvalMatch = approvedIndentsData?.find((a: any) => 
+                        (a.indentNumber === indentNo || a.indent_number === indentNo || a.indentNo === indentNo)
+                    );
+
                     historyItems.push({
                         id: record.id,
                         source: 'three_party',
                         date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                        indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                        indentNo: indentNo,
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
                         rate: record.approvedRate || 0,
-                        vendorType: 'Regular',
+                        vendorType: approvalMatch?.vendorType || 'Three Party',
                         vendorName: record.approvedVendorName || '',
                         requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
@@ -352,7 +364,7 @@ export default () => {
             if (!result.success) throw new Error('API update failed');
 
             toast.success(`Updated rate for ${indentNo}`);
-            
+
             await fetchData();
             setEditingRow(null);
             setEditValues({});
@@ -757,7 +769,7 @@ export default () => {
             if (!result.success) throw new Error('API submission failed');
 
             toast.success(`Directly approved vendor rate for ${selectedIndent?.indentNo}`);
-            
+
             // Still update the Indent tracking
             await postToSheet([{
                 id: selectedIndent?.indentId,

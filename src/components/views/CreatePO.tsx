@@ -334,38 +334,44 @@ export default () => {
     useEffect(() => {
         const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
         if (mode === 'revise' && po) {
-            const vendor = vendorsData.find((v: any) => v.vendor_name?.trim().toLowerCase() === po.party_name?.trim().toLowerCase()); // Use vendor_name from master_data
+            const partyName = po.partyName || po.party_name || '';
+            const vendor = vendorsData.find((v: any) => 
+                (v.vendor_name || v.vendorName)?.trim().toLowerCase() === partyName.trim().toLowerCase()
+            );
+            
             form.setValue('poDate', po.timestamp ? new Date(po.timestamp) : new Date());
-            form.setValue('supplierName', po.party_name);
-            form.setValue('supplierAddress', vendor?.vendor_address || ''); // Use vendor_address
-            form.setValue('preparedBy', po.prepared_by);
-            form.setValue('approvedBy', po.approved_by);
-            form.setValue('gstin', vendor?.vendor_gstin || ''); // Use vendor_gstin
-            form.setValue('quotationNumber', po.quotation_number);
-            form.setValue('quotationDate', po.quotation_date ? new Date(po.quotation_date) : new Date());
-            form.setValue('description', po.description);
-            form.setValue('ourEnqNo', po.enquiry_number);
-            form.setValue('enquiryDate', po.enquiry_date ? new Date(po.enquiry_date) : new Date());
+            form.setValue('supplierName', partyName);
+            form.setValue('supplierAddress', vendor?.vendor_address || vendor?.address || '');
+            form.setValue('preparedBy', po.preparedBy || po.prepared_by || '');
+            form.setValue('approvedBy', po.approvedBy || po.approved_by || '');
+            form.setValue('gstin', vendor?.vendor_gstin || vendor?.gstin || '');
+            form.setValue('quotationNumber', po.quotationNumber || po.quotation_number || '');
+            form.setValue('quotationDate', (po.quotationDate || po.quotation_date) ? new Date(po.quotationDate || po.quotation_date) : new Date());
+            form.setValue('description', po.description || '');
+            form.setValue('ourEnqNo', po.enquiryNumber || po.enquiry_number || '');
+            form.setValue('enquiryDate', (po.enquiryDate || po.enquiry_date) ? new Date(po.enquiryDate || po.enquiry_date) : new Date());
+            
             form.setValue(
                 'indents',
                 poMasterSheetData
                     .filter((p: any) => (p.poNumber || p.po_number) === (po.poNumber || po.po_number))
-                    .map((po: any) => ({
-                        indentNumber: po.internal_code,
-                        gst: po.gst_percent || 0, // Updated from gst to gst_percent
-                        discount: po.discount_percent || 0, // Updated from discount to discount_percent
+                    .map((poItem: any) => ({
+                        indentNumber: poItem.internalCode || poItem.internal_code || poItem.indent_number || '',
+                        gst: poItem.gstPercent || poItem.gst_percent || 0,
+                        discount: poItem.discountPercent || poItem.discount_percent || 0,
                     }))
             );
+
             const terms = [];
-            for (let i = 0; i < 10; i++) {
-                const term = po[`term_${i + 1}` as keyof PoMasterSheet] as string; // Updated to term_N
+            for (let i = 1; i <= 10; i++) {
+                const term = (po as any)[`term${i}`] || (po as any)[`term_${i}`];
                 if (term && term !== '') {
                     terms.push(term);
                 }
             }
             form.setValue('terms', terms);
         }
-    }, [poNumber, poMasterSheetData, vendorsData]);
+    }, [poNumber, poMasterSheetData, vendorsData, mode]);
 
     const handleDestinationEdit = () => {
         setIsEditingDestination(true);
@@ -400,10 +406,11 @@ export default () => {
                     : incrementPoRevision(values.poNumber, poMasterSheetData as PoMasterSheet[]);
             const grandTotal = calculateGrandTotal(
                 values.indents.map((indent) => {
-                    const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber);
+                    const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
+                                 poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                     return {
-                        quantity: value?.approvedQuantity || value?.approved_quantity || 0,
-                        rate: value?.approvedRate || value?.approved_rate || 0,
+                        quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                        rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
                         discountPercent: indent?.discount || 0,
                         gstPercent: indent.gst,
                     };
@@ -439,44 +446,43 @@ export default () => {
                 enqDate: formatDate(values.enquiryDate),
                 description: values.description,
                 items: values.indents.map((item) => {
-                    const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === item.indentNumber)!;
+                    const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === item.indentNumber) ||
+                                   poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === item.indentNumber && (p.poNumber || p.po_number || '') === (poNumber || ''));
                     return {
-                        internalCode: indent.indentNumber || indent.indent_number,
-                        product: indent.productName || indent.product_name,
-                        description: indent.specifications,
-                        quantity: indent.approvedQuantity || indent.approved_quantity || 0,
-                        unit: indent.uom,
-                        rate: indent.approvedRate || indent.approved_rate || 0,
+                        internalCode: indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || '',
+                        product: indent?.productName || indent?.product_name || indent?.product || '',
+                        description: indent?.specifications || indent?.description || '',
+                        quantity: indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0,
+                        unit: indent?.uom || indent?.unit || '',
+                        rate: indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
                         gst: item.gst || 0,
                         discount: item.discount || 0,
                         amount: calculateTotal(
-                            indent.approvedRate || indent.approved_rate || 0,
+                            indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
                             item.gst || 0,
                             item.discount || 0,
-                            indent.approvedQuantity || indent.approved_quantity || 0
+                            indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0
                         ),
                     };
                 }),
                 total: calculateSubtotal(
                     values.indents.map((indent) => {
-                        const value = indentSheetData.find(
-                            (i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber
-                        );
+                        const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
+                                     poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                         return {
-                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
-                            rate: value?.approvedRate || value?.approved_rate || 0,
+                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
                             discountPercent: indent?.discount || 0,
                         };
                     })
                 ),
                 gstAmount: calculateTotalGst(
                     values.indents.map((indent) => {
-                        const value = indentSheetData.find(
-                            (i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber
-                        );
+                        const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
+                                     poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                         return {
-                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
-                            rate: value?.approvedRate || value?.approved_rate || 0,
+                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
                             discountPercent: indent?.discount || 0,
                             gstPercent: indent.gst,
                         };
@@ -528,8 +534,9 @@ export default () => {
             }
 
             // Insert PO data into Supabase
-            const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => { // Added Type annotation
-                const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === v.indentNumber)!;
+            const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => {
+                const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === v.indentNumber) ||
+                               poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === poNumber);
 
                 // Validate and process dates
                 const validateDate = (date: Date | null | undefined) => {
@@ -539,7 +546,7 @@ export default () => {
                         console.error('Invalid date detected:', date);
                         return null;
                     }
-                    return dateObj.toISOString(); // Return ISO string to match type definition
+                    return dateObj.toISOString();
                 };
 
                 return {
@@ -547,16 +554,16 @@ export default () => {
                     partyName: values.supplierName,
                     poNumber: poNumber,
                     internalCode: v.indentNumber,
-                    product: indent.productName || indent.product_name,
+                    product: indent?.productName || indent?.product_name || indent?.product || '',
                     description: values.description,
-                    quantity: indent.approvedQuantity || indent.approved_quantity,
-                    unit: indent.uom,
-                    rate: indent.approvedRate || indent.approved_rate,
+                    quantity: indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0,
+                    unit: indent?.uom || indent?.unit || '',
+                    rate: indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
                     amount: calculateTotal(
-                        indent.approvedRate || indent.approved_rate,
+                        indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
                         v.gst,
                         v.discount || 0,
-                        indent.approvedQuantity || indent.approved_quantity
+                        indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0
                     ),
                     totalPOAmount: grandTotal,
                     pdf: url,
@@ -1086,28 +1093,28 @@ export default () => {
                                         {itemsArray.fields.map((field, index) => {
                                             const value = indents[index];
                                             const indent = indentSheetData.find(
-                                                (i: any) => i.indent_number === value.indentNumber
+                                                (i: any) => (i.indentNumber || i.indent_number) === value.indentNumber
+                                            ) || poMasterSheetData.find(
+                                                (p: any) => (p.internalCode || p.internal_code || p.indent_number) === value.indentNumber && (p.poNumber || p.po_number) === poNumber
                                             );
                                             return (
                                                 <TableRow key={field.id}>
                                                     <TableCell>{index + 1}</TableCell>
+                                                    <TableCell>{indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code}</TableCell>
+                                                    <TableCell>{indent?.productName || indent?.product_name || indent?.product}</TableCell>
                                                     <TableCell>
-                                                        {indent?.indentNumber || indent?.indent_number}
-                                                    </TableCell>
-                                                    <TableCell>{indent?.productName || indent?.product_name}</TableCell>
-                                                    <TableCell>
-                                                        {indent?.specifications || (
+                                                        {indent?.specifications || indent?.description || (
                                                             <span className="text-muted-foreground">
                                                                 No Description
                                                             </span>
                                                         )}
                                                     </TableCell>
                                                     <TableCell>
-                                                        {indent?.approvedQuantity || indent?.approved_quantity}
+                                                        {indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity}
                                                     </TableCell>
-                                                    <TableCell>{indent?.uom}</TableCell>
+                                                    <TableCell>{indent?.uom || indent?.unit}</TableCell>
                                                     <TableCell>
-                                                        {indent?.approvedRate || indent?.approved_rate}
+                                                        {indent?.approvedRate || indent?.approved_rate || indent?.rate}
                                                     </TableCell>
                                                     <TableCell>
                                                         <FormField
@@ -1150,10 +1157,10 @@ export default () => {
                                                     </TableCell>
                                                     <TableCell>
                                                         {calculateTotal(
-                                                            indent?.approvedRate || indent?.approved_rate || 0,
+                                                            indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
                                                             value.gst,
                                                             value.discount || 0,
-                                                            indent?.approvedQuantity || indent?.approved_quantity || 0
+                                                            indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0
                                                         )}
                                                     </TableCell>
                                                     <TableCell>
@@ -1182,16 +1189,16 @@ export default () => {
                                             <span>Total:</span>
                                             <span className="text-end">
                                                 {calculateSubtotal(
-                                                    indents.map((indent) => {
+                                                    indents.map((indentRow) => {
                                                         const value = indentSheetData.find(
-                                                            (i: any) =>
-                                                                i.indent_number ===
-                                                                indent.indentNumber
+                                                            (i: any) => (i.indentNumber || i.indent_number) === indentRow.indentNumber
+                                                        ) || poMasterSheetData.find(
+                                                            (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
-                                                            rate: value?.approvedRate || value?.approved_rate || 0,
-                                                            discountPercent: indent?.discount || 0,
+                                                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                                                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
+                                                            discountPercent: indentRow?.discount || 0,
                                                         };
                                                     })
                                                 )}
@@ -1202,17 +1209,17 @@ export default () => {
                                             <span>GST Amount:</span>
                                             <span className="text-end">
                                                 {calculateTotalGst(
-                                                    indents.map((indent) => {
+                                                    indents.map((indentRow) => {
                                                         const value = indentSheetData.find(
-                                                            (i: any) =>
-                                                                i.indent_number ===
-                                                                indent.indentNumber
+                                                            (i: any) => (i.indentNumber || i.indent_number) === indentRow.indentNumber
+                                                        ) || poMasterSheetData.find(
+                                                            (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approvedQuantity || value?.approved_quantity || 0,
-                                                            rate: value?.approvedRate || value?.approved_rate || 0,
-                                                            discountPercent: indent?.discount || 0,
-                                                            gstPercent: indent.gst,
+                                                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                                                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
+                                                            discountPercent: indentRow?.discount || 0,
+                                                            gstPercent: indentRow.gst,
                                                         };
                                                     })
                                                 )}
@@ -1223,17 +1230,17 @@ export default () => {
                                             <span>Grand Total:</span>
                                             <span className="text-end">
                                                 {calculateGrandTotal(
-                                                    indents.map((indent) => {
+                                                    indents.map((indentRow) => {
                                                         const value = indentSheetData.find(
-                                                            (i: any) =>
-                                                                i.indent_number ===
-                                                                indent.indentNumber
+                                                            (i: any) => (i.indentNumber || i.indent_number) === indentRow.indentNumber
+                                                        ) || poMasterSheetData.find(
+                                                            (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approved_quantity || 0,
-                                                            rate: value?.approved_rate || 0,
-                                                            discountPercent: indent?.discount || 0,
-                                                            gstPercent: indent.gst,
+                                                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                                                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
+                                                            discountPercent: indentRow?.discount || 0,
+                                                            gstPercent: indentRow.gst,
                                                         };
                                                     })
                                                 )}

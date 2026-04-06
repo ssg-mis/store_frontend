@@ -7,6 +7,8 @@ interface SheetsState {
     updateReceivedSheet: () => void;
     updatePoMasterSheet: () => void;
     updateIndentSheet: () => void;
+    updateInventorySheet: (silent?: boolean) => void;
+    updateMasterSheet: () => void;
     updateAll: () => void;
 
     indentSheet: IndentSheet[];
@@ -60,11 +62,11 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         });
     }
 
-    function updateInventorySheet() {
-        setInventoryLoading(true);
+    function updateInventorySheet(silent: boolean = false) {
+        if (!silent) setInventoryLoading(true);
         fetchSheet('INVENTORY').then((res) => {
             setInventorySheet(res as InventorySheet[]);
-            setInventoryLoading(false);
+            if (!silent) setInventoryLoading(false);
         });
     }
     function updateMasterSheet() {
@@ -97,6 +99,8 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         <SheetsContext.Provider
             value={{
                 updateIndentSheet,
+                updateInventorySheet,
+                updateMasterSheet,
                 updatePoMasterSheet,
                 updateReceivedSheet,
                 updateAll,

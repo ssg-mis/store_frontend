@@ -431,13 +431,7 @@ export default () => {
                                                                  <AddMasterDataSection
                                                                     placeholder="Department"
                                                                     onAdd={async (val) => {
-                                                                        await handleAddMasterData('department', val, {
-                                                                            vendor_name: '-', 
-                                                                            itemName: '-', 
-                                                                            groupHead: '-', 
-                                                                            group_head: '-', 
-                                                                            inventoryStatus: 'Show'
-                                                                        });
+                                                                        await handleAddMasterData('department', val);
                                                                         form.setValue(`products.${index}.department`, val);
                                                                     }}
                                                                 />
@@ -505,11 +499,7 @@ export default () => {
                                                                     placeholder="Category"
                                                                     onAdd={async (val) => {
                                                                         await handleAddMasterData('groupHead', val, {
-                                                                            vendor_name: '-',
-                                                                            group_head: val, // Keep both in sync
-                                                                            itemName: '-', 
-                                                                            department: '-',
-                                                                            inventoryStatus: 'Show'
+                                                                            group_head: val, // Keep both in sync for database compatibility
                                                                         });
                                                                         form.setValue(`products.${index}.createGroupHead`, val);
                                                                     }}
@@ -603,11 +593,8 @@ export default () => {
                                                                             return;
                                                                         }
                                                                         await handleAddMasterData('itemName', val, {
-                                                                            vendor_name: '-',
                                                                             groupHead: createGroupHead,
                                                                             group_head: createGroupHead,
-                                                                            department: '-',
-                                                                            inventoryStatus: 'Show'
                                                                         });
                                                                         form.setValue(`products.${index}.productName`, val);
                                                                     }}

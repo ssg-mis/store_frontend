@@ -40,7 +40,7 @@ export function analyzeData(
     // 2. PO Analysis (From PO Master)
     const totalPOCount = poMasterSheet?.length || 0;
     const totalPOAmount = poMasterSheet?.reduce(
-        (sum, po) => sum + Number(po.totalPOAmount || 0),
+        (sum, po) => sum + Number(po.total_po_amount || 0),
         0
     ) || 0;
 
@@ -57,22 +57,22 @@ export function analyzeData(
     const lowStock = inventorySheet?.filter(i => (i.current || 0) > 0 && (i.current || 0) < 10).length || 0;
 
     // 5. Top 10 Products (By frequency in Received Sheet)
-    const productFrequencyMap = new Map<string, { freq: number; quantity: number }>();
+    const productFrequencyMap = new Map<string, { frequency: number; quantity: number }>();
 
     for (const r of receivedSheet) {
         const indentInfo = indentMap.get(r.indentNumber);
         const productName = indentInfo?.product || 'Unknown Product';
         
         if (!productFrequencyMap.has(productName)) {
-            productFrequencyMap.set(productName, { freq: 0, quantity: 0 });
+            productFrequencyMap.set(productName, { frequency: 0, quantity: 0 });
         }
         const entry = productFrequencyMap.get(productName)!;
-        entry.freq += 1;
+        entry.frequency += 1;
         entry.quantity += r.receivedQuantity;
     }
 
     const topProducts = [...productFrequencyMap.entries()]
-        .sort((a, b) => b[1].freq - a[1].freq)
+        .sort((a, b) => b[1].frequency - a[1].frequency)
         .slice(0, 10)
         .map(([name, data]) => ({ name, ...data }));
 

@@ -11,7 +11,7 @@ import { SidebarTrigger } from '../ui/sidebar';
 import { useFieldArray, useForm, type Control, type FieldValues } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
-import type { PoMasterSheet, QuotationHistorySheet } from '@/types';
+import type { PoMasterSheet, QuotationHistorySheet, MasterDataRow } from '@/types';
 import { postToSheet, uploadFile, fetchSheet } from '@/lib/fetchers';
 import { useEffect, useMemo, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
@@ -24,6 +24,72 @@ import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/QuotationPdf';
 import { Checkbox } from '../ui/checkbox';
+import { Plus, Search as SearchIcon } from 'lucide-react'; // Added icons
+
+
+const AddMasterDataSection = ({
+  placeholder,
+  onAdd,
+}: {
+  placeholder: string;
+  onAdd: (name: string) => Promise<void>;
+}) => {
+  const [name, setName] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+
+  const handleAdd = async () => {
+    if (!name.trim()) {
+      toast.error(`${placeholder} name cannot be empty`);
+      return;
+    }
+    setIsAdding(true);
+    try {
+      await onAdd(name.trim());
+      toast.success(`${placeholder} added successfully`);
+      setName('');
+    } catch (error: any) {
+      toast.error('Failed to add: ' + error.message);
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex items-center gap-2 p-2 border-b sticky top-0 bg-popover z-10"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Input
+        placeholder={`Add new ${placeholder.toLowerCase()}...`}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAdd();
+          }
+        }}
+        className="h-8"
+      />
+      <Button
+        size="icon"
+        variant="ghost"
+        type="button"
+        disabled={isAdding}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleAdd();
+        }}
+        className="h-8 w-8"
+      >
+        {isAdding ? <Loader size={12} color="currentColor" /> : <Plus className="h-4 w-4" />}
+      </Button>
+    </div>
+  );
+};
 
 
 type Mode = 'create' | 'revise';
@@ -109,13 +175,27 @@ const Badge = ({ children, variant, className, onClick }: {
 
 
 export default function QuotationPage() {
-  const { indentSheet, poMasterSheet, updateIndentSheet, updatePoMasterSheet, masterSheet: details } = useSheets();
+  const { indentSheet, poMasterSheet, updateIndentSheet, updatePoMasterSheet, updateMasterSheet, masterSheet: details } = useSheets();
   const [mode, setMode] = useState<Mode>('create');
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [supplierInfos, setSupplierInfos] = useState<SupplierInfo[]>([]);
   const [masterSuppliers, setMasterSuppliers] = useState<MasterSheetSupplier[]>([]);
   const [latestQuotationNumbers, setLatestQuotationNumbers] = useState<string[]>([]);
+  const [allHistory, setAllHistory] = useState<QuotationHistorySheet[]>([]);
+  const [selectedQuotationNo, setSelectedQuotationNo] = useState<string>('');
+  const [fullMasterData, setFullMasterData] = useState<MasterDataRow[]>([]);
+
+
+  const handleAddMasterData = async (columnName: string, value: string) => {
+    const payload = { [columnName]: value };
+    const result = await postToSheet([payload], 'insert', 'MASTER');
+    if (result.success) {
+      updateMasterSheet();
+    } else {
+      throw new Error('Failed to save to master');
+    }
+  };
 
 
   // Editable cards: make Billing and Destination editable (last two cards)
@@ -141,8 +221,9 @@ export default function QuotationPage() {
         console.log('Fetched QUOTATION HISTORY:', quotationHistory);
 
         if (Array.isArray(quotationHistory)) {
+          setAllHistory(quotationHistory as unknown as QuotationHistorySheet[]);
           const quotationNos = quotationHistory
-            .map((row: any) => row.quatationNo || row.quotationNo || '')
+            .map((row: any) => row.quatationNo || '')
             .filter((no: string) => no && no.trim() !== '');
 
           setLatestQuotationNumbers(quotationNos);
@@ -168,8 +249,14 @@ export default function QuotationPage() {
         console.log('Fetching MASTER sheet data...');
 
         const masterData = await fetchSheet('MASTER');
-
+        const rawMasterForFilter = await fetchSheet('MASTER_DATA') as unknown as MasterDataRow[];
+        
         console.log('MASTER sheet raw data:', masterData);
+        console.log('Raw Master Data for filtering:', rawMasterForFilter);
+
+        if (Array.isArray(rawMasterForFilter)) {
+          setFullMasterData(rawMasterForFilter);
+        }
 
         // Use type guard to safely access vendors
         let vendorsArray: any[] = [];
@@ -232,15 +319,62 @@ export default function QuotationPage() {
     };
 
     const filtered = indentSheet.filter(item => {
-      const planned2NotNull = item.planned2 !== null && item.planned2 !== undefined && item.planned2 !== '';
-      const actual2IsEmpty = isEmpty(item.actual2);
+      // 1. Stage 1 must be done (Approved)
+      // The backend IndentController adds a 'status' field: 'Approved' if approvedIndents.length > 0
+      const isApproved = item.status === 'Approved' || (item.approvedIndents && item.approvedIndents.length > 0);
+      
+      // 2. Identify if it already has a quotation
+      const hasQuotationInHistory = allHistory.some(h => h.indentNo === item.indentNumber);
+      
+      // 3. Stage check: Identify if it already moved to Vendor Rate Update or Three Party Approval
+      const isAlreadyInNextStage = 
+        (item.vendorRateUpdates && item.vendorRateUpdates.length > 0) || 
+        (item.threePartyApproval && item.threePartyApproval.length > 0);
 
-      return planned2NotNull && actual2IsEmpty;
+      // 4. If we are in revise mode, include items that were already in this quotation
+      const isPartOfCurrentQuotation = mode === 'revise' && selectedQuotationNo && 
+        allHistory.some(h => h.quatationNo === selectedQuotationNo && h.indentNo === item.indentNumber);
+
+      // Eligible if Approved AND (Not yet in any quotation OR part of the current revision)
+      // AND also NOT yet in Vendor Rate Update/Approval stages (unless revising)
+      const isBasicEligible = isApproved && 
+        (!hasQuotationInHistory || isPartOfCurrentQuotation) && 
+        (!isAlreadyInNextStage || isPartOfCurrentQuotation);
+
+      // 5. Supplier-based filtering (User request: "when i select any supplier name then show there data only")
+      if (selectedSuppliers.length === 0) {
+        return isBasicEligible; // Show all if no supplier selected
+      }
+
+      // If suppliers are selected, further filter to only show items they provide in master data
+      const matchesSupplier = fullMasterData.some(m => {
+        const isSelectedVendor = selectedSuppliers.some(s => s.trim().toLowerCase() === (m.vendorName || '').trim().toLowerCase());
+        const isMatchingItem = (m.itemName || '').trim().toLowerCase() === (item.productName || '').trim().toLowerCase();
+        return isSelectedVendor && isMatchingItem;
+      });
+
+      return isBasicEligible && matchesSupplier;
     }).reverse();
 
     console.log('Filtered eligible items:', filtered.length);
     return filtered;
-  }, [indentSheet]);
+  }, [indentSheet, mode, selectedQuotationNo, allHistory, selectedSuppliers, fullMasterData]);
+
+  // Sync selection: remove items that are no longer in the eligible list (e.g., filtered out by supplier choice)
+  useEffect(() => {
+    if (eligibleItems.length === 0 && selectedItems.length === 0) return;
+
+    setSelectedItems(prev => {
+      const stillEligibleIds = new Set(eligibleItems.map(item => item.indentNumber));
+      const filtered = prev.filter(id => stillEligibleIds.has(id));
+      
+      // If nothing changed, return original to avoid infinite loop
+      if (filtered.length === prev.length) return prev;
+      
+      console.log('Auto-unselected items because they are no longer eligible for the selected supplier(s)');
+      return filtered;
+    });
+  }, [eligibleItems, selectedItems.length]); // Track length instead of array to avoid re-triggering itself too easily if items change internally
 
 
   const form = useForm<QuotationForm>({
@@ -275,18 +409,23 @@ export default function QuotationPage() {
   }, [mode, poMasterSheet, latestQuotationNumbers, form]);
 
 
-  // Handle multiple supplier selection from MASTER sheet
+  // Handle multiple supplier selection from MASTER sheet - Robust lookup
   const handleSupplierSelect = (supplierName: string) => {
+    if (!supplierName) return;
+    
     setSelectedSuppliers(prev => {
-      const newSuppliers = prev.includes(supplierName)
-        ? prev.filter(s => s !== supplierName)
+      const isAlreadySelected = prev.some(s => s.trim().toLowerCase() === supplierName.trim().toLowerCase());
+      const newSuppliers = isAlreadySelected
+        ? prev.filter(s => s.trim().toLowerCase() !== supplierName.trim().toLowerCase())
         : [...prev, supplierName];
 
       form.setValue('suppliers', newSuppliers);
 
       // Fetch supplier info from MASTER sheet data
       const infos = newSuppliers.map(name => {
-        const masterSupplier = masterSuppliers.find(s => s.supplierName === name);
+        const masterSupplier = masterSuppliers.find(s => 
+          (s.supplierName || '').trim().toLowerCase() === name.trim().toLowerCase()
+        );
         return {
           name,
           address: masterSupplier?.vendorAddress || '',
@@ -301,6 +440,56 @@ export default function QuotationPage() {
       return newSuppliers;
     });
   };
+
+
+  // Logic for Revise mode: Populate form when selectedQuotationNo changes
+  useEffect(() => {
+    if (mode === 'revise' && selectedQuotationNo) {
+      const historyRecords = allHistory.filter(h => 
+        (h.quatationNo) === selectedQuotationNo
+      );
+
+      if (historyRecords.length > 0) {
+        // Unique suppliers from these records
+        const uniqueSuppliers = Array.from(new Set(historyRecords.map(h => h.supplierName)));
+        
+        // Find them in masterData to get full info
+        const infos = uniqueSuppliers.map(name => {
+          const master = masterSuppliers.find(s => (s.supplierName || '').trim().toLowerCase() === name.trim().toLowerCase());
+          return {
+            name,
+            address: master?.vendorAddress || historyRecords.find(h => h.supplierName === name)?.adreess || '',
+            gstin: master?.vendorGstin || historyRecords.find(h => h.supplierName === name)?.gst || '',
+            email: master?.email || ''
+          };
+        });
+
+        // Unique indents from these records
+        const uniqueIndents = Array.from(new Set(historyRecords.map(h => h.indentNo)));
+
+        // Update state
+        setSelectedSuppliers(uniqueSuppliers);
+        setSupplierInfos(infos as SupplierInfo[]);
+        setSelectedItems(uniqueIndents);
+        
+        // Update form
+        form.setValue('quotationNumber', selectedQuotationNo);
+        form.setValue('suppliers', uniqueSuppliers);
+        form.setValue('selectedIndents', uniqueIndents);
+        
+        // Optionally set date if we have it
+        const firstRecord = historyRecords[0];
+        if (firstRecord.timestamp) {
+          form.setValue('quotationDate', new Date(firstRecord.timestamp));
+        }
+        if (firstRecord.description) {
+          form.setValue('description', firstRecord.description);
+        }
+
+        toast.success(`Loaded quotation ${selectedQuotationNo}`);
+      }
+    }
+  }, [selectedQuotationNo, mode, allHistory, masterSuppliers]);
 
 
   // Handle checkbox selection
@@ -526,7 +715,26 @@ export default function QuotationPage() {
                   </div>
                 </div>
                 <hr />
-                <h2 className="text-center font-bold text-lg">Quotation</h2>
+                {mode === 'revise' && (
+                  <div className="px-4 py-2 space-y-2 bg-yellow-50 rounded border border-yellow-100">
+                    <FormLabel className="text-yellow-800">Select Quotation to Revise</FormLabel>
+                    <Select onValueChange={setSelectedQuotationNo} value={selectedQuotationNo}>
+                      <SelectTrigger size="sm" className="w-full bg-white border-yellow-200">
+                        <SelectValue placeholder="Select a quotation to revise..." />
+                      </SelectTrigger>
+                      <SelectContent className="z-[100] max-h-[300px]">
+                        {latestQuotationNumbers.length === 0 ? (
+                          <SelectItem value="no-quotations" disabled>No quotations found</SelectItem>
+                        ) : (
+                          latestQuotationNumbers.map((no, k) => (
+                            <SelectItem key={k} value={no}>{no}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <h2 className="text-center font-bold text-lg">{mode === 'create' ? 'Create New' : 'Revise Existing'} Quotation</h2>
                 <hr />
 
                 {/* Quotation meta */}
@@ -546,6 +754,12 @@ export default function QuotationPage() {
                                   <SelectValue placeholder="Select suppliers from MASTER sheet" />
                                 </SelectTrigger>
                                 <SelectContent className="z-[100] max-h-[300px]">
+                                   <AddMasterDataSection
+                                      placeholder="Vendor"
+                                      onAdd={async (val) => {
+                                        await handleAddMasterData('vendor_name', val);
+                                      }}
+                                    />
                                   {masterSuppliers.length === 0 ? (
                                     <SelectItem value="no-suppliers" disabled>
                                       No suppliers found in MASTER sheet
@@ -759,8 +973,10 @@ export default function QuotationPage() {
                       <TableBody>
                         {eligibleItems.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={7} className="text-center text-muted-foreground">
-                              No eligible items found (need planned2 NOT NULL and actual2 NULL)
+                            <TableCell colSpan={7} className="text-center text-muted-foreground py-10">
+                              {mode === 'create' 
+                                ? "No eligible items found (Only APPROVED indents without quotations are shown)" 
+                                : "No items found for this quotation"}
                             </TableCell>
                           </TableRow>
                         ) : (

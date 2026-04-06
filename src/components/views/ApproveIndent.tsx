@@ -71,7 +71,7 @@ export default () => {
         try {
             // Backend now handles mapping and status tracking via relations
             const data = await fetchFromSupabasePaginated('indent');
-            
+
             if (data) {
                 // All Indents (filtered for Purchase for this view)
                 const purchaseIndents = data.filter((r: any) => r.indentType === 'Purchase');
@@ -237,8 +237,8 @@ export default () => {
             } else {
                 toast.success(`Updated ${updatesToProcess.length} indents successfully`);
             }
-            
-            updateIndentSheet(); 
+
+            updateIndentSheet();
             await fetchData();
 
             setSelectedRows(new Set());
@@ -428,11 +428,13 @@ export default () => {
         { accessorKey: 'indenter', header: 'Indenter', size: 120 },
         { accessorKey: 'product', header: 'Product', size: 150 },
         { accessorKey: 'approvedQuantity', header: 'Appr. Qty', size: 80 },
-        { accessorKey: 'vendorType', header: 'Status', size: 110, cell: ({row}) => (
-            <Pill variant={row.original.vendorType === 'Reject' ? 'reject' : row.original.vendorType === 'Regular' ? 'primary' : 'secondary'}>
-                {row.original.vendorType}
-            </Pill>
-        )},
+        {
+            accessorKey: 'vendorType', header: 'Status', size: 110, cell: ({ row }) => (
+                <Pill variant={row.original.vendorType === 'Reject' ? 'reject' : row.original.vendorType === 'Regular' ? 'primary' : 'secondary'}>
+                    {row.original.vendorType}
+                </Pill>
+            )
+        },
         { accessorKey: 'date', header: 'Request Date', size: 100 },
         { accessorKey: 'approvedDate', header: 'Approval Date', size: 100 },
         { accessorKey: 'delay', header: 'Delay', size: 80 }

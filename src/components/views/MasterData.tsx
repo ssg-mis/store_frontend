@@ -26,13 +26,13 @@ interface MasterRow {
     id: number;
     vendor_name: string;
     vendor_gstin: string | null;
-    vendor_address: string | null;
+    vendorAddress?: string | null; // Note: address might be snake_case in DB too, checking prisma
     vendor_email: string | null;
     payment_term: string | null;
     department: string | null;
     group_head: string | null;
-    item_name: string | null;
-    created_at: string | null;
+    itemName: string | null;
+    createdAt: string | null;
 }
 
 interface MasterForm {
@@ -107,7 +107,9 @@ function Field({
 }
 
 function TruncCell({ value, width = 140 }: { value: string | null; width?: number }) {
-    if (!value) return <span className="text-muted-foreground">—</span>;
+    if (!value || value === 'null' || value === '---' || value.trim() === '') {
+        return <span className="text-muted-foreground">—</span>;
+    }
     return (
         <span
             title={value}
@@ -152,16 +154,17 @@ const columns: ColumnDef<MasterRow>[] = [
         cell: ({ getValue }) => <TruncCell value={getValue() as string | null} width={120} />,
     },
     {
-        accessorKey: 'item_name',
+        accessorKey: 'itemName',
         header: 'Item Name',
         cell: ({ getValue }) => {
             const val = getValue() as string | null;
-            return val ? (
+            if (!val || val === 'null' || val === '---' || val.trim() === '') {
+                return <span className="text-muted-foreground">—</span>;
+            }
+            return (
                 <div className="whitespace-normal break-words min-w-[200px]">
                     {val}
                 </div>
-            ) : (
-                <span className="text-muted-foreground">—</span>
             );
         },
     },
@@ -177,9 +180,25 @@ export default function MasterData() {
     const [vendorFilter, setVendorFilter] = useState('All');
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
+    
+    // Show all data properly no matter what any column has more or less data, 
+    // but filter out completely empty/null rows.
+    const nonEmptyData = tableData.filter(r => {
+        const fields = [
+            r.vendor_name,
+            r.vendor_gstin,
+            r.vendor_email,
+            r.payment_term,
+            r.department,
+            r.group_head,
+            r.itemName
+        ];
+        return fields.some(f => f && f !== 'null' && f !== '---' && f.trim() !== '');
+    });
+
     const filteredData = vendorFilter === 'All'
-        ? tableData
-        : tableData.filter(r => r.vendor_name === vendorFilter);
+        ? nonEmptyData
+        : nonEmptyData.filter(r => r.vendor_name === vendorFilter);
 
     /* fetch */
     async function fetchData() {
@@ -216,10 +235,6 @@ export default function MasterData() {
     /* submit */
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        if (!form.vendor_name.trim()) {
-            toast.error('Vendor Name is required');
-            return;
-        }
         setSubmitting(true);
         try {
             const result = await postToSheet([{
@@ -259,7 +274,7 @@ export default function MasterData() {
                 <DataTable
                     data={filteredData}
                     columns={columns}
-                    searchFields={['vendor_name', 'department', 'group_head', 'item_name', 'vendor_gstin', 'vendor_email', 'payment_term']}
+                    searchFields={['vendor_name', 'department', 'group_head', 'itemName', 'vendor_gstin', 'vendor_email', 'payment_term']}
                     dataLoading={dataLoading}
                     pagination={true}
                     extraActions={
@@ -307,7 +322,6 @@ export default function MasterData() {
                             id="vendor_name"
                             value={form.vendor_name}
                             onChange={setField('vendor_name')}
-                            required
                         />
                         <Field
                             label="Vendor GSTIN"
