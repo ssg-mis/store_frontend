@@ -46,8 +46,8 @@ interface EditedData {
     paymentType?: string;
     advanceAmount?: number;
     rate?: number;
-    photoOfBill?: string; 
-    photoOfBillFile?: File | null; 
+    photoOfBill?: string;
+    photoOfBillFile?: File | null;
 }
 
 interface GetPurchaseData {
@@ -73,12 +73,12 @@ interface HistoryData {
     indenter: string;
     department: string;
     product: string;
-    quantity: number; 
-    billedQty: number; 
+    quantity: number;
+    billedQty: number;
     uom: string;
     poNumber: string;
     billStatus: string;
-    date: string; 
+    date: string;
     billNumber: string;
     billAmount: number;
     photoOfBill: string;
@@ -133,113 +133,97 @@ export default () => {
         try {
             setLoading(true);
 
-            // Fetch already-billed indent numbers from get_purchase table
+            // Fetch already-billed indent numbers from get_purchase table to track quantity already billed
             const getPurchaseData = await fetchFromSupabasePaginated(
                 'get_purchase',
                 '*',
                 { column: 'createdAt', options: { ascending: false } }
             );
-            const billedIndentNumbers = new Set(
-                (getPurchaseData || []).map((g: any) =>
-                    String(g.indent_number || g.indentNumber || '').trim()
-                ).filter(Boolean)
+            
+            // Map billed quantities by indent number
+            const billedQtysMap = new Map<string, number>();
+            (getPurchaseData || []).forEach((g: any) => {
+                const key = String(g.indent_number || g.indentNumber || '').trim();
+                const qty = Number(g.quantity) || 0;
+                if (key) {
+                    billedQtysMap.set(key, (billedQtysMap.get(key) || 0) + qty);
+                }
+            });
+
+            // Fetch PO Master Data - This is now our primary source for "Pending" bills
+            const poMasterData = await fetchFromSupabasePaginated(
+                'po_master',
+                '*',
+                { column: 'createdAt', options: { ascending: false } }
             );
 
-            // Fetch Received Data - returns raw Prisma data:
-            // indent_number (snake_case, explicit in schema), poNumber (camelCase), receivedQuantity (camelCase)
+            // Fetch Received Data for info/display (if any)
             const receivedData = await fetchFromSupabasePaginated(
                 'received',
                 '*',
                 { column: 'createdAt', options: { ascending: false } }
             );
 
-            // Fetch Indents - returns camelCase from Prisma: indentNumber, indenterName, productName, etc.
+            // Fetch Indents for master data lookups
             const indentData = await fetchFromSupabasePaginated(
                 'indent',
                 'indent_number, indenter_name, department, product_name, approved_quantity, uom, qty, approved_rate, po_number',
                 { column: 'indent_number', options: { ascending: false } }
             );
 
-            if (receivedData && receivedData.length > 0) {
-                // Build indent lookup map - normalize: Prisma returns indentNumber (camelCase) for indent table
+            if (poMasterData && poMasterData.length > 0) {
+                // Build indent lookup map
                 const indentMap = new Map<string, any>();
                 indentData?.forEach((sheet: any) => {
-                    // Normalize key to ensure perfect matching (handles whitespace/types)
                     const key = String(sheet.indentNumber || sheet.indent_number || '').trim();
                     if (key) indentMap.set(key, sheet);
                 });
 
-                // Build stats map keyed by indent_number from received table
-                const indentStats = new Map<string, { totalReceived: number; totalBilled: number; remainingToBill: number }>();
-                receivedData.forEach((r: any) => {
-                    // Normalize key to handle string/number or whitespace issues
+                // Build received stats map
+                const receivedStats = new Map<string, number>();
+                receivedData?.forEach((r: any) => {
                     const key = String(r.indent_number || r.indentNumber || '').trim();
-                    if (!key) return;
-                    
-                    const indent = indentMap.get(key);
-                    
-                    // Comprehensive fallbacks for ordered and billed quantities
-                    const totalOrdered = Number(
-                        indent?.approvedQuantity || 
-                        indent?.approved_quantity || 
-                        indent?.quantity || 
-                        indent?.approvedQty || 0
-                    );
-                    
-                    const totalBilled = Number(
-                        indent?.qty || 
-                        indent?.billed_quantity || 
-                        indent?.billedQty || 
-                        indent?.quantity_billed || 0
-                    );
-                    
-                    const prev = indentStats.get(key) || { 
-                        totalReceived: 0, 
-                        totalBilled, 
-                        remainingToBill: Math.max(0, totalOrdered - totalBilled) 
-                    };
-                    
-                    indentStats.set(key, {
-                        totalReceived: prev.totalReceived + (Number(r.receivedQuantity || r.received_quantity || r.received_qty) || 0),
-                        totalBilled,
-                        remainingToBill: Math.max(0, totalOrdered - totalBilled)
-                    });
+                    if (key) {
+                        receivedStats.set(key, (receivedStats.get(key) || 0) + (Number(r.receivedQuantity || r.received_quantity) || 0));
+                    }
                 });
 
-                // Deduplicate by Indent number to show each product
+                // Filter and Map PO Master Data to Table Format
                 const seenIndents = new Set<string>();
-                const uniqueTableData = receivedData
-                    .filter((r: any) => {
-                        const indentNo = r.indent_number;
-                        if (!indentNo) return false;
-                        if (seenIndents.has(indentNo)) return false;
+                const uniqueTableData = poMasterData
+                    .filter((po: any) => {
+                        const indentNo = String(po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '').trim();
+                        if (!indentNo || seenIndents.has(indentNo)) return false;
 
-                        // Hide if already billed in get_purchase table
-                        if (billedIndentNumbers.has(String(indentNo).trim())) return false;
-
-                        // Check if this specific indent has pending billing
-                        const stats = indentStats.get(indentNo);
-                        if (!stats || stats.remainingToBill <= 0) return false;
+                        // Calculate billing progress
+                        const totalBilled = billedQtysMap.get(indentNo) || 0;
+                        
+                        // HIDE from pending list if ANY billing has been recorded (as per user request)
+                        if (totalBilled > 0) return false;
 
                         seenIndents.add(indentNo);
                         return true;
                     })
-                    .map((r: any) => {
-                        const indent = indentMap.get(r.indent_number) || {};
-                        const stats = indentStats.get(r.indent_number) || { totalReceived: 0, totalBilled: 0, remainingToBill: 0 };
+                    .map((po: any) => {
+                        const indentNo = String(po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '').trim();
+                        const indent = indentMap.get(indentNo) || {};
+                        const totalBilled = billedQtysMap.get(indentNo) || 0;
+                        const totalOrdered = Number(po.quantity) || 0;
+                        const totalReceived = receivedStats.get(indentNo) || 0;
+
                         return {
                             id: indent.id || null,
-                            indentNo: r.indent_number || '',
+                            indentNo: indentNo,
                             indenter: indent.indenterName || indent.indenter_name || '',
                             department: indent.department || '',
-                            product: indent.productName || indent.product_name || '',
-                            quantity: Number(indent.approvedQuantity || indent.approved_quantity) || 0,
-                            uom: r.uom || indent.uom || '',
-                            poNumber: r.poNumber || '',
-                            approvedRate: Number(indent.approvedRate || indent.approved_rate) || 0,
-                            receivedQty: stats.totalReceived,
-                            billedQty: stats.totalBilled,
-                            remainingQty: stats.remainingToBill
+                            product: po.product || indent.productName || indent.product_name || '',
+                            quantity: totalOrdered,
+                            uom: po.unit || indent.uom || '',
+                            poNumber: po.poNumber || po.po_number || '',
+                            approvedRate: Number(po.rate || indent.approvedRate || indent.approved_rate) || 0,
+                            receivedQty: totalReceived,
+                            billedQty: totalBilled,
+                            remainingQty: Math.max(0, totalOrdered - totalBilled)
                         };
                     });
 
@@ -388,123 +372,81 @@ export default () => {
     useEffect(() => {
         const fetchRelatedProducts = async () => {
             if (selectedIndent && openDialog) {
+                setRelatedProducts([]); // CLEAR OLD DATA IMMEDIATELY
                 try {
-                    // Fetch Received for stats from API
+                    console.log('Fetching Related Products for PO:', selectedIndent.poNumber);
+                    
+                    // 1. Fetch PO Masters for the product list (Source of Truth)
+                    const poData = await fetchFromSupabasePaginated(
+                        'po_master',
+                        '*',
+                        { column: 'id', options: { ascending: true } },
+                        (q) => q.eq('poNumber', selectedIndent.poNumber) // po_master has poNumber (camelCase)
+                    );
+
+                    if (!poData || poData.length === 0) {
+                        console.warn('No PO Master data found for PO:', selectedIndent.poNumber);
+                        setTableData(prev => prev.filter(p => p.poNumber !== selectedIndent.poNumber));
+                        setSelectedIndent(null);
+                        setOpenDialog(false);
+                        return;
+                    }
+
+                    // 2. Extract indent numbers from the PO
+                    const indentNums = Array.from(new Set(poData.map((po: any) => String(po.indent_number || po.indentNumber || po.internalCode || '').trim()))).filter(Boolean);
+                    console.log('Unique Indents in PO:', indentNums);
+
+                    // 3. Fetch Received stats for these items
                     const receivedData = await fetchFromSupabasePaginated(
                         'received',
                         '*',
                         { column: 'createdAt', options: { ascending: true } },
-                        (q) => q.eq('po_number', selectedIndent.poNumber)
+                        (q) => q.eq('poNumber', selectedIndent.poNumber)
                     );
 
-                    // Fetch Indents from API for parent details
-                    const indentNums = Array.from(new Set(receivedData.map((r: any) => r.indentNumber || r.indent_number)));
-                    console.log('Fetching Indent Data for:', indentNums);
-
+                    // 4. Fetch Indents for billing metadata (qty billed)
                     const indentData = await fetchFromSupabasePaginated(
                         'indent',
                         '*',
                         { column: 'id', options: { ascending: true } },
-                        (q) => q.in('indentNumber', indentNums) 
+                        (q) => q.in('indentNumber', indentNums)
                     );
-                    
-                    console.log('Fetched Indent Data Result:', indentData);
 
-                    // Also try po_number filter as backup for items not yet received
-                    let finalIndentData = indentData || [];
-                    if (!finalIndentData.some(d => indentNums.includes(d.indentNumber || d.indent_number))) {
-                        console.log('Backup fetch by po_number...');
-                        const backupData = await fetchFromSupabasePaginated(
-                            'indent',
-                            '*',
-                            { column: 'id', options: { ascending: true } },
-                            (q) => q.eq('po_number', selectedIndent.poNumber)
+                    // Mapping strictly from po_master
+                    const products = poData.map((po: any) => {
+                        const indentNum = String(po.indent_number || po.indentNumber || po.internalCode || '').trim();
+                        
+                        // Find corresponding indent metadata
+                        const indent = indentData?.find((i: any) =>
+                            String(i.indentNumber || i.indent_number || '').trim() === indentNum
                         );
-                        if (backupData) finalIndentData = [...finalIndentData, ...backupData];
-                    }
 
-                    // Fetch PO Masters for rates
-                    const poData = await fetchFromSupabasePaginated(
-                        'po-masters',
-                        '*',
-                        { column: 'id', options: { ascending: true } },
-                        (q) => q.eq('po_number', selectedIndent.poNumber)
-                    );
+                        // Calculate received stats specifically for this indent
+                        const totalReceived = receivedData
+                            ? receivedData
+                                .filter((r: any) => String(r.indent_number || r.indentNumber || '').trim() === indentNum)
+                                .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0)
+                            : 0;
 
-                    let products = [];
-                    if (receivedData && receivedData.length > 0) {
-                        console.log('Received Data Found:', receivedData.length);
-                        // Gather unique indents from received items
-                        const receivedIndents = Array.from(new Set(receivedData.map((r: any) => r.indentNumber || r.indent_number)));
-                        console.log('Unique Indents from Received:', receivedIndents);
+                        const totalOrdered = Number(po.quantity) || 0;
+                        const totalBilled = Number(indent?.qty || 0); // qty field in indent table represents billed quantity
+                        const remainingToBill = Math.max(0, totalOrdered - totalBilled);
 
-                        products = receivedIndents.map((indentNum) => {
-                            const sheet = finalIndentData?.find((i: any) => 
-                                (i.indentNumber || i.indent_number) === indentNum || 
-                                (i.indentNumber || i.indent_number) === String(indentNum)
-                            ) || {} as any;
-                            
-                            console.log(`Mapping Indent ${indentNum}:`, sheet);
+                        return {
+                            id: indent?.id || po.id || null, // fallback to PO id if indent id missing
+                            indentNo: indentNum,
+                            product: po.product || indent?.productName || indent?.product_name || '',
+                            quantity: totalOrdered,
+                            uom: po.unit || indent?.uom || '',
+                            rate: Number(po.rate || indent?.approvedRate || indent?.approved_rate || 0),
+                            qty: totalBilled,
+                            receivedQty: totalReceived,
+                            remainingQty: remainingToBill,
+                            vendor: po.partyName || selectedIndent.vendor || '',
+                            poNumber: selectedIndent.poNumber
+                        };
+                    });
 
-                            const indentReceipts = receivedData.filter((r: any) => (r.indentNumber || r.indent_number) === indentNum);
-                            const totalReceived = indentReceipts.reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
-                            
-                            // PO Line fallback for missing indent details
-                            const poLine = poData?.find((p: any) => 
-                                (p.indentNumber || p.indent_number) === indentNum || 
-                                (p.product || p.product_name) === (sheet.productName || sheet.product_name)
-                            );
-
-                            const totalOrdered = Number(sheet.approvedQuantity || sheet.approved_quantity || sheet.approvedQty || sheet.quantity || poLine?.approvedQuantity || poLine?.quantity || 0);
-                            const totalBilled = Number(sheet.qty || sheet.billed_quantity || sheet.billedQty || 0);
-                            const remainingToBill = Math.max(0, totalOrdered - totalBilled);
-
-                            return {
-                                id: sheet.id || selectedIndent.id || null, 
-                                indentNo: indentNum as string,
-                                product: sheet.productName || sheet.product_name || poLine?.product || poLine?.product_name || '',
-                                quantity: totalOrdered,
-                                uom: sheet.uom || poLine?.unit || poLine?.uom || '',
-                                rate: Number(sheet.approvedRate || sheet.approved_rate || poLine?.rate || sheet.rate || 0),
-                                qty: totalBilled,
-                                receivedQty: totalReceived,
-                                remainingQty: remainingToBill,
-                                vendor: poLine?.partyName || poLine?.vendor_name || '',
-                                poNumber: selectedIndent.poNumber
-                            };
-                        });
-                    } else {
-                        console.log('No Received Data - Using Indent fallback');
-                        // Fallback: If no received data, use indent data directly
-                        products = finalIndentData.map((sheet: any) => {
-                            const indentNum = sheet.indentNumber || sheet.indent_number;
-                            
-                            // PO Line fallback
-                            const poLine = poData?.find((p: any) => 
-                                (p.indentNumber || p.indent_number) === indentNum || 
-                                (p.product || p.product_name) === (sheet.productName || sheet.product_name)
-                            );
-
-                            const totalOrdered = Number(sheet.approvedQuantity || sheet.approved_quantity || sheet.approvedQty || sheet.quantity || poLine?.approvedQuantity || poLine?.quantity || 0);
-                            const totalBilled = Number(sheet.qty || sheet.billed_quantity || sheet.billedQty || 0);
-                            const remainingToBill = Math.max(0, totalOrdered - totalBilled);
-
-                            return {
-                                id: sheet.id || null,
-                                indentNo: indentNum as string,
-                                product: sheet.productName || sheet.product_name || poLine?.product || poLine?.product_name || '',
-                                quantity: totalOrdered,
-                                uom: sheet.uom || poLine?.unit || poLine?.uom || '',
-                                rate: Number(sheet.approvedRate || sheet.approved_rate || poLine?.rate || sheet.rate || 0),
-                                qty: totalBilled,
-                                receivedQty: 0,
-                                remainingQty: remainingToBill,
-                                vendor: poLine?.partyName || poLine?.vendor_name || '',
-                                poNumber: selectedIndent.poNumber
-                            };
-                        });
-                    }
-                    
                     setRelatedProducts(products);
 
                     // Initialize productRates & Qty
@@ -560,6 +502,10 @@ export default () => {
                             <Button
                                 variant="outline"
                                 onClick={() => {
+                                    // Clear data before opening to avoid seeing old data (stale "SI-0011" issue)
+                                    setRelatedProducts([]);
+                                    setProductQty({});
+                                    setProductRates({});
                                     setSelectedIndent(indent);
                                 }}
                             >
@@ -812,10 +758,10 @@ export default () => {
             // Iterate over each product and update RECEIVED table rows via API
             for (const product of relatedProducts) {
                 const billQty = productQty[product.indentNo] || 0;
-                
+
                 // Allow updates if quantity is > 0 OR if any status is being updated
                 if (billQty <= 0 && !values.billStatus) {
-                    continue; 
+                    continue;
                 }
 
                 if (billQty > (product.remainingQty || 0)) {
@@ -959,7 +905,13 @@ export default () => {
 
     return (
         <div>
-            <Dialog open={openDialog} onOpenChange={setOpenDialog}>
+            <Dialog open={openDialog} onOpenChange={(open) => {
+                setOpenDialog(open);
+                if (!open) {
+                    setSelectedIndent(null);
+                    setRelatedProducts([]);
+                }
+            }}>
                 <Tabs defaultValue="pending">
                     <Heading
                         heading="Get Purchase"

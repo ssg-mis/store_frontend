@@ -98,6 +98,18 @@ const ReceiveItems = () => {
                 { column: 'createdAt', options: { ascending: false } }
             );
 
+            // Fetch billing records to determine what is allowed to be received
+            const getPurchaseData = await fetchFromSupabasePaginated(
+                'get_purchase',
+                'indent_number',
+                { column: 'createdAt', options: { ascending: false } }
+            );
+
+            // Create a set of billed indent numbers for efficient lookup
+            const billedIndents = new Set(
+                (getPurchaseData || []).map((g: any) => String(g.indent_number || g.indentNumber || '').trim())
+            );
+
             // Fetch all received records with pagination to calculate totals
             const receivedData = await fetchFromSupabasePaginated(
                 'received',
@@ -105,29 +117,36 @@ const ReceiveItems = () => {
                 { column: 'createdAt', options: { ascending: false } }
             );
 
-            const mappedData = poMasterData.map((po: any) => {
-                const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
-                
-                const totalReceived = receivedData
-                    .filter((r: any) => r.indentNumber === indentNum || r.indent_number === indentNum)
-                    .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+            const mappedData = poMasterData
+                .filter((po: any) => {
+                    // Normalize indent number
+                    const indentNum = String(po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '').trim();
+                    // FILTER: Only show items that have been billed (exist in get_purchase)
+                    return billedIndents.has(indentNum);
+                })
+                .map((po: any) => {
+                    const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
+                    
+                    const totalReceived = receivedData
+                        .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
+                        .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
 
-                const poQty = Number(po.quantity) || 0;
-                const remainingQty = Math.max(0, poQty - totalReceived);
+                    const poQty = Number(po.quantity) || 0;
+                    const remainingQty = Math.max(0, poQty - totalReceived);
 
-                return {
-                    indentNumber: indentNum,
-                    poNumber: po.poNumber || po.po_number,
-                    uom: po.unit,
-                    poCopy: po.pdf,
-                    vendor: po.partyName || po.party_name,
-                    quantity: poQty,
-                    receivedQty: totalReceived,
-                    remainingQty: remainingQty,
-                    poDate: po.createdAt || po.created_at,
-                    product: po.product,
-                };
-            }).filter((item) => item.remainingQty > 0); // Only show items with remaining quantity
+                    return {
+                        indentNumber: indentNum,
+                        poNumber: po.poNumber || po.po_number,
+                        uom: po.unit,
+                        poCopy: po.pdf,
+                        vendor: po.partyName || po.party_name,
+                        quantity: poQty,
+                        receivedQty: totalReceived,
+                        remainingQty: remainingQty,
+                        poDate: po.createdAt || po.created_at,
+                        product: po.product,
+                    };
+                }).filter((item) => item.remainingQty > 0); // Only show items with remaining quantity
 
             setTableData(mappedData.reverse());
             setLocalIndentLoading(false);
@@ -748,7 +767,7 @@ const ReceiveItems = () => {
 
                 const mappedData = poMasterData.map((po: any) => {
                     const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
-                    
+
                     const totalReceived = receivedData
                         .filter((r: any) => r.indentNumber === indentNum || r.indent_number === indentNum)
                         .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);

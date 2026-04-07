@@ -114,10 +114,10 @@ export default () => {
 
     const enrichAndSetData = (allIndents: any[], approvals: any[], poData: any[], masterData: any, vendors: any[]) => {
         const enrichedIndents = (allIndents || []).map((indent: any) => {
-            const approval = (approvals || []).find((a: any) => 
+            const approval = (approvals || []).find((a: any) =>
                 (a.indentNumber || a.indent_number) === (indent.indentNumber || indent.indent_number)
             );
-            
+
             return {
                 ...indent,
                 indent_number: indent.indentNumber || indent.indent_number,
@@ -172,7 +172,7 @@ export default () => {
                 }));
 
                 const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
-                
+
                 enrichAndSetData(allIndents || [], approvals || [], poData || [], masterData, vendorsMapped);
             } catch (error: any) {
                 console.error('Error fetching data from Supabase:', error);
@@ -318,7 +318,7 @@ export default () => {
                 'gstin',
                 selectedVendor?.vendor_gstin || selectedVendor?.gstin || ''
             );
-            
+
             // Auto-fill indents for this supplier
             form.setValue(
                 'indents',
@@ -335,10 +335,10 @@ export default () => {
         const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
         if (mode === 'revise' && po) {
             const partyName = po.partyName || po.party_name || '';
-            const vendor = vendorsData.find((v: any) => 
+            const vendor = vendorsData.find((v: any) =>
                 (v.vendor_name || v.vendorName)?.trim().toLowerCase() === partyName.trim().toLowerCase()
             );
-            
+
             form.setValue('poDate', po.timestamp ? new Date(po.timestamp) : new Date());
             form.setValue('supplierName', partyName);
             form.setValue('supplierAddress', vendor?.vendor_address || vendor?.address || '');
@@ -350,7 +350,7 @@ export default () => {
             form.setValue('description', po.description || '');
             form.setValue('ourEnqNo', po.enquiryNumber || po.enquiry_number || '');
             form.setValue('enquiryDate', (po.enquiryDate || po.enquiry_date) ? new Date(po.enquiryDate || po.enquiry_date) : new Date());
-            
+
             form.setValue(
                 'indents',
                 poMasterSheetData
@@ -407,7 +407,7 @@ export default () => {
             const grandTotal = calculateGrandTotal(
                 values.indents.map((indent) => {
                     const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
-                                 poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                        poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                     return {
                         quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
                         rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
@@ -447,7 +447,7 @@ export default () => {
                 description: values.description,
                 items: values.indents.map((item) => {
                     const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === item.indentNumber) ||
-                                   poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === item.indentNumber && (p.poNumber || p.po_number || '') === (poNumber || ''));
+                        poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === item.indentNumber && (p.poNumber || p.po_number || '') === (poNumber || ''));
                     return {
                         internalCode: indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || '',
                         product: indent?.productName || indent?.product_name || indent?.product || '',
@@ -468,7 +468,7 @@ export default () => {
                 total: calculateSubtotal(
                     values.indents.map((indent) => {
                         const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
-                                     poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                            poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                         return {
                             quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
                             rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
@@ -479,7 +479,7 @@ export default () => {
                 gstAmount: calculateTotalGst(
                     values.indents.map((indent) => {
                         const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
-                                     poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                            poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                         return {
                             quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
                             rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
@@ -498,7 +498,7 @@ export default () => {
             const file = new File([blob], `PO-${poNumber}.pdf`, {
                 type: 'application/pdf',
             });
-            
+
             // Auto-download the PDF
             const blobUrl = URL.createObjectURL(blob);
             const downloadLink = document.createElement('a');
@@ -511,7 +511,7 @@ export default () => {
 
             const email = vendorsData.find((v: any) => v.vendor_name?.trim().toLowerCase() === values.supplierName?.trim().toLowerCase())?.vendor_email; // Fixed logic to use correct column names and robust matching
 
-            let url = ''; 
+            let url = '';
 
             if (email) {
                 // Email hai to PDF upload + email send
@@ -536,7 +536,7 @@ export default () => {
             // Insert PO data into Supabase
             const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => {
                 const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === v.indentNumber) ||
-                               poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                    poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === poNumber);
 
                 // Validate and process dates
                 const validateDate = (date: Date | null | undefined) => {
@@ -730,13 +730,14 @@ export default () => {
                                                                 ).map((i: any, k) => {
                                                                     const poNumDisplay = i.poNumber || i.po_number;
                                                                     return (
-                                                                    <SelectItem
-                                                                        key={k}
-                                                                        value={poNumDisplay}
-                                                                    >
-                                                                        {poNumDisplay}
-                                                                    </SelectItem>
-                                                                )})}
+                                                                        <SelectItem
+                                                                            key={k}
+                                                                            value={poNumDisplay}
+                                                                        >
+                                                                            {poNumDisplay}
+                                                                        </SelectItem>
+                                                                    )
+                                                                })}
                                                             </SelectContent>
                                                         </Select>
                                                     </FormControl>
@@ -802,7 +803,7 @@ export default () => {
                                                                         indentSheetData
                                                                             .filter(
                                                                                 (i: any) =>
-                                                                                    (i.approvedVendorName || i.approved_vendor_name) && 
+                                                                                    (i.approvedVendorName || i.approved_vendor_name) &&
                                                                                     (i.approvedVendorName || i.approved_vendor_name) !== ''
                                                                             )
                                                                             .map((i: any) => [i.approvedVendorName || i.approved_vendor_name, i])
