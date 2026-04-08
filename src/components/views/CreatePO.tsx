@@ -193,8 +193,8 @@ export default () => {
         gstin: z.string().nonempty(),
         quotationNumber: z.string().optional().default(''),
         quotationDate: z.coerce.date().optional(),
-        ourEnqNo: z.string(),
-        enquiryDate: z.coerce.date(),
+        ourEnqNo: z.string().optional(),
+        enquiryDate: z.coerce.date().optional(),
         description: z.string().optional().default(''), // Made optional
         indents: z
             .array(
@@ -471,9 +471,9 @@ export default () => {
                 orderNumber: poNumber,
                 orderDate: formatDate(values.poDate),
                 quotationNumber: values.quotationNumber,
-                quotationDate: formatDate(values.quotationDate),
-                enqNo: values.ourEnqNo,
-                enqDate: formatDate(values.enquiryDate),
+                quotationDate: values.quotationDate ? formatDate(values.quotationDate) : '',
+                enqNo: values.ourEnqNo || '',
+                enqDate: values.enquiryDate ? formatDate(values.enquiryDate) : '',
                 description: values.description,
                 items: values.indents.map((item) => {
                     const indent = enrichedFetchedIndents.find((i: any) => i.indentNumber === item.indentNumber) ||
