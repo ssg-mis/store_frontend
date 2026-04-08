@@ -24,72 +24,10 @@ import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/QuotationPdf';
 import { Checkbox } from '../ui/checkbox';
-import { Plus, Search as SearchIcon } from 'lucide-react'; // Added icons
+import { Search as SearchIcon } from 'lucide-react'; // Added icons
 
 
-const AddMasterDataSection = ({
-  placeholder,
-  onAdd,
-}: {
-  placeholder: string;
-  onAdd: (name: string) => Promise<void>;
-}) => {
-  const [name, setName] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
 
-  const handleAdd = async () => {
-    if (!name.trim()) {
-      toast.error(`${placeholder} name cannot be empty`);
-      return;
-    }
-    setIsAdding(true);
-    try {
-      await onAdd(name.trim());
-      toast.success(`${placeholder} added successfully`);
-      setName('');
-    } catch (error: any) {
-      toast.error('Failed to add: ' + error.message);
-    } finally {
-      setIsAdding(false);
-    }
-  };
-
-  return (
-    <div
-      className="flex items-center gap-2 p-2 border-b sticky top-0 bg-popover z-10"
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <Input
-        placeholder={`Add new ${placeholder.toLowerCase()}...`}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            handleAdd();
-          }
-        }}
-        className="h-8"
-      />
-      <Button
-        size="icon"
-        variant="ghost"
-        type="button"
-        disabled={isAdding}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleAdd();
-        }}
-        className="h-8 w-8"
-      >
-        {isAdding ? <Loader size={12} color="currentColor" /> : <Plus className="h-4 w-4" />}
-      </Button>
-    </div>
-  );
-};
 
 
 type Mode = 'create' | 'revise';
@@ -187,15 +125,7 @@ export default function QuotationPage() {
   const [fullMasterData, setFullMasterData] = useState<MasterDataRow[]>([]);
 
 
-  const handleAddMasterData = async (columnName: string, value: string) => {
-    const payload = { [columnName]: value };
-    const result = await postToSheet([payload], 'insert', 'MASTER');
-    if (result.success) {
-      updateMasterSheet();
-    } else {
-      throw new Error('Failed to save to master');
-    }
-  };
+
 
 
   // Editable cards: make Billing and Destination editable (last two cards)
@@ -754,12 +684,6 @@ export default function QuotationPage() {
                                   <SelectValue placeholder="Select suppliers from MASTER sheet" />
                                 </SelectTrigger>
                                 <SelectContent className="z-[100] max-h-[300px]">
-                                   <AddMasterDataSection
-                                      placeholder="Vendor"
-                                      onAdd={async (val) => {
-                                        await handleAddMasterData('vendor_name', val);
-                                      }}
-                                    />
                                   {masterSuppliers.length === 0 ? (
                                     <SelectItem value="no-suppliers" disabled>
                                       No suppliers found in MASTER sheet

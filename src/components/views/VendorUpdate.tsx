@@ -22,76 +22,14 @@ import { Input } from '../ui/input';
 import { PuffLoader as Loader } from 'react-spinners';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { UserCheck, PenSquare, Plus } from 'lucide-react';
+import { UserCheck, PenSquare } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
 import { Pill } from '../ui/pill';
 import { formatDate } from '@/lib/utils';
 
-const AddVendorSection = ({ onVendorAdded }: { onVendorAdded: () => Promise<void> }) => {
-    const [name, setName] = useState('');
-    const [isAdding, setIsAdding] = useState(false);
 
-    const handleAdd = async () => {
-        if (!name.trim()) {
-            toast.error('Vendor name cannot be empty');
-            return;
-        }
-        setIsAdding(true);
-        try {
-            const payload = { vendor_name: name.trim() };
-            const result = await postToSheet([payload as any], 'insert', 'MASTER');
-            if (result.success) {
-                toast.success('New vendor added');
-                setName('');
-                await onVendorAdded();
-            } else {
-                throw new Error('API save failed');
-            }
-        } catch (error: any) {
-            toast.error('Failed to add vendor: ' + error.message);
-        } finally {
-            setIsAdding(false);
-        }
-    };
-
-    return (
-        <div
-            className="flex items-center gap-2 p-2 border-b"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-        >
-            <Input
-                placeholder="Add new vendor..."
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAdd();
-                    }
-                }}
-                className="h-8"
-            />
-            <Button
-                size="icon"
-                variant="ghost"
-                type="button"
-                disabled={isAdding}
-                onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleAdd();
-                }}
-                className="h-8 w-8"
-            >
-                {isAdding ? <Loader size={12} color="currentColor" /> : <Plus className="h-4 w-4" />}
-            </Button>
-        </div>
-    );
-};
 
 interface VendorUpdateData {
     id: number;
@@ -128,7 +66,7 @@ interface HistoryData {
 
 export default () => {
     const { user } = useAuth();
-    const { updateIndentSheet } = useSheets();
+    const { updateIndentSheet, updateRelatedSheets } = useSheets();
 
     const [selectedIndent, setSelectedIndent] = useState<VendorUpdateData | null>(null);
     const [selectedHistory, setSelectedHistory] = useState<HistoryData | null>(null);
@@ -143,7 +81,18 @@ export default () => {
     const [dataLoading, setDataLoading] = useState(true);
     const [paymentTerms, setPaymentTerms] = useState<string[]>([]);
     const [paymentTermsLoading, setPaymentTermsLoading] = useState(true);
-    const [newPaymentTerm, setNewPaymentTerm] = useState('');
+
+    // Filter states
+    const [pendingFilters, setPendingFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
+    const [historyFilters, setHistoryFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
 
     const refreshVendors = async () => {
         const vendorsList = await fetchVendors();
@@ -181,30 +130,7 @@ export default () => {
         fetchPaymentTerms();
     }, []);
 
-    const handleAddPaymentTerm = async () => {
-        const trimmed = newPaymentTerm.trim();
-        if (!trimmed) {
-            toast.error('Please enter a payment term');
-            return;
-        }
-        if (paymentTerms.includes(trimmed)) {
-            toast.error('Payment term already exists');
-            return;
-        }
-        try {
-            const payload = { payment_term: trimmed };
-            const result = await postToSheet([payload as any], 'insert', 'MASTER');
-            if (result.success) {
-                setPaymentTerms(prev => [...prev, trimmed]);
-                setNewPaymentTerm('');
-                toast.success(`Added payment term: ${trimmed}`);
-            } else {
-                throw new Error('API save failed');
-            }
-        } catch (err: any) {
-            toast.error('Failed to add: ' + err.message);
-        }
-    };
+
 
     const fetchData = async () => {
         setDataLoading(true);
@@ -378,6 +304,69 @@ export default () => {
     const handleInputChange = (field: keyof HistoryData, value: any) => {
         setEditValues(prev => ({ ...prev, [field]: value }));
     };
+
+    // Helper to get unique filter options
+    const getFilterOptions = (data: any[], key: string) => {
+        const options = [...new Set(data.map(item => (item as any)[key]).filter(Boolean))].sort();
+        return ['All', ...options];
+    };
+
+    // Derived filtered data
+    const filteredTableData = tableData.filter(item => {
+        return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
+               (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
+               (pendingFilters.product === 'All' || item.product === pendingFilters.product);
+    });
+
+    const filteredHistoryData = historyData.filter(item => {
+        return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
+               (historyFilters.department === 'All' || item.department === historyFilters.department) &&
+               (historyFilters.product === 'All' || item.product === historyFilters.product);
+    });
+
+    const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'indenter').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'department').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'product').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
 
     // Creating table columns
     const columns: ColumnDef<VendorUpdateData>[] = [
@@ -628,7 +617,6 @@ export default () => {
                             <SelectValue placeholder="Select vendor" />
                         </SelectTrigger>
                         <SelectContent>
-                            <AddVendorSection onVendorAdded={refreshVendors} />
                             <div className="max-h-[200px] overflow-y-auto">
                                 {vendorsLoading ? (
                                     <div className="py-6 text-center text-sm text-muted-foreground">
@@ -783,6 +771,7 @@ export default () => {
             regularForm.reset();
 
             await fetchData();
+            updateRelatedSheets();
         } catch (error: any) {
             console.error('Error submitting regular vendor rate:', error);
             toast.error('Failed to submit: ' + error.message);
@@ -875,6 +864,7 @@ export default () => {
             threePartyForm.reset();
 
             await fetchData();
+            updateRelatedSheets();
         } catch (error: any) {
             console.error('Error submitting vendor rates:', error);
             toast.error('Failed to submit: ' + error.message);
@@ -956,22 +946,28 @@ export default () => {
                     >
                         <UserCheck size={50} className="text-primary" />
                     </Heading>
-                    <TabsContent value="pending">
-                        <DataTable
-                            data={tableData}
-                            columns={columns}
-                            searchFields={['indentNo', 'product', 'department', 'indenter', 'vendorType', 'vendorName', 'date']}
-                            dataLoading={dataLoading}
-                        />
-                    </TabsContent>
-                    <TabsContent value="history">
-                        <DataTable
-                            data={historyData}
-                            columns={historyColumns}
-                            searchFields={['indentNo', 'product', 'department', 'indenter', 'vendorType', 'vendorName', 'date']}
-                            dataLoading={dataLoading}
-                        />
-                    </TabsContent>
+                    <TabsContent value="pending" className="w-full">
+                    <DataTable
+                        data={filteredTableData}
+                        columns={columns}
+                        searchFields={['indentNo', 'product', 'department', 'indenter']}
+                        dataLoading={dataLoading}
+                        extraActions={
+                            <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                        }
+                    />
+                </TabsContent>
+                <TabsContent value="history" className="w-full">
+                    <DataTable
+                        data={filteredHistoryData}
+                        columns={historyColumns}
+                        searchFields={['indentNo', 'product', 'department', 'indenter', 'vendorName']}
+                        dataLoading={dataLoading}
+                        extraActions={
+                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                        }
+                    />
+                </TabsContent>
 
                 </Tabs>
                 {selectedIndent ? (
@@ -1043,7 +1039,6 @@ export default () => {
                                                                         </SelectTrigger>
                                                                     </FormControl>
                                                                     <SelectContent>
-                                                                        <AddVendorSection onVendorAdded={refreshVendors} />
                                                                         <div className="max-h-[300px] overflow-y-auto">
                                                                             {vendorsLoading ? (
                                                                                 <div className="py-6 text-center text-sm text-muted-foreground">
@@ -1100,26 +1095,6 @@ export default () => {
                                                                         </SelectTrigger>
                                                                     </FormControl>
                                                                     <SelectContent>
-                                                                        <div className="p-2 border-b">
-                                                                            <div className="flex items-center gap-1">
-                                                                                <Input
-                                                                                    placeholder="New payment term..."
-                                                                                    className="h-8 text-sm"
-                                                                                    value={newPaymentTerm}
-                                                                                    onChange={(e) => setNewPaymentTerm(e.target.value)}
-                                                                                    onClick={(e) => e.stopPropagation()}
-                                                                                    onKeyDown={(e) => e.stopPropagation()}
-                                                                                />
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    size="icon"
-                                                                                    className="h-8 w-8 shrink-0"
-                                                                                    onClick={(e) => { e.stopPropagation(); handleAddPaymentTerm(); }}
-                                                                                >
-                                                                                    <Plus className="h-4 w-4" />
-                                                                                </Button>
-                                                                            </div>
-                                                                        </div>
                                                                         <div className="max-h-[200px] overflow-y-auto">
                                                                             {paymentTermsLoading ? (
                                                                                 <div className="py-6 text-center text-sm text-muted-foreground">Loading...</div>
@@ -1239,20 +1214,19 @@ export default () => {
                                                                     <SelectValue placeholder="Select vendor" />
                                                                 </SelectTrigger>
                                                             </FormControl>
-                                                            <SelectContent>
-                                                                <div className="p-2 border-b space-y-2">
-                                                                    <div className="flex items-center border-b px-2 pb-1">
-                                                                        <Input
-                                                                            placeholder="Search vendors..."
-                                                                            className="h-8 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                                                                            value={vendorSearch}
-                                                                            onChange={(e) => setVendorSearch(e.target.value)}
-                                                                            onClick={(e) => e.stopPropagation()}
-                                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                                        />
-                                                                    </div>
-                                                                    <AddVendorSection onVendorAdded={refreshVendors} />
-                                                                </div>
+                                                                    <SelectContent>
+                                                                        <div className="p-2 border-b space-y-2">
+                                                                            <div className="flex items-center border-b px-2 pb-1">
+                                                                                <Input
+                                                                                    placeholder="Search vendors..."
+                                                                                    className="h-8 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                                                                                    value={vendorSearch}
+                                                                                    onChange={(e) => setVendorSearch(e.target.value)}
+                                                                                    onClick={(e) => e.stopPropagation()}
+                                                                                    onKeyDown={(e) => e.stopPropagation()}
+                                                                                />
+                                                                            </div>
+                                                                        </div>
                                                                 <div className="max-h-[200px] overflow-y-auto">
                                                                     {vendorsLoading ? (
                                                                         <div className="py-6 text-center text-sm text-muted-foreground">
@@ -1305,26 +1279,6 @@ export default () => {
                                                             </SelectTrigger>
                                                         </FormControl>
                                                         <SelectContent>
-                                                            <div className="p-2 border-b">
-                                                                <div className="flex items-center gap-1">
-                                                                    <Input
-                                                                        placeholder="New payment term..."
-                                                                        className="h-8 text-sm"
-                                                                        value={newPaymentTerm}
-                                                                        onChange={(e) => setNewPaymentTerm(e.target.value)}
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                        onKeyDown={(e) => e.stopPropagation()}
-                                                                    />
-                                                                    <Button
-                                                                        type="button"
-                                                                        size="icon"
-                                                                        className="h-8 w-8 shrink-0"
-                                                                        onClick={(e) => { e.stopPropagation(); handleAddPaymentTerm(); }}
-                                                                    >
-                                                                        <Plus className="h-4 w-4" />
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
                                                             <div className="max-h-[200px] overflow-y-auto">
                                                                 {paymentTermsLoading ? (
                                                                     <div className="py-6 text-center text-sm text-muted-foreground">Loading...</div>

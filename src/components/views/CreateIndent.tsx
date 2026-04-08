@@ -15,7 +15,7 @@ import {
     SelectItem,
 } from '@/components/ui/select';
 import { ClipLoader as Loader } from 'react-spinners';
-import { ClipboardList, Trash, Search, Plus } from 'lucide-react'; // Plus ko import karo
+import { ClipboardList, Trash, Search } from 'lucide-react'; // Plus ko import karo
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
@@ -23,69 +23,7 @@ import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated } from '
 import Heading from '../element/Heading';
 import { useEffect, useState } from 'react';
 
-const AddMasterDataSection = ({
-    placeholder,
-    onAdd,
-}: {
-    placeholder: string;
-    onAdd: (name: string) => Promise<void>;
-}) => {
-    const [name, setName] = useState('');
-    const [isAdding, setIsAdding] = useState(false);
 
-    const handleAdd = async () => {
-        if (!name.trim()) {
-            toast.error(`${placeholder} name cannot be empty`);
-            return;
-        }
-        setIsAdding(true);
-        try {
-            await onAdd(name.trim());
-            toast.success(`${placeholder} added successfully`);
-            setName('');
-        } catch (error: any) {
-            toast.error('Failed to add: ' + error.message);
-        } finally {
-            setIsAdding(false);
-        }
-    };
-
-    return (
-        <div
-            className="flex items-center gap-2 p-2 border-b sticky top-0 bg-popover z-10"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-        >
-            <Input
-                placeholder={`Add new ${placeholder.toLowerCase()}...`}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAdd();
-                    }
-                }}
-                className="h-8"
-            />
-            <Button
-                size="icon"
-                variant="ghost"
-                type="button"
-                disabled={isAdding}
-                onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleAdd();
-                }}
-                className="h-8 w-8"
-            >
-                {isAdding ? <Loader size={12} color="currentColor" /> : <Plus className="h-4 w-4" />}
-            </Button>
-        </div>
-    );
-};
 
 
 export default () => {
@@ -181,19 +119,7 @@ export default () => {
         }
     };
 
-    // Function to submit new product to master table
-    const handleAddMasterData = async (columnName: string, value: string, additionalData: any = {}) => {
-        const payload = {
-            [columnName]: value,
-            ...additionalData
-        };
-        const result = await postToSheet([payload], 'insert', 'MASTER');
-        if (result.success) {
-            await refreshMaster();
-        } else {
-            throw new Error('Failed to save to master');
-        }
-    };
+
 
     async function onSubmit(data: z.infer<typeof schema>) {
         try {
@@ -428,13 +354,6 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                 <AddMasterDataSection
-                                                                    placeholder="Department"
-                                                                    onAdd={async (val) => {
-                                                                        await handleAddMasterData('department', val);
-                                                                        form.setValue(`products.${index}.department`, val);
-                                                                    }}
-                                                                />
                                                                 <div className="flex items-center border-b px-3 pb-3">
                                                                     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                                                                     <input
@@ -495,15 +414,6 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                 <AddMasterDataSection
-                                                                    placeholder="Category"
-                                                                    onAdd={async (val) => {
-                                                                        await handleAddMasterData('groupHead', val, {
-                                                                            group_head: val, // Keep both in sync for database compatibility
-                                                                        });
-                                                                        form.setValue(`products.${index}.createGroupHead`, val);
-                                                                    }}
-                                                                />
                                                                 <div className="flex items-center border-b px-3 pb-3">
                                                                     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                                                                     <input
@@ -585,20 +495,6 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                 <AddMasterDataSection
-                                                                    placeholder="Product"
-                                                                    onAdd={async (val) => {
-                                                                        if (!createGroupHead) {
-                                                                            toast.error('Please select a category first');
-                                                                            return;
-                                                                        }
-                                                                        await handleAddMasterData('itemName', val, {
-                                                                            groupHead: createGroupHead,
-                                                                            group_head: createGroupHead,
-                                                                        });
-                                                                        form.setValue(`products.${index}.productName`, val);
-                                                                    }}
-                                                                />
                                                                 <div className="flex items-center border-b px-3 pb-3">
                                                                     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                                                                     <input

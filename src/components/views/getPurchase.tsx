@@ -99,7 +99,7 @@ interface ProductDetail {
 }
 
 export default () => {
-    const { indentSheet, indentLoading, updateIndentSheet } = useSheets();
+    const { indentSheet, indentLoading, updateIndentSheet, updateRelatedSheets } = useSheets();
     const { user } = useAuth();
 
 
@@ -112,6 +112,18 @@ export default () => {
     const [relatedProducts, setRelatedProducts] = useState<ProductDetail[]>([]);
     const [productRates, setProductRates] = useState<{ [indentNo: string]: number }>({});
     const [productQty, setProductQty] = useState<{ [indentNo: string]: number }>({});
+
+    // Filter states
+    const [pendingFilters, setPendingFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
+    const [historyFilters, setHistoryFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
     const [editingRow, setEditingRow] = useState<string | null>(null);
     const [editedData, setEditedData] = useState<{ [indentNo: string]: EditedData }>({});
     const [editingCell, setEditingCell] = useState<{ rowId: string; field: 'product' | 'billedQty' | 'billAmount' } | null>(null);
@@ -299,6 +311,69 @@ export default () => {
         };
         fetchMasterItems();
     }, []);
+
+    // Helper to get unique filter options
+    const getFilterOptions = (data: any[], key: string) => {
+        const options = [...new Set(data.map(item => (item as any)[key]).filter(Boolean))].sort();
+        return ['All', ...options];
+    };
+
+    // Derived filtered data
+    const filteredTableData = tableData.filter(item => {
+        return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
+               (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
+               (pendingFilters.product === 'All' || item.product === pendingFilters.product);
+    });
+
+    const filteredHistoryData = historyData.filter(item => {
+        return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
+               (historyFilters.department === 'All' || item.department === historyFilters.department) &&
+               (historyFilters.product === 'All' || item.product === historyFilters.product);
+    });
+
+    const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'indenter').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'department').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'product').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
 
     // Per-cell inline edit handlers for history tab
     const handleStartCellEdit = (rowId: string, field: 'product' | 'billedQty' | 'billAmount', currentValue: string | number) => {
@@ -890,6 +965,7 @@ export default () => {
             setTimeout(() => {
                 fetchTableData();
                 updateIndentSheet();
+                updateRelatedSheets();
             }, 500);
         } catch (error: any) {
             console.error('Detailed submission error:', error);
@@ -924,18 +1000,24 @@ export default () => {
 
                     <TabsContent value="pending">
                         <DataTable
-                            data={tableData}
+                            data={filteredTableData}
                             columns={columns}
                             searchFields={['indentNo', 'poNumber', 'product', 'department', 'indenter', 'date', 'billNumber']}
                             dataLoading={loading}
+                            extraActions={
+                                <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                            }
                         />
                     </TabsContent>
                     <TabsContent value="history">
                         <DataTable
-                            data={historyData}
+                            data={filteredHistoryData}
                             columns={historyColumns}
                             searchFields={['indentNo', 'poNumber', 'product', 'department', 'indenter', 'date', 'billNumber']}
                             dataLoading={indentLoading}
+                            extraActions={
+                                <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                            }
                         />
                     </TabsContent>
                 </Tabs>

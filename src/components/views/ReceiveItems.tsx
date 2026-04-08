@@ -40,6 +40,7 @@ interface RecieveItemsData {
     product: string;
     uom: string;
     quantity: number;
+    rate?: number; // Added
     receivedQty?: number;
     remainingQty?: number;
     poCopy: string;
@@ -61,6 +62,8 @@ interface HistoryData {
     photoOfProduct: string;
     warrantyStatus: string;
     warrantyEndDate: string;
+    rate?: number; // Added
+    amount?: number; // Added
     billStatus: string;
     billNumber: string;
     billAmount: number;
@@ -74,7 +77,7 @@ const ReceiveItems = () => {
     const [localIndentLoading, setLocalIndentLoading] = useState(false);
     const [localReceivedLoading, setLocalReceivedLoading] = useState(false);
     const { user } = useAuth();
-    const { updateIndentSheet, updateReceivedSheet } = useSheets();
+    const { updateIndentSheet, updateReceivedSheet, updateRelatedSheets } = useSheets();
 
     const [tableData, setTableData] = useState<RecieveItemsData[]>([]);
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);
@@ -86,6 +89,16 @@ const ReceiveItems = () => {
     const [editCellValue, setEditCellValue] = useState<string | number>('');
     const [masterItems, setMasterItems] = useState<string[]>([]);
     const [productSearch, setProductSearch] = useState('');
+
+    // Filter states
+    const [pendingFilters, setPendingFilters] = useState({
+        product: 'All',
+        vendor: 'All',
+    });
+    const [historyFilters, setHistoryFilters] = useState({
+        product: 'All',
+        vendor: 'All',
+    });
 
     useEffect(() => {
         const fetchPendingItems = async () => {
@@ -141,6 +154,7 @@ const ReceiveItems = () => {
                         poCopy: po.pdf,
                         vendor: po.partyName || po.party_name,
                         quantity: poQty,
+                        rate: Number(po.rate) || 0,
                         receivedQty: totalReceived,
                         remainingQty: remainingQty,
                         poDate: po.createdAt || po.created_at,
@@ -253,6 +267,54 @@ const ReceiveItems = () => {
         setEditCellValue('');
         setProductSearch('');
     };
+
+    // Helper to get unique filter options
+    const getFilterOptions = (data: any[], key: string) => {
+        const options = [...new Set(data.map(item => (item as any)[key]).filter(Boolean))].sort();
+        return ['All', ...options];
+    };
+
+    // Derived filtered data
+    const filteredTableData = tableData.filter(item => {
+        return (pendingFilters.product === 'All' || item.product === pendingFilters.product) &&
+               (pendingFilters.vendor === 'All' || item.vendor === pendingFilters.vendor);
+    });
+
+    const filteredHistoryData = historyData.filter(item => {
+        return (historyFilters.product === 'All' || item.product === historyFilters.product) &&
+               (historyFilters.vendor === 'All' || item.vendor === historyFilters.vendor);
+    });
+
+    const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
+                <SelectTrigger className="h-7 w-[160px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'product').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.vendor} onValueChange={(val) => setFilters({ ...filters, vendor: val })}>
+                <SelectTrigger className="h-7 w-[160px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Vendor:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'vendor').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
 
     const handleSaveCellEdit = async () => {
         if (!editingCell) return;
@@ -369,7 +431,7 @@ const ReceiveItems = () => {
             ),
         },
         { accessorKey: 'uom', header: 'UOM' },
-        { accessorKey: 'quantity', header: 'Ordered Qty' },
+        { accessorKey: 'quantity', header: 'Purchase Qty' },
         { accessorKey: 'receivedQty', header: 'Received Qty' },
         { accessorKey: 'remainingQty', header: 'Remaining Qty' },
         {
@@ -477,7 +539,7 @@ const ReceiveItems = () => {
         },
         {
             accessorKey: 'orderQuantity',
-            header: 'Order Quantity',
+            header: 'Purchase Qty',
             cell: ({ row }: { row: Row<HistoryData> }) => {
                 const item = row.original;
                 const isCellEditing = editingCell?.rowId === item.indentNumber && editingCell?.field === 'orderQuantity';
@@ -575,54 +637,25 @@ const ReceiveItems = () => {
         { accessorKey: 'billAmount', header: 'Bill Amount' },
     ];
 
-    // Updated Schema - status ko top level pe add kiya
-    const schema = z
-        .object({
-            status: z.enum(['Received', 'Not Received']),
-            items: z.array(
-                z.object({
-                    indentNumber: z.string(),
-                    quantity: z.coerce.number().optional().default(0),
-                })
-            ),
-            billReceived: z.enum(['Received', 'Not Received']).optional(),
-            billAmount: z.coerce.number().optional(),
-            photoOfBill: z.instanceof(File).optional(),
-        })
-        .superRefine((data, ctx) => {
-            if (data.status === 'Received') {
-                data.items.forEach((item, index) => {
-                    if (item.quantity === undefined || item.quantity === 0) {
-                        ctx.addIssue({
-                            path: ['items', index, 'quantity'],
-                            code: z.ZodIssueCode.custom,
-                            message: 'Quantity required',
-                        });
-                    }
-                });
-            }
-
-            if (data.billReceived === 'Received') {
-                if (data.billAmount === undefined) {
-                    ctx.addIssue({ path: ['billAmount'], code: z.ZodIssueCode.custom });
-                }
-            }
-        });
+    // Updated Schema
+    const schema = z.object({
+        items: z.array(
+            z.object({
+                indentNumber: z.string(),
+                quantity: z.coerce.number().min(1, 'Quantity required'),
+            })
+        ),
+        photoOfBill: z.instanceof(File).optional(),
+    });
 
     // Updated Form
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
-            status: "" as any,
             items: [],
-            billAmount: 0,
             photoOfBill: undefined,
-            billReceived: "" as any,
         },
     });
-
-    const status = form.watch('status');
-    const billReceived = form.watch('billReceived');
 
     // Updated useEffect for matching indents
     useEffect(() => {
@@ -641,11 +674,8 @@ const ReceiveItems = () => {
         } else if (!openDialog) {
             setMatchingIndents([]);
             form.reset({
-                status: "" as any,
                 items: [],
-                billAmount: 0,
                 photoOfBill: undefined,
-                billReceived: "" as any,
             });
         }
     }, [selectedIndent, openDialog, tableData, form]);
@@ -701,16 +731,22 @@ const ReceiveItems = () => {
                     delayValue = diffMs >= 0 ? `+${formatted}` : `-${formatted}`;
                 }
 
+                const originalItem = matchingIndents.find(i => i.indentNumber === item.indentNumber);
+                const rate = originalItem?.rate || 0;
+                const calculatedAmount = rate * item.quantity;
+
                 return {
                     indent_number: item.indentNumber,
                     poDate: selectedIndent?.poDate ? new Date(selectedIndent.poDate).toISOString() : new Date().toISOString(),
                     poNumber: selectedIndent?.poNumber || '',
                     vendor: selectedIndent?.vendor || '',
-                    receivedStatus: values.status,
-                    receivedQuantity: item.quantity,
-                    uom: matchingIndents.find(i => i.indentNumber === item.indentNumber)?.uom || '',
-                    billStatus: values.billReceived || 'Not Received',
-                    billAmount: values.billAmount || 0,
+                    receivedStatus: 'Received',
+                    received_quantity: item.quantity, // Correct key
+                    uom: originalItem?.uom || '',
+                    bill_status: 'Not Received', // Correct key
+                    rate: rate, // Added
+                    amount: calculatedAmount, // Added
+                    bill_amount: 0, // Correct key
                     photoOfBill: billPhotoUrl,
                     delay: delayValue,
                     planned: plannedDate ? plannedDate.toISOString() : null,
@@ -731,7 +767,7 @@ const ReceiveItems = () => {
                 const updatePayload: any = {
                     id: item.indentNumber,
                     indentNumber: item.indentNumber,
-                    receive_status: values.status
+                    receive_status: 'Received'
                 };
 
                 if (remaining === 0) {
@@ -746,6 +782,7 @@ const ReceiveItems = () => {
             toast.success(`Items received for PO ${selectedIndent?.poNumber}`);
             updateIndentSheet(); // Update context for sidebar
             updateReceivedSheet(); // Update context for history
+            updateRelatedSheets(); // Update badge counts for Receive Items sidebar badge
             setOpenDialog(false);
 
             // Refresh using the existing fetchPendingItems logic (which uses API)
@@ -782,6 +819,7 @@ const ReceiveItems = () => {
                         poCopy: po.pdf,
                         vendor: po.partyName || po.party_name,
                         quantity: poQty,
+                        rate: Number(po.rate) || 0,
                         receivedQty: totalReceived,
                         remainingQty: remainingQty,
                         poDate: po.createdAt || po.created_at,
@@ -819,36 +857,39 @@ const ReceiveItems = () => {
 
                     <TabsContent value="pending">
                         <DataTable
-                            data={tableData}
+                            data={filteredTableData}
                             columns={columns}
-                            searchFields={['indentNumber', 'poNumber', 'poDate', 'vendor', 'product', 'department', 'indenter', 'vendorType']}
+                            searchFields={['indentNumber', 'poNumber', 'product', 'vendor', 'poDate']}
                             dataLoading={localIndentLoading}
                             extraActions={
-                                <Button
-                                    variant="default"
-                                    onClick={onDownloadClick}
-                                    style={{
-                                        background: "linear-gradient(90deg, #4CAF50, #2E7D32)",
-                                        border: "none",
-                                        borderRadius: "8px",
-                                        padding: "0 16px",
-                                        fontWeight: "bold",
-                                        boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "8px",
-                                    }}
-                                >
-                                    <DownloadOutlined />
-                                    {loading ? "Downloading..." : "Download"}
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                    <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                                    <Button
+                                        variant="default"
+                                        onClick={onDownloadClick}
+                                        style={{
+                                            background: "linear-gradient(90deg, #4CAF50, #2E7D32)",
+                                            border: "none",
+                                            borderRadius: "8px",
+                                            padding: "0 16px",
+                                            fontWeight: "bold",
+                                            boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                        }}
+                                    >
+                                        <DownloadOutlined />
+                                        {loading ? "Downloading..." : "Download"}
+                                    </Button>
+                                </div>
                             }
                         />
                     </TabsContent>
 
                     <TabsContent value="history">
                         <DataTable
-                            data={historyData}
+                            data={filteredHistoryData}
                             columns={historyColumns}
                             searchFields={[
                                 'indentNumber',
@@ -861,6 +902,9 @@ const ReceiveItems = () => {
                                 'billNumber'
                             ]}
                             dataLoading={localReceivedLoading}
+                            extraActions={
+                                <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                            }
                         />
                     </TabsContent>
                 </Tabs>
@@ -889,98 +933,18 @@ const ReceiveItems = () => {
                                     </p>
                                 </div>
 
-                                {/* Common Receive Status Field - TOP ME */}
-                                <div className="border-b pb-4">
-                                    <FormField
-                                        control={form.control}
-                                        name="status"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Receiving Status (Common for all items)</FormLabel>
-                                                <FormControl>
-                                                    <Select
-                                                        onValueChange={field.onChange}
-                                                        value={field.value}
-                                                    >
-                                                        <SelectTrigger className="w-full">
-                                                            <SelectValue placeholder="Set status" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="Received">
-                                                                Received
-                                                            </SelectItem>
-                                                            <SelectItem value="Not Received">
-                                                                Not Received
-                                                            </SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-
                                 {/* Common fields */}
                                 <div className="space-y-4">
-                                    <h3 className="text-sm sm:text-base font-semibold">Common Fields for All Items</h3>
-
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                                        <FormField
-                                            control={form.control}
-                                            name="billReceived"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Bill Received</FormLabel>
-                                                    <FormControl>
-                                                        <Select
-                                                            onValueChange={field.onChange}
-                                                            value={field.value}
-                                                        >
-                                                            <SelectTrigger className="w-full">
-                                                                <SelectValue placeholder="Set bill received" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="Received">
-                                                                    Received
-                                                                </SelectItem>
-                                                                <SelectItem value="Not Received">
-                                                                    Not Received
-                                                                </SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-
-                                        <FormField
-                                            control={form.control}
-                                            name="billAmount"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Bill Amount</FormLabel>
-                                                    <FormControl>
-                                                        <Input
-                                                            type="number"
-                                                            disabled={billReceived !== 'Received'}
-                                                            placeholder="Enter bill amount"
-                                                            {...field}
-                                                        />
-                                                    </FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-
                                         <FormField
                                             control={form.control}
                                             name="photoOfBill"
                                             render={({ field }) => (
                                                 <FormItem>
-                                                    <FormLabel>Photo of Bill</FormLabel>
+                                                    <FormLabel>Photo of Items</FormLabel>
                                                     <FormControl>
                                                         <Input
                                                             type="file"
-                                                            disabled={billReceived !== 'Received'}
                                                             onChange={(e) =>
                                                                 field.onChange(e.target.files?.[0])
                                                             }
@@ -1004,7 +968,7 @@ const ReceiveItems = () => {
                                                     <tr>
                                                         <th className="p-2 text-left text-sm font-medium">Indent Number</th>
                                                         <th className="p-2 text-left text-sm font-medium">Item Name</th>
-                                                        <th className="p-2 text-left text-sm font-medium">Ordered Qty</th>
+                                                        <th className="p-2 text-left text-sm font-medium">Purchase Qty</th>
                                                         <th className="p-2 text-left text-sm font-medium">UOM</th>
                                                         <th className="p-2 text-left text-sm font-medium">Received Qty</th>
                                                     </tr>
@@ -1029,7 +993,6 @@ const ReceiveItems = () => {
                                                                                         className="h-8"
                                                                                         placeholder="Qty"
                                                                                         max={indent.remainingQty}
-                                                                                        disabled={status !== 'Received'}
                                                                                         {...field}
                                                                                     />
                                                                                     <span className="text-xs text-muted-foreground mt-1">
@@ -1068,7 +1031,7 @@ const ReceiveItems = () => {
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-2">
                                                     <div>
-                                                        <p className="text-xs text-muted-foreground">Ordered Qty</p>
+                                                        <p className="text-xs text-muted-foreground">Purchase Qty</p>
                                                         <p className="font-medium">{indent.quantity}</p>
                                                     </div>
                                                     <div>
@@ -1087,7 +1050,6 @@ const ReceiveItems = () => {
                                                                                 className="h-9"
                                                                                 placeholder="Qty"
                                                                                 max={indent.remainingQty}
-                                                                                disabled={status !== 'Received'}
                                                                                 {...field}
                                                                             />
                                                                             <span className="text-xs text-muted-foreground mt-1">

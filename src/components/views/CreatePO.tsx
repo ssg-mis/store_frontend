@@ -93,7 +93,7 @@ function filterUniquePoNumbers(data: any[]): any[] {
 }
 
 export default () => {
-    const { updateIndentSheet, updatePoMasterSheet } = useSheets();
+    const { updateIndentSheet, updatePoMasterSheet, updateRelatedSheets } = useSheets();
     const [indentSheetData, setIndentSheetData] = useState<any[]>([]);
     const [approvalsData, setApprovalsData] = useState<any[]>([]);
     const [poMasterSheetData, setPoMasterSheetData] = useState<any[]>([]);
@@ -404,10 +404,40 @@ export default () => {
                 mode === 'create'
                     ? values.poNumber
                     : incrementPoRevision(values.poNumber, poMasterSheetData as PoMasterSheet[]);
+
+            // Fetch all indents and approvals associated with this PO to ensure we have correct data and IDs
+            const indentNumbers = values.indents.map(i => i.indentNumber);
+            const [allIndentsForPO, approvals] = await Promise.all([
+                fetchFromSupabasePaginated(
+                    'indent',
+                    '*',
+                    { column: 'id', options: { ascending: true } },
+                    (q) => q.in('indentNumber', indentNumbers)
+                ),
+                fetchFromSupabasePaginated(
+                    'three_party_approval',
+                    '*',
+                    { column: 'id', options: { ascending: true } },
+                    (q) => q.in('indentNumber', indentNumbers)
+                )
+            ]);
+
+            // Enrich the fetched indents with approval data (same logic as enrichAndSetData)
+            const enrichedFetchedIndents = allIndentsForPO.map((indent: any) => {
+                const approval = (approvals || []).find((a: any) =>
+                    (a.indentNumber || a.indent_number) === (indent.indentNumber || indent.indent_number)
+                );
+                return {
+                    ...indent,
+                    approvedQuantity: indent.approvedQuantity || indent.approved_quantity || indent.quantity || 0,
+                    approvedRate: approval?.approvedRate ?? indent.approvedRate ?? 0,
+                };
+            });
+
             const grandTotal = calculateGrandTotal(
                 values.indents.map((indent) => {
-                    const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
-                        poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                    const value = enrichedFetchedIndents.find((i: any) => i.indentNumber === indent.indentNumber) ||
+                        poMasterSheetData.find((p: any) => (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
                     return {
                         quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
                         rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
@@ -446,8 +476,8 @@ export default () => {
                 enqDate: formatDate(values.enquiryDate),
                 description: values.description,
                 items: values.indents.map((item) => {
-                    const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === item.indentNumber) ||
-                        poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === item.indentNumber && (p.poNumber || p.po_number || '') === (poNumber || ''));
+                    const indent = enrichedFetchedIndents.find((i: any) => i.indentNumber === item.indentNumber) ||
+                        poMasterSheetData.find((p: any) => (p.internalCode || p.po_number || '') === (item.indentNumber || '') && (p.poNumber || p.po_number || '') === (values.poNumber || ''));
                     return {
                         internalCode: indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || '',
                         product: indent?.productName || indent?.product_name || indent?.product || '',
@@ -467,8 +497,8 @@ export default () => {
                 }),
                 total: calculateSubtotal(
                     values.indents.map((indent) => {
-                        const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
-                            poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                        const value = enrichedFetchedIndents.find((i: any) => i.indentNumber === indent.indentNumber) ||
+                            poMasterSheetData.find((p: any) => (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
                         return {
                             quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
                             rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
@@ -478,8 +508,8 @@ export default () => {
                 ),
                 gstAmount: calculateTotalGst(
                     values.indents.map((indent) => {
-                        const value = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === indent.indentNumber) ||
-                            poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                        const value = enrichedFetchedIndents.find((i: any) => i.indentNumber === indent.indentNumber) ||
+                            poMasterSheetData.find((p: any) => (p.internalCode || p.po_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                         return {
                             quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
                             rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
@@ -535,8 +565,8 @@ export default () => {
 
             // Insert PO data into Supabase
             const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => {
-                const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === v.indentNumber) ||
-                    poMasterSheetData.find((p: any) => (p.internalCode || p.internal_code || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === poNumber);
+                const indent = enrichedFetchedIndents.find((i: any) => i.indentNumber === v.indentNumber) ||
+                    poMasterSheetData.find((p: any) => (p.internalCode || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
 
                 // Validate and process dates
                 const validateDate = (date: Date | null | undefined) => {
@@ -597,7 +627,7 @@ export default () => {
 
             // Update corresponding indent records to sync with Receive Items and Get Purchase stages
             const indentUpdates: any[] = values.indents.map((v) => {
-                const indent = indentSheetData.find((i: any) => (i.indentNumber || i.indent_number) === v.indentNumber)!;
+                const indent = enrichedFetchedIndents.find((i: any) => i.indentNumber === v.indentNumber);
                 return {
                     id: indent.id,
                     indentNumber: v.indentNumber,
@@ -615,6 +645,7 @@ export default () => {
             toast.success(`Successfully ${mode}d purchase order`);
             updateIndentSheet();
             updatePoMasterSheet();
+            updateRelatedSheets();
             form.reset();
 
             // Refresh data after submission
@@ -679,9 +710,9 @@ export default () => {
                                     className="w-20 h-20 object-contain"
                                 />
                                 <div className="text-center">
-                                    <h1 className="text-2xl font-bold">Botivate Services LLP</h1>
+                                    <h1 className="text-2xl font-bold">Shri Shyam Oil Extractions Pvt Ltd</h1>
                                     <div>
-                                        <p className="text-sm">Office No. 224, Shree Ram Business Park, Vidhan Sabha Rd, Block-I, Mowa, Raipur, Chhattisgarh 493111</p>
+                                        <p className="text-sm">Banari, Janjgir Champa-495668, Chhattisgarh</p>
                                         <p className="text-sm">Phone No: +919993023243</p>
                                     </div>
                                 </div>
@@ -861,100 +892,6 @@ export default () => {
                                                         readOnly={mode === 'revise'}
                                                         placeholder="Enter GSTIN"
                                                         {...field}
-                                                    />
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-x-5">
-                                    <FormField
-                                        control={form.control}
-                                        name="quotationNumber"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Quotation Number</FormLabel>
-                                                <FormControl>
-                                                    <Input
-                                                        className="h-9"
-                                                        placeholder="Enter Quotation number"
-                                                        {...field}
-                                                    />
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="quotationDate"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Quotation Date</FormLabel>
-                                                <FormControl>
-                                                    <Input
-                                                        className="h-9"
-                                                        type="date"
-                                                        value={
-                                                            field.value
-                                                                ? field.value
-                                                                    .toISOString()
-                                                                    .split('T')[0]
-                                                                : ''
-                                                        }
-                                                        onChange={(e) =>
-                                                            field.onChange(
-                                                                e.target.value
-                                                                    ? new Date(e.target.value)
-                                                                    : undefined
-                                                            )
-                                                        }
-                                                    />
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-x-5">
-                                    <FormField
-                                        control={form.control}
-                                        name="ourEnqNo"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Our Enq No.</FormLabel>
-                                                <FormControl>
-                                                    <Input
-                                                        className="h-9"
-                                                        placeholder="Enter Our Enq No."
-                                                        {...field}
-                                                    />
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="enquiryDate"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Enquiry Date<span className="text-red-500">*</span></FormLabel>
-                                                <FormControl>
-                                                    <Input
-                                                        className="h-9"
-                                                        type="date"
-                                                        value={
-                                                            field.value
-                                                                ? field.value
-                                                                    .toISOString()
-                                                                    .split('T')[0]
-                                                                : ''
-                                                        }
-                                                        onChange={(e) =>
-                                                            field.onChange(
-                                                                e.target.value
-                                                                    ? new Date(e.target.value)
-                                                                    : undefined
-                                                            )
-                                                        }
                                                     />
                                                 </FormControl>
                                             </FormItem>

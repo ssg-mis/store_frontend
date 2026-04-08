@@ -304,6 +304,26 @@ export async function fetchSheet(
         return toCamelCase(data) as InventorySheet[];
     }
 
+    if (sheetName === 'GET_PURCHASE' || sheetName === 'GET PURCHASE') {
+        const data = await fetchFromSupabasePaginated('get_purchase');
+        return toCamelCase(data);
+    }
+
+    if (sheetName === 'VENDOR_RATE_UPDATE') {
+        const data = await fetchFromSupabasePaginated('vendor_rate_update');
+        return toCamelCase(data);
+    }
+
+    if (sheetName === 'THREE_PARTY_APPROVAL') {
+        const data = await fetchFromSupabasePaginated('three_party_approval');
+        return toCamelCase(data);
+    }
+
+    if (sheetName === 'APPROVED_INDENT') {
+        const data = await fetchFromSupabasePaginated('approved_indent');
+        return toCamelCase(data);
+    }
+
     if (sheetName === 'USER') {
         const data = await fetchFromSupabasePaginated('users');
         return toCamelCase(data) as UserPermissions[];

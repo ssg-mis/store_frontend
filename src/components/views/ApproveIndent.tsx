@@ -17,7 +17,7 @@ import Heading from '../element/Heading';
 import { Pill } from '../ui/pill';
 import { Input } from '../ui/input';
 
-const statuses = ['Reject', 'Three Party', 'Regular'];
+const statuses = ['Select', 'Reject', 'Three Party', 'Regular'];
 
 interface ApproveTableData {
     id: number;
@@ -27,7 +27,7 @@ interface ApproveTableData {
     product: string;
     quantity: number;
     uom: string;
-    vendorType: 'Reject' | 'Three Party' | 'Regular';
+    vendorType: 'Reject' | 'Three Party' | 'Regular' | 'Select';
     date: string;
     attachment: string;
     specifications: string;
@@ -42,7 +42,7 @@ interface HistoryData {
     product: string;
     uom: string;
     approvedQuantity: number;
-    vendorType: 'Reject' | 'Three Party' | 'Regular';
+    vendorType: 'Reject' | 'Three Party' | 'Regular' | 'Select';
     date: string;
     approvedDate: string;
     delay?: string;
@@ -52,7 +52,7 @@ interface HistoryData {
 
 export default () => {
     const { user } = useAuth();
-    const { updateIndentSheet } = useSheets();
+    const { updateIndentSheet, updateRelatedSheets } = useSheets();
 
     const [tableData, setTableData] = useState<ApproveTableData[]>([]);
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);
@@ -65,6 +65,18 @@ export default () => {
     const [submitting, setSubmitting] = useState(false);
     const [dataLoading, setDataLoading] = useState(true);
     const [master, setMaster] = useState<any>(null);
+
+    // Filter states
+    const [pendingFilters, setPendingFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All'
+    });
+    const [historyFilters, setHistoryFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All'
+    });
 
     const fetchData = async () => {
         setDataLoading(true);
@@ -86,7 +98,7 @@ export default () => {
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
                     specifications: record.specifications || '',
-                    vendorType: record.vendorType || record.vendor_type || 'Regular',
+                    vendorType: record.status === 'Pending' ? 'Select' : (record.vendorType || record.vendor_type || 'Regular'),
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                     status: record.status, // 'Pending' or 'Approved' from backend
                     plannedDate: record.plannedDate,
@@ -127,7 +139,7 @@ export default () => {
                     setBulkUpdates(prevUpdates => {
                         const newUpdates = new Map(prevUpdates);
                         newUpdates.set(indentNo, {
-                            vendorType: currentRow.vendorType,
+                            vendorType: 'Select',
                             quantity: currentRow.quantity,
                             product: currentRow.product,
                             plannedDate: new Date().toISOString().split('T')[0] // Default to today
@@ -153,7 +165,7 @@ export default () => {
             const newUpdates = new Map();
             tableData.forEach(row => {
                 newUpdates.set(row.indentNo, {
-                    vendorType: row.vendorType,
+                    vendorType: 'Select',
                     quantity: row.quantity,
                     product: row.product,
                     plannedDate: new Date().toISOString().split('T')[0]
@@ -200,6 +212,21 @@ export default () => {
             return;
         }
 
+        // Validation: Only allow 'Regular' or 'Three Party'
+        const invalidIndents: string[] = [];
+        selectedRows.forEach(indentNo => {
+            const update = bulkUpdates.get(indentNo);
+            const vendorType = update?.vendorType;
+            if (vendorType !== 'Regular' && vendorType !== 'Three Party') {
+                invalidIndents.push(indentNo);
+            }
+        });
+
+        if (invalidIndents.length > 0) {
+            toast.error(`Please select 'Regular' or 'Three Party' for: ${invalidIndents.join(', ')}`);
+            return;
+        }
+
         setSubmitting(true);
         try {
             const updatesToProcess = Array.from(selectedRows).map(indentNo => {
@@ -239,6 +266,7 @@ export default () => {
             }
 
             updateIndentSheet();
+            updateRelatedSheets();
             await fetchData();
 
             setSelectedRows(new Set());
@@ -293,6 +321,69 @@ export default () => {
         link.click();
         document.body.removeChild(link);
     };
+
+    // Helper to get unique filter options
+    const getFilterOptions = (data: any[], key: string) => {
+        const options = [...new Set(data.map(item => item[key]).filter(Boolean))].sort();
+        return ['All', ...options];
+    };
+
+    // Derived filtered data
+    const filteredTableData = tableData.filter(item => {
+        return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
+               (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
+               (pendingFilters.product === 'All' || item.product === pendingFilters.product);
+    });
+
+    const filteredHistoryData = historyData.filter(item => {
+        return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
+               (historyFilters.department === 'All' || item.department === historyFilters.department) &&
+               (historyFilters.product === 'All' || item.product === historyFilters.product);
+    });
+
+    const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'indenter').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'department').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'product').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
 
     const columns: ColumnDef<ApproveTableData>[] = [
         {
@@ -381,9 +472,9 @@ export default () => {
                             <SelectValue placeholder="Select" />
                         </SelectTrigger>
                         <SelectContent>
+                            <SelectItem value="Select">Select</SelectItem>
                             <SelectItem value="Regular">Regular</SelectItem>
                             <SelectItem value="Three Party">Three Party</SelectItem>
-                            <SelectItem value="Reject">Reject</SelectItem>
                         </SelectContent>
                     </Select>
                 );
@@ -455,16 +546,30 @@ export default () => {
                             </div>
                         )}
                         <DataTable
-                            data={tableData}
+                            data={filteredTableData}
                             columns={columns}
                             searchFields={['indentNo', 'product', 'department', 'indenter']}
                             dataLoading={dataLoading}
-                            extraActions={<Button onClick={onDownloadClick}><DownloadOutlined /> Download</Button>}
+                            extraActions={
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                                    <Button onClick={onDownloadClick} className="h-8 text-xs">
+                                        <DownloadOutlined /> Download
+                                    </Button>
+                                </div>
+                            }
                         />
                     </div>
                 </TabsContent>
                 <TabsContent value="history" className="w-full max-w-full">
-                    <DataTable data={historyData} columns={historyColumns} />
+                    <DataTable
+                        data={filteredHistoryData}
+                        columns={historyColumns}
+                        searchFields={['indentNo', 'product', 'department', 'indenter']}
+                        extraActions={
+                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                        }
+                    />
                 </TabsContent>
             </Tabs>
         </div>

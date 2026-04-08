@@ -1,4 +1,4 @@
-export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'GET PURCHASE' | 'GET_PURCHASE' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE';
+export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'GET PURCHASE' | 'GET_PURCHASE' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT';
 
 export type IndentSheet = {
     timestamp: string;
@@ -283,11 +283,11 @@ export type QuotationHistorySheet = {
 
 };
 
-export type SheetData = 
-    | IndentSheet 
-    | ReceivedSheet 
-    | UserPermissions 
-    | PoMasterSheet 
-    | InventorySheet 
+export type SheetData =
+    | IndentSheet
+    | ReceivedSheet
+    | UserPermissions
+    | PoMasterSheet
+    | InventorySheet
     | QuotationHistorySheet
     | MasterDataRow;

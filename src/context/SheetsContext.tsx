@@ -10,12 +10,21 @@ interface SheetsState {
     updateInventorySheet: (silent?: boolean) => void;
     updateMasterSheet: () => void;
     updateAll: () => void;
+    updateRelatedSheets: () => void;
+    updateApprovedIndentSheet: () => void;
+    updateRateUpdateSheet: () => void;
+    updateThreePartyApprovalSheet: () => void;
+    updateGetPurchaseSheet: () => void;
 
     indentSheet: IndentSheet[];
     poMasterSheet: PoMasterSheet[];
     receivedSheet: ReceivedSheet[];
     inventorySheet: InventorySheet[];
     masterSheet: MasterConfigSheet | undefined;
+    getPurchaseSheet: any[];
+    rateUpdateSheet: any[];
+    threePartyApprovalSheet: any[];
+    approvedIndentSheet: any[];
 
     indentLoading: boolean;
     poMasterLoading: boolean;
@@ -32,6 +41,10 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
     const [poMasterSheet, setPoMasterSheet] = useState<PoMasterSheet[]>([]);
     const [inventorySheet, setInventorySheet] = useState<InventorySheet[]>([]);
     const [masterSheet, setMasterSheet] = useState<MasterConfigSheet>();
+    const [getPurchaseSheet, setGetPurchaseSheet] = useState<any[]>([]);
+    const [rateUpdateSheet, setRateUpdateSheet] = useState<any[]>([]);
+    const [threePartyApprovalSheet, setThreePartyApprovalSheet] = useState<any[]>([]);
+    const [approvedIndentSheet, setApprovedIndentSheet] = useState<any[]>([]);
 
     const [indentLoading, setIndentLoading] = useState(true);
     const [poMasterLoading, setPoMasterLoading] = useState(true);
@@ -75,6 +88,32 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         });
     }
 
+    function updateGetPurchaseSheet() {
+        fetchSheet('GET_PURCHASE').then((res) => setGetPurchaseSheet(res as any[]));
+    }
+
+    function updateRateUpdateSheet() {
+        fetchSheet('VENDOR_RATE_UPDATE').then((res) => setRateUpdateSheet(res as any[]));
+    }
+
+    function updateThreePartyApprovalSheet() {
+        fetchSheet('THREE_PARTY_APPROVAL').then((res) => setThreePartyApprovalSheet(res as any[]));
+    }
+
+    function updateApprovedIndentSheet() {
+        fetchSheet('APPROVED_INDENT').then((res) => setApprovedIndentSheet(res as any[]));
+    }
+
+    // Refresh all relational badge sheets at once (call after mutations)
+    function updateRelatedSheets() {
+        updateGetPurchaseSheet();
+        updateRateUpdateSheet();
+        updateThreePartyApprovalSheet();
+        updateApprovedIndentSheet();
+        updateReceivedSheet();
+        updatePoMasterSheet();
+    }
+
     function updateAll() {
         setAllLoading(true);
         updateMasterSheet();
@@ -82,6 +121,13 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         updateIndentSheet();
         updatePoMasterSheet();
         updateInventorySheet();
+        
+        // Fetch additional sheets silently
+        updateGetPurchaseSheet();
+        updateRateUpdateSheet();
+        updateThreePartyApprovalSheet();
+        updateApprovedIndentSheet();
+
         setAllLoading(false);
     }
 
@@ -104,10 +150,19 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
                 updatePoMasterSheet,
                 updateReceivedSheet,
                 updateAll,
+                updateRelatedSheets,
+                updateApprovedIndentSheet,
+                updateRateUpdateSheet,
+                updateThreePartyApprovalSheet,
+                updateGetPurchaseSheet,
                 indentSheet,
                 poMasterSheet,
                 inventorySheet,
                 receivedSheet,
+                getPurchaseSheet,
+                rateUpdateSheet,
+                threePartyApprovalSheet,
+                approvedIndentSheet,
                 indentLoading,
                 masterSheet,
                 poMasterLoading,

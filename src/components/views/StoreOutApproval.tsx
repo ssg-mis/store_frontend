@@ -71,7 +71,7 @@ interface HistoryData {
 
 export default () => {
     const { user } = useAuth();
-    const { updateIndentSheet } = useSheets();
+    const { updateIndentSheet, updateRelatedSheets } = useSheets();
     const [openDialog, setOpenDialog] = useState(false);
     const [tableData, setTableData] = useState<StoreOutTableData[]>([]);
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);
@@ -79,6 +79,19 @@ export default () => {
     const [rejecting, setRejecting] = useState(false);
     const [loading, setLoading] = useState(false);
     const [dataLoading, setDataLoading] = useState(true);
+
+    // Filter states
+    const [pendingFilters, setPendingFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
+    const [historyFilters, setHistoryFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
+
     const [editingRow, setEditingRow] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<{
         quantity?: number;
@@ -117,6 +130,7 @@ export default () => {
                 setEditValues({});
                 fetchData();
                 updateIndentSheet();
+                updateRelatedSheets();
             } else {
                 toast.error('Failed to update');
             }
@@ -239,6 +253,69 @@ export default () => {
             setLoading(false);
         }
     };
+
+    // Helper to get unique filter options
+    const getFilterOptions = (data: any[], key: string) => {
+        const options = [...new Set(data.map(item => (item as any)[key]).filter(Boolean))].sort();
+        return ['All', ...options];
+    };
+
+    // Derived filtered data
+    const filteredTableData = tableData.filter(item => {
+        return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
+               (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
+               (pendingFilters.product === 'All' || item.product === pendingFilters.product);
+    });
+
+    const filteredHistoryData = historyData.filter(item => {
+        return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
+               (historyFilters.department === 'All' || item.department === historyFilters.department) &&
+               (historyFilters.product === 'All' || item.product === historyFilters.product);
+    });
+
+    const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'indenter').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'department').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Item:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'product').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
 
     // Creating table columns
     const columns: ColumnDef<StoreOutTableData>[] = [
@@ -507,6 +584,7 @@ export default () => {
 
                 toast.success(`Updated store out approval status of ${selectedIndent?.indentNo}`);
                 updateIndentSheet(); // Update context for sidebars
+                updateRelatedSheets();
                 setOpenDialog(false);
                 form.reset();
                 fetchData();
@@ -534,46 +612,44 @@ export default () => {
                 </Heading>
                 <TabsContent value="pending">
                     <DataTable
-                        data={tableData}
+                        data={filteredTableData}
                         columns={columns}
                         searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
                         dataLoading={dataLoading}
                         extraActions={
-                            <Button
-                                variant="default"
-                                onClick={onDownloadClick}
-                                style={{
-                                    background: "linear-gradient(90deg, #4CAF50, #2E7D32)",
-                                    border: "none",
-                                    borderRadius: "8px",
-                                    padding: "0 16px",
-                                    fontWeight: "bold",
-                                    boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "8px",
-                                }}
-                            >
-                                <DownloadOutlined />
-                                {loading ? "Downloading..." : "Download"}
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                                <Button
+                                    variant="default"
+                                    onClick={onDownloadClick}
+                                    style={{
+                                        background: "linear-gradient(90deg, #4CAF50, #2E7D32)",
+                                        border: "none",
+                                        borderRadius: "8px",
+                                        padding: "0 16px",
+                                        fontWeight: "bold",
+                                        boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "8px",
+                                    }}
+                                >
+                                    <DownloadOutlined />
+                                    {loading ? "Downloading..." : "Download"}
+                                </Button>
+                            </div>
                         }
                     />
                 </TabsContent>
-                {/* <TabsContent value="pending">
-                    <DataTable
-                        data={tableData}
-                        columns={columns}
-                        searchFields={['product', 'department', 'indenter']}
-                        dataLoading={indentLoading}
-                    />
-                </TabsContent> */}
                 <TabsContent value="history">
                     <DataTable
-                        data={historyData}
+                        data={filteredHistoryData}
                         columns={historyColumns}
                         searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
                         dataLoading={dataLoading}
+                        extraActions={
+                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                        }
                     />
                 </TabsContent>
             </Tabs>

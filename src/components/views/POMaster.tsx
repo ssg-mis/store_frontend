@@ -6,6 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { formatDate } from '@/lib/utils';
 import DataTable from '../element/DataTable';
 import { fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface PendingIndentsData {
     timestamp: string;
@@ -67,6 +68,12 @@ export default () => {
     const [loading, setLoading] = useState(true);
     const [tableData, setTableData] = useState<PendingIndentsData[]>([]);
 
+    // Filter states
+    const [filters, setFilters] = useState({
+        partyName: 'All',
+        product: 'All'
+    });
+
     useEffect(() => {
         const fetchPOMaster = async () => {
             try {
@@ -125,6 +132,49 @@ export default () => {
 
         fetchPOMaster();
     }, []);
+
+    // Helper to get unique filter options
+    const getFilterOptions = (data: any[], key: string) => {
+        const options = [...new Set(data.map(item => (item as any)[key]).filter(Boolean))].sort();
+        return ['All', ...options];
+    };
+
+    // Derived filtered data
+    const filteredTableData = tableData.filter(item => {
+        return (filters.partyName === 'All' || item.partyName === filters.partyName) &&
+               (filters.product === 'All' || item.product === filters.product);
+    });
+
+    const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={filters.partyName} onValueChange={(val) => setFilters({ ...filters, partyName: val })}>
+                <SelectTrigger className="h-7 w-[160px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Party:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'partyName').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
+                <SelectTrigger className="h-7 w-[160px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'product').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
 
     // Creating table columns based on PO MASTER sheet structure (Columns A-T)
     const columns: ColumnDef<PendingIndentsData>[] = [
@@ -203,7 +253,7 @@ export default () => {
                 <ListTodo size={50} className="text-primary" />
             </Heading>
             <DataTable
-                data={tableData}
+                data={filteredTableData}
                 columns={columns}
                 searchFields={[
                     'partyName',
@@ -216,6 +266,9 @@ export default () => {
                     'approvedBy'
                 ]}
                 dataLoading={loading}
+                extraActions={
+                    <FilterBar filters={filters} setFilters={setFilters} data={tableData} />
+                }
                 className="h-[80dvh]"
             />
         </div>

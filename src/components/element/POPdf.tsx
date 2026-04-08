@@ -194,6 +194,14 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         fontWeight: 'semibold',
     },
+    systemGenerated: {
+        textAlign: 'center',
+        fontSize: 7,
+        color: 'gray',
+        marginTop: 5,
+        borderTop: '0.5 solid #eee',
+        paddingTop: 3,
+    },
 });
 
 interface Item {
@@ -302,22 +310,6 @@ export default ({
                             <View style={styles.detailRow}>
                                 <Text style={styles.detailLabel}>PO Date:</Text>
                                 <Text style={styles.detailValue}>{orderDate}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Quotation No:</Text>
-                                <Text style={styles.detailValue}>{quotationNumber}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Quotation Date:</Text>
-                                <Text style={styles.detailValue}>{quotationDate}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Our Enq No.:</Text>
-                                <Text style={styles.detailValue}>{enqNo}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Enq Date:</Text>
-                                <Text style={styles.detailValue}>{enqDate}</Text>
                             </View>
                         </View>
                     </View>
@@ -445,6 +437,7 @@ export default ({
                         </View>
                         <Text style={styles.companySignature}>For {companyName}</Text>
                     </View>
+                    <Text style={styles.systemGenerated}>This is a system generated document.</Text>
                 </View>
             </Page>
         </Document>

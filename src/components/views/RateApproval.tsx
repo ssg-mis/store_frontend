@@ -22,6 +22,7 @@ import { PuffLoader as Loader } from 'react-spinners';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Users } from 'lucide-react';
 import { Tabs, TabsContent } from '../ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
@@ -50,7 +51,7 @@ interface HistoryData {
 
 export default () => {
     const { user } = useAuth();
-    const { updateIndentSheet } = useSheets();
+    const { updateIndentSheet, updateRelatedSheets } = useSheets();
 
     const [selectedIndent, setSelectedIndent] = useState<RateApprovalData | null>(null);
     const [selectedHistory, setSelectedHistory] = useState<HistoryData | null>(null);
@@ -58,6 +59,18 @@ export default () => {
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);
     const [openDialog, setOpenDialog] = useState(false);
     const [dataLoading, setDataLoading] = useState(true);
+
+    // Filter states
+    const [pendingFilters, setPendingFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
+    const [historyFilters, setHistoryFilters] = useState({
+        indenter: 'All',
+        department: 'All',
+        product: 'All',
+    });
 
     // Fetching table data
     useEffect(() => {
@@ -142,6 +155,69 @@ export default () => {
 
         fetchData();
     }, []);
+
+    // Helper to get unique filter options
+    const getFilterOptions = (data: any[], key: string) => {
+        const options = [...new Set(data.map(item => (item as any)[key]).filter(Boolean))].sort();
+        return ['All', ...options];
+    };
+
+    // Derived filtered data
+    const filteredTableData = tableData.filter(item => {
+        return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
+               (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
+               (pendingFilters.product === 'All' || item.product === pendingFilters.product);
+    });
+
+    const filteredHistoryData = historyData.filter(item => {
+        return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
+               (historyFilters.department === 'All' || item.department === historyFilters.department) &&
+               (historyFilters.product === 'All' || item.product === historyFilters.product);
+    });
+
+    const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'indenter').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'department').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
+                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                    <div className="flex truncate">
+                        <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
+                        <SelectValue placeholder="All" />
+                    </div>
+                </SelectTrigger>
+                <SelectContent>
+                    {getFilterOptions(data, 'product').map(opt => (
+                        <SelectItem key={opt} value={opt} className="text-[11px]">{opt}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    );
 
     // Creating table columns
     const columns: ColumnDef<RateApprovalData>[] = [
@@ -238,14 +314,12 @@ export default () => {
     // Creating approval form
     const schema = z.object({
         vendor: z.coerce.number(),
-        photoOfBill: z.instanceof(File).optional(),
     });
 
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
             vendor: undefined,
-            photoOfBill: undefined,
         },
     });
 
@@ -262,26 +336,20 @@ export default () => {
 
     async function onSubmit(values: z.infer<typeof schema>) {
         try {
-            let photoUrl = '';
-            if (values.photoOfBill) {
-                photoUrl = await uploadFile(values.photoOfBill, 'bill_photo', 'upload');
-            }
-
             const selectedVendor = selectedIndent?.vendors[values.vendor];
-
             // Save approved vendor to three_party_approval table
             const result = await postToSheet([{
                 indent_number: selectedIndent?.indentNo,
                 approvedVendorName: selectedVendor?.[0],
                 approvedRate: selectedVendor?.[1],
                 approvedPaymentTerm: selectedVendor?.[2],
-                photo_of_bill: photoUrl || undefined,
             } as any], 'insert', 'THREE_PARTY_APPROVAL');
 
             if (!result.success) throw new Error('API update failed');
 
             toast.success(`Approved vendor for ${selectedIndent?.indentNo}`);
             updateIndentSheet();
+            updateRelatedSheets();
             setOpenDialog(false);
             form.reset();
 
@@ -359,6 +427,7 @@ export default () => {
 
             toast.success(`Updated rate of ${selectedHistory?.indentNo}`);
             updateIndentSheet();
+            updateRelatedSheets();
             setOpenDialog(false);
             historyUpdateForm.reset({ rate: undefined });
 
@@ -407,20 +476,26 @@ export default () => {
                     <TabsContent value="pending" className="overflow-hidden w-full">
                         <div className="overflow-x-auto max-w-[calc(100vw-3rem)] md:max-w-full">
                             <DataTable
-                                data={tableData}
+                                data={filteredTableData}
                                 columns={columns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date']}
                                 dataLoading={dataLoading}
+                                extraActions={
+                                    <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                                }
                             />
                         </div>
                     </TabsContent>
                     <TabsContent value="history" className="overflow-hidden w-full">
                         <div className="overflow-x-auto max-w-[calc(100vw-3rem)] md:max-w-full">
                             <DataTable
-                                data={historyData}
+                                data={filteredHistoryData}
                                 columns={historyColumns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date']}
                                 dataLoading={dataLoading}
+                                extraActions={
+                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                                }
                             />
                         </div>
                     </TabsContent>
@@ -503,25 +578,6 @@ export default () => {
                                                             )
                                                         )}
                                                     </RadioGroup>
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="photoOfBill"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Upload Bill Photo (Optional)</FormLabel>
-                                                <FormControl>
-                                                    <Input
-                                                        type="file"
-                                                        accept="image/*,application/pdf"
-                                                        onChange={(e) => {
-                                                            const file = e.target.files?.[0];
-                                                            if (file) field.onChange(file);
-                                                        }}
-                                                    />
                                                 </FormControl>
                                             </FormItem>
                                         )}

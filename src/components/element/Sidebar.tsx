@@ -20,7 +20,17 @@ import { useMemo } from 'react';
 
 export default ({ items, variant, collapsible }: { items: RouteAttributes[]; variant?: 'sidebar' | 'floating' | 'inset'; collapsible?: 'offcanvas' | 'icon' | 'none' }) => {
     const navigate = useNavigate();
-    const { indentSheet, updateAll, allLoading } = useSheets();
+    const { 
+        indentSheet, 
+        poMasterSheet,
+        receivedSheet,
+        getPurchaseSheet,
+        rateUpdateSheet,
+        threePartyApprovalSheet,
+        approvedIndentSheet,
+        updateAll, 
+        allLoading 
+    } = useSheets();
     const { user, logout } = useAuth();
 
     // The logic to check if a user has permission for a specific route item
@@ -34,7 +44,7 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
 
             // If the permission data is missing entirely from the DB JSON, hide it as requested
             if (userPermission === undefined || userPermission === null) {
-                return false; 
+                return false;
             }
 
             // Handle string values like 'TRUE', 'FALSE', 'No Access'
@@ -128,9 +138,25 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
                                     <span className="group-data-[collapsible=icon]:hidden truncate">
                                         {item.name}
                                     </span>
-                                    {item.notifications && item.notifications(indentSheet || []) !== 0 && (
+                                    {item.notifications && item.notifications({
+                                        indents: indentSheet || [],
+                                        poMasters: poMasterSheet || [],
+                                        received: receivedSheet || [],
+                                        getPurchases: getPurchaseSheet || [],
+                                        rateUpdates: rateUpdateSheet || [],
+                                        threePartyApprovals: threePartyApprovalSheet || [],
+                                        approvedIndents: approvedIndentSheet || []
+                                    }) !== 0 && (
                                         <div className="ml-auto group-data-[collapsible=icon]:hidden bg-destructive text-secondary w-[1.3rem] h-[1.3rem] rounded-full text-xs grid place-items-center text-center">
-                                            {item.notifications(indentSheet || [])}
+                                            {item.notifications({
+                                                indents: indentSheet || [],
+                                                poMasters: poMasterSheet || [],
+                                                received: receivedSheet || [],
+                                                getPurchases: getPurchaseSheet || [],
+                                                rateUpdates: rateUpdateSheet || [],
+                                                threePartyApprovals: threePartyApprovalSheet || [],
+                                                approvedIndents: approvedIndentSheet || []
+                                            })}
                                         </div>
                                     )}
                                 </SidebarMenuButton>

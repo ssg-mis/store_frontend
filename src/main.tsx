@@ -163,12 +163,11 @@ const routes: RouteAttributes[] = [
         name: 'Approve Indent',
         icon: <ClipboardCheck size={20} />,
         element: <ApproveIndent />,
-        notifications: (sheets) =>
-            sheets.filter(
+        notifications: (data) =>
+            data.indents.filter(
                 (sheet) =>
-                    (sheet.planned1 && sheet.planned1 !== '') &&
-                    (!sheet.actual1 || sheet.actual1 === '') &&
-                    sheet.indentType === 'Purchase'
+                    sheet.indentType === 'Purchase' &&
+                    sheet.status === 'Pending'
             ).length,
     },
     {
@@ -177,8 +176,10 @@ const routes: RouteAttributes[] = [
         name: 'Vendor Rate Update',
         icon: <UserCheck size={20} />,
         element: <VendorUpdate />,
-        notifications: (sheets) =>
-            sheets.filter((sheet) => (sheet.planned2 && sheet.planned2 !== '') && (!sheet.actual2 || sheet.actual2 === '')).length,
+        notifications: (data) =>
+            data.approvedIndents.filter(
+                (sheet) => !(sheet.hasRateUpdate || sheet.hasThreeParty)
+            ).length,
     },
     {
         path: 'three-party-approval',
@@ -186,13 +187,10 @@ const routes: RouteAttributes[] = [
         name: 'Three Party Approval',
         icon: <Users size={20} />,
         element: <RateApproval />,
-        notifications: (sheets) =>
-            sheets.filter(
-                (sheet) =>
-                    (sheet.planned3 && sheet.planned3 !== '') &&
-                    (!sheet.actual3 || sheet.actual3 === '') &&
-                    sheet.vendorType === 'Three Party'
-            ).length,
+        notifications: (data) => {
+            const approvedIds = new Set(data.threePartyApprovals.map((r: any) => r.indentNumber || r.indent_number || ''));
+            return data.rateUpdates.filter((r: any) => !approvedIds.has(r.indentNumber || r.indent_number || '')).length;
+        },
     },
     {
         path: 'pending-pos',
@@ -200,8 +198,8 @@ const routes: RouteAttributes[] = [
         name: 'Pending POs',
         icon: <ListTodo size={20} />,
         element: <PendingIndents />,
-        notifications: (sheets) =>
-            sheets.filter((sheet) => (sheet.planned4 && sheet.planned4 !== '') && (!sheet.actual4 || sheet.actual4 === '')).length,
+        notifications: (data) =>
+            data.indents.filter((sheet) => (sheet.planned4 && sheet.planned4 !== '') && (!sheet.actual4 || sheet.actual4 === '')).length,
     },
     {
         path: 'create-po',
@@ -241,8 +239,16 @@ const routes: RouteAttributes[] = [
         name: 'Receive Items',
         icon: <Truck size={20} />,
         element: <ReceiveItems />,
-        notifications: (sheets) =>
-            sheets.filter((sheet) => (sheet.planned5 && sheet.planned5 !== '') && (!sheet.actual5 || sheet.actual5 === '')).length,
+        notifications: (data) => {
+            const billedIndents = new Set(data.getPurchases.map((g: any) => String(g.indentNumber || g.indent_number || '').trim()));
+            return data.poMasters.filter((po: any) => {
+                const indentNum = String(po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '').trim();
+                if (!billedIndents.has(indentNum)) return false;
+                const totalReceived = data.received.filter((r: any) => (r.indentNumber || r.indent_number) === indentNum).reduce((sum, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+                const poQty = Number(po.quantity) || 0;
+                return (poQty - totalReceived) > 0;
+            }).length;
+        },
     },
     {
         path: 'store-out-approval',
@@ -250,12 +256,11 @@ const routes: RouteAttributes[] = [
         name: 'Store Out Approval',
         icon: <PackageCheck size={20} />,
         element: <StoreOutApproval />,
-        notifications: (sheets) =>
-            sheets.filter(
+        notifications: (data) =>
+            data.indents.filter(
                 (sheet) =>
-                    (sheet.planned6 && sheet.planned6 !== '') &&
-                    (!sheet.actual6 || sheet.actual6 === '') &&
-                    sheet.indentType === 'Store Out'
+                    sheet.indentType === 'Store Out' &&
+                    (!sheet.actual6 || sheet.actual6 === '')
             ).length,
     },
     // {
@@ -281,13 +286,13 @@ const routes: RouteAttributes[] = [
         element: <Setting />,
         notifications: () => 0,
     },
-    {
-        path: 'training-video',
-        name: 'Training Video',
-        icon: <Video size={20} />,
-        element: <TrainnigVideo />,
-        notifications: () => 0,
-    },
+    // {
+    //     path: 'training-video',
+    //     name: 'Training Video',
+    //     icon: <Video size={20} />,
+    //     element: <TrainnigVideo />,
+    //     notifications: () => 0,
+    // },
     {
         path: 'license',
         name: 'License',
