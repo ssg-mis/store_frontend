@@ -35,6 +35,7 @@ interface VendorUpdateData {
     id: number;
     indentId: number;
     indentNo: string;
+    firm: string;
     indenter: string;
     department: string;
     product: string;
@@ -49,6 +50,7 @@ interface HistoryData {
     id: number;
     source?: 'rate_update' | 'three_party';
     indentNo: string;
+    firm: string;
     indenter: string;
     department: string;
     product: string;
@@ -152,6 +154,7 @@ export default () => {
                         id: record.id,
                         indentId: record.indentId,
                         indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                        firm: record.firm || 'N/A',
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
@@ -184,6 +187,7 @@ export default () => {
                         source: 'rate_update',
                         date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         indentNo: indentNo,
+                        firm: record.firm || approvalMatch?.firm || 'N/A',
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
@@ -210,6 +214,7 @@ export default () => {
                         source: 'three_party',
                         date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         indentNo: indentNo,
+                        firm: record.firm || approvalMatch?.firm || 'N/A',
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
@@ -395,6 +400,10 @@ export default () => {
             header: 'Indent No.',
         },
         {
+            accessorKey: 'firm',
+            header: 'Firm',
+        },
+        {
             accessorKey: 'requestDate',
             header: 'Request Date',
         },
@@ -467,6 +476,10 @@ export default () => {
         {
             accessorKey: 'indentNo',
             header: 'Indent No.',
+        },
+        {
+            accessorKey: 'firm',
+            header: 'Firm',
         },
         {
             accessorKey: 'requestDate',

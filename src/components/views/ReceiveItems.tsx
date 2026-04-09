@@ -37,40 +37,40 @@ interface RecieveItemsData {
     poNumber: string;
     vendor: string;
     indentNumber: string;
+    firm: string;
     product: string;
     uom: string;
     quantity: number;
-    rate?: number; // Added
+    rate?: number;
     receivedQty?: number;
     remainingQty?: number;
     poCopy: string;
+    totalAmount?: number;
+    quotationNo?: string;
+    quotationDate?: string;
+    transportType?: string;
 }
 
 interface HistoryData {
     indentNumber: string;
-    receiveStatus: string;
+    firm: string;
     poNumber: string;
-    poDate: string;
     vendor: string;
     product: string;
     orderQuantity: number;
-    uom: string;
     receivedDate: string;
     receivedQuantity: number;
-    totalReceivedQty?: number;
     remainingQty?: number;
     photoOfProduct: string;
-    warrantyStatus: string;
-    warrantyEndDate: string;
-    rate?: number; // Added
-    amount?: number; // Added
     billStatus: string;
     billNumber: string;
     billAmount: number;
+    typeOfBill?: string;
+    paymentType?: string;
+    discountAmount?: number;
+    advanceAmount?: number;
+    leadTimeToLiftMaterial?: string;
     photoOfBill: string;
-    anyTransport: string;
-    transporterName: string;
-    transportingAmount: number;
 }
 
 const ReceiveItems = () => {
@@ -100,138 +100,110 @@ const ReceiveItems = () => {
         vendor: 'All',
     });
 
+    const fetchPendingItems = async () => {
+        setLocalIndentLoading(true);
+        const poMasterData = await fetchFromSupabasePaginated(
+            'po_master',
+            '*',
+            { column: 'createdAt', options: { ascending: false } }
+        );
+        const receivedData = await fetchFromSupabasePaginated(
+            'received',
+            'indent_number, received_quantity',
+            { column: 'createdAt', options: { ascending: false } }
+        );
+
+        const mappedData = poMasterData
+            .map((po: any) => {
+                const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
+                const totalReceived = receivedData
+                    .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
+                    .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+
+                const poQty = Number(po.quantity) || 0;
+                const remainingQty = Math.max(0, poQty - totalReceived);
+
+                return {
+                    indentNumber: indentNum,
+                    poNumber: po.poNumber || po.po_number,
+                    uom: po.unit,
+                    poCopy: po.pdf,
+                    vendor: po.partyName || po.party_name,
+                    quantity: poQty,
+                    rate: Number(po.rate) || 0,
+                    receivedQty: totalReceived,
+                    remainingQty: remainingQty,
+                    poDate: po.createdAt || po.created_at,
+                    product: po.product,
+                    firm: po.firm || po.indent?.firm || 'N/A',
+                    totalAmount: Number(po.totalPOAmount || po.total_po_amount) || 0,
+                    quotationNo: po.quotationNumber || po.quotation_number || 'N/A',
+                    quotationDate: po.quotationDate || po.quotation_date,
+                    transportType: po.transportationType || po.transportation_type || 'N/A',
+                };
+            }).filter((item) => item.remainingQty > 0);
+
+        setTableData(mappedData.reverse());
+        setLocalIndentLoading(false);
+    };
+
+    const fetchHistoryItems = async () => {
+        setLocalReceivedLoading(true);
+        const poMasterData = await fetchFromSupabasePaginated(
+            'po_master',
+            '*',
+            { column: 'createdAt', options: { ascending: false } }
+        );
+        const receivedData = await fetchFromSupabasePaginated(
+            'received',
+            '*',
+            { column: 'createdAt', options: { ascending: false } }
+        );
+
+        const mappedData = receivedData.map((receivedRecord: any) => {
+            const indentNum = receivedRecord.indentNumber || receivedRecord.indent_number || '';
+            const po = poMasterData.find((p: any) => (p.indentNumber || p.indent_number || p.internalCode || p.internal_code) === indentNum);
+
+            const totalReceivedForIndent = receivedData
+                .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
+                .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+
+            const poQty = po ? (Number(po.quantity) || 0) : 0;
+            const remainingQty = Math.max(0, poQty - totalReceivedForIndent);
+            const receivedRecordDate = receivedRecord.createdAt || receivedRecord.created_at || receivedRecord.timestamp;
+
+            return {
+                indentNumber: indentNum,
+                poNumber: receivedRecord.poNumber || receivedRecord.po_number || po?.poNumber || po?.po_number || '',
+                vendor: receivedRecord.vendor || po?.partyName || po?.party_name || '',
+                product: receivedRecord.product || po?.product || '',
+                firm: receivedRecord.indent?.firm || po?.indent?.firm || 'N/A',
+                orderQuantity: poQty,
+                receivedQuantity: Number(receivedRecord.receivedQuantity || receivedRecord.received_quantity) || 0,
+                remainingQty: remainingQty,
+                photoOfProduct: receivedRecord.photoOfProduct || receivedRecord.photo_of_product || '',
+                receivedDate: receivedRecordDate ? formatDate(new Date(receivedRecordDate)) : '',
+                billStatus: receivedRecord.billStatus || receivedRecord.bill_status || '',
+                billNumber: receivedRecord.billNumber || receivedRecord.bill_number || '',
+                billAmount: Number(receivedRecord.billAmount || receivedRecord.bill_amount) || 0,
+                typeOfBill: receivedRecord.typeOfBill || '',
+                paymentType: receivedRecord.paymentType || '',
+                discountAmount: Number(receivedRecord.discountAmount) || 0,
+                advanceAmount: Number(receivedRecord.advanceAmount) || 0,
+                leadTimeToLiftMaterial: receivedRecord.leadTimeToLiftMaterial || '',
+                photoOfBill: receivedRecord.photoOfBill || receivedRecord.photo_of_bill || '',
+            };
+        });
+
+        setHistoryData(mappedData.reverse());
+        setLocalReceivedLoading(false);
+    };
+
     useEffect(() => {
-        const fetchPendingItems = async () => {
-            setLocalIndentLoading(true);
-
-            // Fetch po_master data
-            const poMasterData = await fetchFromSupabasePaginated(
-                'po_master',
-                '*',
-                { column: 'createdAt', options: { ascending: false } }
-            );
-
-            // Fetch billing records to determine what is allowed to be received
-            const getPurchaseData = await fetchFromSupabasePaginated(
-                'get_purchase',
-                'indent_number',
-                { column: 'createdAt', options: { ascending: false } }
-            );
-
-            // Create a set of billed indent numbers for efficient lookup
-            const billedIndents = new Set(
-                (getPurchaseData || []).map((g: any) => String(g.indent_number || g.indentNumber || '').trim())
-            );
-
-            // Fetch all received records with pagination to calculate totals
-            const receivedData = await fetchFromSupabasePaginated(
-                'received',
-                'indent_number, received_quantity',
-                { column: 'createdAt', options: { ascending: false } }
-            );
-
-            const mappedData = poMasterData
-                .filter((po: any) => {
-                    // Normalize indent number
-                    const indentNum = String(po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '').trim();
-                    // FILTER: Only show items that have been billed (exist in get_purchase)
-                    return billedIndents.has(indentNum);
-                })
-                .map((po: any) => {
-                    const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
-                    
-                    const totalReceived = receivedData
-                        .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
-                        .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
-
-                    const poQty = Number(po.quantity) || 0;
-                    const remainingQty = Math.max(0, poQty - totalReceived);
-
-                    return {
-                        indentNumber: indentNum,
-                        poNumber: po.poNumber || po.po_number,
-                        uom: po.unit,
-                        poCopy: po.pdf,
-                        vendor: po.partyName || po.party_name,
-                        quantity: poQty,
-                        rate: Number(po.rate) || 0,
-                        receivedQty: totalReceived,
-                        remainingQty: remainingQty,
-                        poDate: po.createdAt || po.created_at,
-                        product: po.product,
-                    };
-                }).filter((item) => item.remainingQty > 0); // Only show items with remaining quantity
-
-            setTableData(mappedData.reverse());
-            setLocalIndentLoading(false);
-        };
-
         fetchPendingItems();
     }, []);
 
     useEffect(() => {
-        const fetchHistoryItems = async () => {
-            setLocalReceivedLoading(true);
-
-            // Fetch po_master data
-            const poMasterData = await fetchFromSupabasePaginated(
-                'po_master',
-                '*',
-                { column: 'createdAt', options: { ascending: false } }
-            );
-
-            // Fetch received items with pagination
-            const receivedData = await fetchFromSupabasePaginated(
-                'received',
-                '*',
-                { column: 'createdAt', options: { ascending: false } }
-            );
-
-            // Map the combined data
-            const mappedData = receivedData.map((receivedRecord: any) => {
-                const indentNum = receivedRecord.indentNumber || receivedRecord.indent_number || '';
-                const po = poMasterData.find((p: any) => (p.indentNumber || p.indent_number || p.internalCode || p.internal_code) === indentNum);
-
-                // Calculate totals for this indent to show context
-                const totalReceivedForIndent = receivedData
-                    .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
-                    .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
-
-                const poQty = po ? (Number(po.quantity) || 0) : 0;
-                const remainingQty = Math.max(0, poQty - totalReceivedForIndent);
-
-                const receivedRecordDate = receivedRecord.createdAt || receivedRecord.created_at || receivedRecord.timestamp;
-
-                return {
-                    indentNumber: indentNum,
-                    receiveStatus: receivedRecord.receivedStatus || receivedRecord.received_status || 'Unknown',
-                    poNumber: receivedRecord.poNumber || receivedRecord.po_number || po?.poNumber || po?.po_number || '',
-                    poDate: receivedRecord.poDate || receivedRecord.po_date ? formatDate(new Date(receivedRecord.poDate || receivedRecord.po_date)) : (po ? formatDate(new Date(po.createdAt || po.created_at)) : ''),
-                    vendor: receivedRecord.vendor || po?.partyName || po?.party_name || '',
-                    product: po?.product || '',
-                    orderQuantity: poQty,
-                    receivedQuantity: Number(receivedRecord.receivedQuantity || receivedRecord.received_quantity) || 0,
-                    totalReceivedQty: totalReceivedForIndent,
-                    remainingQty: remainingQty,
-                    uom: receivedRecord.uom || po?.unit || '',
-                    photoOfProduct: receivedRecord.photoOfProduct || receivedRecord.photo_of_product || '',
-                    receivedDate: receivedRecordDate ? formatDate(new Date(receivedRecordDate)) : '',
-                    warrantyStatus: receivedRecord.warrantyStatus || receivedRecord.warranty_status || '',
-                    warrantyEndDate: receivedRecord.warrantyEndDate || receivedRecord.end_date ? formatDate(new Date(receivedRecord.warrantyEndDate || receivedRecord.end_date)) : '',
-                    billStatus: receivedRecord.billStatus || receivedRecord.bill_status || '',
-                    billNumber: receivedRecord.billNumber || receivedRecord.bill_number || '',
-                    billAmount: receivedRecord.billAmount || receivedRecord.bill_amount || 0,
-                    photoOfBill: receivedRecord.photoOfBill || receivedRecord.photo_of_bill || '',
-                    anyTransport: receivedRecord.anyTransport || receivedRecord.any_transportations || '',
-                    transporterName: receivedRecord.transporterName || receivedRecord.transporter_name || '',
-                    transportingAmount: receivedRecord.transportingAmount || receivedRecord.transporting_amount || 0,
-                };
-            });
-
-            setHistoryData(mappedData.reverse());
-            setLocalReceivedLoading(false);
-        };
-
         fetchHistoryItems();
     }, []);
 
@@ -422,6 +394,15 @@ const ReceiveItems = () => {
         },
         { accessorKey: 'indentNumber', header: 'Indent No.' },
         {
+            accessorKey: 'firm',
+            header: 'Firm',
+            cell: ({ getValue }) => (
+                <div className="whitespace-normal break-words min-w-[120px]">
+                    {getValue() as string}
+                </div>
+            ),
+        },
+        {
             accessorKey: 'product',
             header: 'Product',
             cell: ({ row }) => (
@@ -440,7 +421,7 @@ const ReceiveItems = () => {
             cell: ({ row }) => {
                 const poCopy = row.original.poCopy;
                 return poCopy ? (
-                    <a href={poCopy} target="_blank">
+                    <a href={poCopy} target="_blank" className="text-blue-600 hover:underline">
                         PDF
                     </a>
                 ) : (
@@ -451,18 +432,12 @@ const ReceiveItems = () => {
     ];
 
     const historyColumns: ColumnDef<HistoryData>[] = [
-        { accessorKey: 'indentNumber', header: 'Indent No.' },
-        { accessorKey: 'poDate', header: 'PO Date' },
-        { accessorKey: 'poNumber', header: 'PO Number' },
         {
-            accessorKey: 'receiveStatus',
-            header: 'Receive Status',
-            cell: ({ row }) => {
-                const status = row.original.receiveStatus;
-                const variant = status === 'Received' ? 'secondary' : 'reject';
-                return <Pill variant={variant}>{status}</Pill>;
-            },
+            accessorKey: 'receivedDate',
+            header: 'Date',
         },
+        { accessorKey: 'poNumber', header: 'PO Number' },
+        { accessorKey: 'indentNumber', header: 'Indent No.' },
         {
             accessorKey: 'vendor',
             header: 'Vendor',
@@ -537,104 +512,37 @@ const ReceiveItems = () => {
                 );
             },
         },
-        {
-            accessorKey: 'orderQuantity',
-            header: 'Purchase Qty',
-            cell: ({ row }: { row: Row<HistoryData> }) => {
-                const item = row.original;
-                const isCellEditing = editingCell?.rowId === item.indentNumber && editingCell?.field === 'orderQuantity';
-
-                if (isCellEditing) {
-                    return (
-                        <div className="flex items-center gap-1">
-                            <Input
-                                type="number"
-                                value={editCellValue}
-                                onChange={(e) => setEditCellValue(Number(e.target.value) || 0)}
-                                className="w-20 text-xs sm:text-sm"
-                                min="0"
-                            />
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:bg-green-50" onClick={handleSaveCellEdit}>
-                                <Check className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:bg-red-50" onClick={handleCancelCellEdit}>
-                                <X className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className="flex items-center gap-1">
-                        <span>{item.orderQuantity}</span>
-                        <button
-                            className="ml-1 text-black hover:text-gray-700 shrink-0"
-                            onClick={() => handleStartCellEdit(item.indentNumber, 'orderQuantity', item.orderQuantity)}
-                        >
-                            <SquarePen className="h-3.5 w-3.5" />
-                        </button>
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: 'uom',
-            header: 'UOM',
-            cell: ({ row }: { row: Row<HistoryData> }) => {
-                const item = row.original;
-                const isCellEditing = editingCell?.rowId === item.indentNumber && editingCell?.field === 'uom';
-
-                if (isCellEditing) {
-                    return (
-                        <div className="flex items-center gap-1">
-                            <Input
-                                value={editCellValue}
-                                onChange={(e) => setEditCellValue(e.target.value)}
-                                className="w-20 text-xs sm:text-sm"
-                                placeholder="UOM"
-                            />
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:bg-green-50" onClick={handleSaveCellEdit}>
-                                <Check className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:bg-red-50" onClick={handleCancelCellEdit}>
-                                <X className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className="flex items-center gap-1">
-                        <span>{item.uom}</span>
-                        <button
-                            className="ml-1 text-black hover:text-gray-700 shrink-0"
-                            onClick={() => handleStartCellEdit(item.indentNumber, 'uom', item.uom)}
-                        >
-                            <SquarePen className="h-3.5 w-3.5" />
-                        </button>
-                    </div>
-                );
-            },
-        },
-        { accessorKey: 'receivedDate', header: 'Received Date' },
         { accessorKey: 'receivedQuantity', header: 'Received Qty' },
-        { accessorKey: 'remainingQty', header: 'Remaining Qty' },
+        { accessorKey: 'billNumber', header: 'Bill No.' },
+        { accessorKey: 'billAmount', header: 'Bill Amount' },
         {
             accessorKey: 'photoOfProduct',
-            header: 'Photo of Product',
+            header: 'Item Photo',
             cell: ({ row }) => {
                 const photo = row.original.photoOfProduct;
                 return photo ? (
-                    <a href={photo} target="_blank">
-                        Product
+                    <a href={photo} target="_blank" className="text-blue-600 hover:underline">
+                        View Item
                     </a>
                 ) : (
-                    <></>
+                    <>-</>
                 );
             },
         },
-        { accessorKey: 'billStatus', header: 'Bill Status' },
-        { accessorKey: 'billAmount', header: 'Bill Amount' },
+        {
+            accessorKey: 'photoOfBill',
+            header: 'Bill Photo',
+            cell: ({ row }) => {
+                const photo = row.original.photoOfBill;
+                return photo ? (
+                    <a href={photo} target="_blank" className="text-blue-600 hover:underline">
+                        View Bill
+                    </a>
+                ) : (
+                    <>-</>
+                );
+            },
+        },
     ];
 
     // Updated Schema
@@ -642,9 +550,18 @@ const ReceiveItems = () => {
         items: z.array(
             z.object({
                 indentNumber: z.string(),
-                quantity: z.coerce.number().min(1, 'Quantity required'),
+                quantity: z.coerce.number().min(0, 'Quantity must be 0 or more'),
             })
         ),
+        billStatus: z.string().min(1, 'Bill status is required'),
+        billNo: z.string().optional(),
+        billAmount: z.coerce.number().min(0).optional(),
+        typeOfBill: z.string().optional(),
+        paymentType: z.string().optional(),
+        discountAmount: z.coerce.number().min(0).optional(),
+        advanceAmount: z.coerce.number().min(0).optional(),
+        leadTime: z.string().optional(),
+        photoOfItem: z.instanceof(File).optional(),
         photoOfBill: z.instanceof(File).optional(),
     });
 
@@ -653,6 +570,15 @@ const ReceiveItems = () => {
         resolver: zodResolver(schema),
         defaultValues: {
             items: [],
+            billStatus: 'Received',
+            billNo: '',
+            billAmount: 0,
+            typeOfBill: 'Regular',
+            paymentType: 'Credit',
+            discountAmount: 0,
+            advanceAmount: 0,
+            leadTime: '',
+            photoOfItem: undefined,
             photoOfBill: undefined,
         },
     });
@@ -668,106 +594,77 @@ const ReceiveItems = () => {
             // Initialize items array in form with REMAINING quantity
             const initialItems = matching.map((indent) => ({
                 indentNumber: indent.indentNumber,
-                quantity: indent.remainingQty, // Default to remaining quantity
+                quantity: indent.remainingQty || 0,
             }));
             form.setValue('items', initialItems);
         } else if (!openDialog) {
             setMatchingIndents([]);
-            form.reset({
-                items: [],
-                photoOfBill: undefined,
-            });
+            form.reset();
         }
-    }, [selectedIndent, openDialog, tableData, form]);
+    }, [selectedIndent, openDialog, tableData]);
 
     // Updated onSubmit
     async function onSubmit(values: z.infer<typeof schema>) {
+        const itemsToReceive = values.items.filter(item => item.quantity > 0);
+        
+        if (itemsToReceive.length === 0) {
+            toast.error('Please enter quantity for at least one item');
+            return;
+        }
+
         try {
-            // Validate quantities against remaining
-            for (const item of values.items) {
-                const originalItem = matchingIndents.find(i => i.indentNumber === item.indentNumber);
-                if (originalItem && (item.quantity > (originalItem.remainingQty || 0))) {
-                    toast.error(`Quantity for ${originalItem.product} cannot exceed remaining (${originalItem.remainingQty})`);
-                    return;
-                }
+            setLoading(true);
+            
+            // Photo uploads
+            let itemPhotoUrl = '';
+            if (values.photoOfItem) {
+                itemPhotoUrl = await uploadFile(values.photoOfItem, 'received_item', 'upload');
             }
 
-            // Photo of bill upload
             let billPhotoUrl = '';
-            if (values.photoOfBill !== undefined) {
-                billPhotoUrl = await uploadFile(
-                    values.photoOfBill,
-                    'bill_photo',
-                    'upload'
-                );
+            if (values.photoOfBill) {
+                billPhotoUrl = await uploadFile(values.photoOfBill, 'bill_photo', 'upload');
             }
 
-            // Fetch three_party_approval planned dates for delay calculation
-            const threePartyData = await fetchFromSupabasePaginated(
-                'three_party_approvals',
-                '*',
-                { column: 'createdAt', options: { ascending: false } }
-            );
-
-            const now = new Date();
-
-            // Insert received items into backend using API
-            const receivedRows = values.items.map((item) => {
-                // Find the planned date from three_party_approval for this indent
-                const threeParty = threePartyData.find((t: any) =>
-                    (t.indent_number || t.indentNumber) === item.indentNumber
-                );
-                const plannedDate = threeParty?.planned ? new Date(threeParty.planned) : null;
-
-                // Calculate delay in DD:HH:MM format (positive = late, negative = early)
-                let delayValue: string | null = null;
-                if (plannedDate) {
-                    const diffMs = now.getTime() - plannedDate.getTime();
-                    const absDiffMs = Math.abs(diffMs);
-                    const days = Math.floor(absDiffMs / (1000 * 60 * 60 * 24));
-                    const hours = Math.floor((absDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                    const minutes = Math.floor((absDiffMs % (1000 * 60 * 60)) / (1000 * 60));
-                    const formatted = `${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-                    delayValue = diffMs >= 0 ? `+${formatted}` : `-${formatted}`;
-                }
-
+            // Insert received items into backend
+            const receivedRows = itemsToReceive.map((item) => {
                 const originalItem = matchingIndents.find(i => i.indentNumber === item.indentNumber);
-                const rate = originalItem?.rate || 0;
-                const calculatedAmount = rate * item.quantity;
-
+                
                 return {
                     indent_number: item.indentNumber,
-                    poDate: selectedIndent?.poDate ? new Date(selectedIndent.poDate).toISOString() : new Date().toISOString(),
                     poNumber: selectedIndent?.poNumber || '',
                     vendor: selectedIndent?.vendor || '',
-                    receivedStatus: 'Received',
-                    received_quantity: item.quantity, // Correct key
-                    uom: originalItem?.uom || '',
-                    bill_status: 'Not Received', // Correct key
-                    rate: rate, // Added
-                    amount: calculatedAmount, // Added
-                    bill_amount: 0, // Correct key
+                    product: originalItem?.product || '',
+                    receivedQuantity: item.quantity,
+                    photoOfProduct: itemPhotoUrl,
+                    billStatus: values.billStatus,
+                    billNumber: values.billNo,
+                    billAmount: values.billAmount,
+                    typeOfBill: values.typeOfBill,
+                    paymentType: values.paymentType,
+                    discountAmount: values.discountAmount,
+                    advanceAmount: values.advanceAmount,
+                    leadTimeToLiftMaterial: values.leadTime,
                     photoOfBill: billPhotoUrl,
-                    delay: delayValue,
-                    planned: plannedDate ? plannedDate.toISOString() : null,
                 };
             });
 
             const recResult = await postToSheet(receivedRows, 'insert', 'RECEIVED');
             if (!recResult.success) throw new Error('Failed to save received records');
 
-            // Update each indent using bulk API call
-            const indentUpdates = values.items.map((item) => {
-                const currentIndent = tableData.find(d => d.indentNumber === item.indentNumber);
-                const previousReceived = currentIndent?.receivedQty || 0;
-                const newTotalReceived = previousReceived + item.quantity;
-                const approvedQty = currentIndent?.quantity || 0;
-                const remaining = Math.max(0, approvedQty - newTotalReceived);
+            // Update indents for status and timestamps
+            const indentUpdates = itemsToReceive.map((item) => {
+                const originalItem = matchingIndents.find(i => i.indentNumber === item.indentNumber);
+                const poQty = Number(originalItem?.quantity) || 0;
+                const totalReceivedPrev = Number(originalItem?.receivedQty) || 0;
+                const remaining = Math.max(0, poQty - (totalReceivedPrev + item.quantity));
 
                 const updatePayload: any = {
                     id: item.indentNumber,
                     indentNumber: item.indentNumber,
-                    receive_status: 'Received'
+                    receive_status: remaining === 0 ? 'Received' : 'Partially Received',
+                    bill_status: values.billStatus,
+                    actual_7: formatDate(new Date()),
                 };
 
                 if (remaining === 0) {
@@ -779,62 +676,24 @@ const ReceiveItems = () => {
             const indResult = await postToSheet(indentUpdates, 'update', 'INDENT');
             if (!indResult.success) throw new Error('Failed to update indents');
 
-            toast.success(`Items received for PO ${selectedIndent?.poNumber}`);
-            updateIndentSheet(); // Update context for sidebar
-            updateReceivedSheet(); // Update context for history
-            updateRelatedSheets(); // Update badge counts for Receive Items sidebar badge
+            toast.success('Items received successfully');
+            
+            // Update context and local data
+            updateIndentSheet(); 
+            updateReceivedSheet();
+            updateRelatedSheets();
+            
             setOpenDialog(false);
+            
+            // Refresh local data
+            await fetchPendingItems();
+            await fetchHistoryItems();
 
-            // Refresh using the existing fetchPendingItems logic (which uses API)
-            const fetchPendingItems = async () => {
-                setLocalIndentLoading(true);
-
-                // Re-fetch using po_master data
-                const poMasterData = await fetchFromSupabasePaginated(
-                    'po_master',
-                    '*',
-                    { column: 'createdAt', options: { ascending: false } }
-                );
-
-                const receivedData = await fetchFromSupabasePaginated(
-                    'received',
-                    'indent_number, received_quantity',
-                    { column: 'createdAt', options: { ascending: false } }
-                );
-
-                const mappedData = poMasterData.map((po: any) => {
-                    const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
-
-                    const totalReceived = receivedData
-                        .filter((r: any) => r.indentNumber === indentNum || r.indent_number === indentNum)
-                        .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
-
-                    const poQty = Number(po.quantity) || 0;
-                    const remainingQty = Math.max(0, poQty - totalReceived);
-
-                    return {
-                        indentNumber: indentNum,
-                        poNumber: po.poNumber || po.po_number,
-                        uom: po.unit,
-                        poCopy: po.pdf,
-                        vendor: po.partyName || po.party_name,
-                        quantity: poQty,
-                        rate: Number(po.rate) || 0,
-                        receivedQty: totalReceived,
-                        remainingQty: remainingQty,
-                        poDate: po.createdAt || po.created_at,
-                        product: po.product,
-                    };
-                }).filter((item) => item.remainingQty > 0);
-
-                setTableData(mappedData.reverse());
-                setLocalIndentLoading(false);
-            };
-
-            fetchPendingItems();
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error submitting received items:', error);
-            toast.error('Failed to receive items');
+            toast.error('Error: ' + error.message);
+        } finally {
+            setLoading(false);
         }
     }
 
@@ -917,37 +776,275 @@ const ReceiveItems = () => {
                                 className="space-y-5"
                             >
                                 <DialogHeader className="space-y-1">
-                                    <DialogTitle>Receive Items</DialogTitle>
+                                    <DialogTitle>Receive & Bill Items</DialogTitle>
                                     <DialogDescription>
-                                        Receive items for PO Number{' '}
-                                        <span className="font-medium">
+                                        Process receiving and billing for PO Number{' '}
+                                        <span className="font-medium text-primary">
                                             {selectedIndent.poNumber}
                                         </span>
                                     </DialogDescription>
                                 </DialogHeader>
 
-                                {/* PO Number Display */}
-                                <div className="bg-primary/10 p-3 sm:p-4 rounded-md">
-                                    <p className="text-sm sm:text-base md:text-lg font-bold break-words">
-                                        PO Number: {selectedIndent.poNumber}
-                                    </p>
+                                {/* PO Info Summary (Simplified as requested) */}
+                                <div className="bg-[#f0f7ff]/50 border border-blue-100/50 p-6 rounded-xl shadow-sm">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-4 items-center">
+                                        <div className="space-y-1">
+                                            <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">Vendor</p>
+                                            <p className="text-sm font-bold text-slate-800 truncate" title={selectedIndent.vendor}>{selectedIndent.vendor}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">PO Number</p>
+                                            <p className="text-sm font-bold text-slate-800">{selectedIndent.poNumber}</p>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">Firm</p>
+                                            <p className="text-sm font-bold text-slate-800">{selectedIndent.firm}</p>
+                                        </div>
+                                        <div className="space-y-1 flex flex-col items-start md:items-end">
+                                            <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider mb-1">Documents</p>
+                                            {selectedIndent.poCopy ? (
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm" 
+                                                    className="h-8 text-[11px] font-bold flex items-center gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 shadow-sm transition-all hover:scale-105 active:scale-95"
+                                                    onClick={() => window.open(selectedIndent.poCopy, '_blank')}
+                                                >
+                                                    <DownloadOutlined style={{ fontSize: '12px' }} /> View PO Copy
+                                                </Button>
+                                            ) : (
+                                                <span className="text-[10px] text-muted-foreground italic">No Attachment</span>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Common fields */}
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                                {/* Item Receiving Table */}
+                                <div className="border rounded-lg overflow-hidden shadow-sm">
+                                    <div className="bg-muted px-4 py-2 border-b">
+                                        <h3 className="text-sm font-semibold flex items-center gap-2">
+                                            <Truck size={16} /> Items to Receive
+                                        </h3>
+                                    </div>
+                                    
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider">
+                                                <tr>
+                                                    <th className="px-4 py-2 text-left">Indent No.</th>
+                                                    <th className="px-4 py-2 text-left">Item Name</th>
+                                                    <th className="px-4 py-2 text-center">UOM</th>
+                                                    <th className="px-4 py-2 text-center">Pending</th>
+                                                    <th className="px-4 py-2 text-right w-[120px]">Receive Qty</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                                {matchingIndents.map((indent, index) => (
+                                                    <tr key={indent.indentNumber} className="hover:bg-muted/30 transition-colors">
+                                                        <td className="px-4 py-3 font-mono text-xs">{indent.indentNumber}</td>
+                                                        <td className="px-4 py-3 max-w-[200px] truncate">{indent.product}</td>
+                                                        <td className="px-4 py-3 text-center text-xs">{indent.uom}</td>
+                                                        <td className="px-4 py-3 text-center font-medium text-blue-600">{indent.remainingQty}</td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            <FormField
+                                                                control={form.control}
+                                                                name={`items.${index}.quantity`}
+                                                                render={({ field }) => (
+                                                                    <FormItem>
+                                                                        <FormControl>
+                                                                            <Input
+                                                                                type="number"
+                                                                                className="h-8 text-right font-semibold"
+                                                                                max={indent.remainingQty}
+                                                                                {...field}
+                                                                            />
+                                                                        </FormControl>
+                                                                    </FormItem>
+                                                                )}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                {/* Billing Details Section */}
+                                <div className="space-y-4 pt-2">
+                                    <div className="space-y-3">
+                                        <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground border-b pb-1 flex items-center gap-2">
+                                            <Search size={14} className="text-primary" /> Billing Details
+                                        </h4>
+                                        
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+                                            <FormField
+                                                control={form.control}
+                                                name="billStatus"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs font-semibold">Bill Status</FormLabel>
+                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                            <FormControl>
+                                                                <SelectTrigger className="h-10 text-sm shadow-sm">
+                                                                    <SelectValue placeholder="Select status" />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                <SelectItem value="Received">Received</SelectItem>
+                                                                <SelectItem value="Not Received">Not Received</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </FormItem>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={form.control}
+                                                name="billNo"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs font-semibold">Bill Number</FormLabel>
+                                                        <FormControl>
+                                                            <Input placeholder="Invoice#" className="h-10 text-sm shadow-sm" {...field} />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={form.control}
+                                                name="billAmount"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs font-semibold">Bill Amount</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="number" className="h-10 text-sm shadow-sm" {...field} />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={form.control}
+                                                name="typeOfBill"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs font-semibold">Type of Bill</FormLabel>
+                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                            <FormControl>
+                                                                <SelectTrigger className="h-10 text-sm shadow-sm">
+                                                                    <SelectValue placeholder="Type" />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                <SelectItem value="Regular">Regular</SelectItem>
+                                                                <SelectItem value="Cash">Cash</SelectItem>
+                                                                <SelectItem value="Urgent">Urgent</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </FormItem>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={form.control}
+                                                name="paymentType"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs font-semibold">Payment Type</FormLabel>
+                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                            <FormControl>
+                                                                <SelectTrigger className="h-10 text-sm shadow-sm">
+                                                                    <SelectValue placeholder="Type" />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                <SelectItem value="Credit">Credit</SelectItem>
+                                                                <SelectItem value="Advance">Advance</SelectItem>
+                                                                <SelectItem value="Cash">Cash</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </FormItem>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={form.control}
+                                                name="leadTime"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs font-semibold">Lead Time to Lift Material</FormLabel>
+                                                        <FormControl>
+                                                            <Input placeholder="e.g. 5 Days" className="h-10 text-sm shadow-sm" {...field} />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={form.control}
+                                                name="discountAmount"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs text-muted-foreground">Discount Amount</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="number" className="h-9 text-sm bg-muted/20 border-dashed" {...field} />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+
+                                            <FormField
+                                                control={form.control}
+                                                name="advanceAmount"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs text-muted-foreground">Advance Amount</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="number" className="h-9 text-sm bg-muted/20 border-dashed" {...field} />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Photos Section (Bottom) */}
+                                <div className="bg-muted/30 p-4 rounded-lg border border-dashed border-muted-foreground/20">
+                                    <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
+                                        <Truck size={14} className="text-primary" /> Attachment Photos
+                                    </h4>
+                                    
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <FormField
+                                            control={form.control}
+                                            name="photoOfItem"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel className="text-xs">Photo of Received Items</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            type="file"
+                                                            className="h-10 text-xs shadow-sm bg-background cursor-pointer"
+                                                            onChange={(e) => field.onChange(e.target.files?.[0])}
+                                                        />
+                                                    </FormControl>
+                                                </FormItem>
+                                            )}
+                                        />
+
                                         <FormField
                                             control={form.control}
                                             name="photoOfBill"
                                             render={({ field }) => (
                                                 <FormItem>
-                                                    <FormLabel>Photo of Items</FormLabel>
+                                                    <FormLabel className="text-xs">Photo of Invoice / Bill</FormLabel>
                                                     <FormControl>
                                                         <Input
                                                             type="file"
-                                                            onChange={(e) =>
-                                                                field.onChange(e.target.files?.[0])
-                                                            }
+                                                            className="h-10 text-xs shadow-sm bg-background cursor-pointer"
+                                                            onChange={(e) => field.onChange(e.target.files?.[0])}
                                                         />
                                                     </FormControl>
                                                 </FormItem>
@@ -956,131 +1053,20 @@ const ReceiveItems = () => {
                                     </div>
                                 </div>
 
-                                {/* Table for matching indents - Responsive */}
-                                <div className="border rounded-md mt-6">
-                                    <h3 className="font-semibold p-3 bg-muted text-sm sm:text-base">Items in this PO</h3>
-
-                                    {/* Desktop Table View */}
-                                    <div className="hidden md:block overflow-x-auto">
-                                        <div className="w-full overflow-x-auto">
-                                            <table className="w-full">
-                                                <thead className="bg-muted">
-                                                    <tr>
-                                                        <th className="p-2 text-left text-sm font-medium">Indent Number</th>
-                                                        <th className="p-2 text-left text-sm font-medium">Item Name</th>
-                                                        <th className="p-2 text-left text-sm font-medium">Purchase Qty</th>
-                                                        <th className="p-2 text-left text-sm font-medium">UOM</th>
-                                                        <th className="p-2 text-left text-sm font-medium">Received Qty</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {matchingIndents.map((indent, index) => (
-                                                        <tr key={indent.indentNumber} className="border-t">
-                                                            <td className="p-2 text-sm">{indent.indentNumber}</td>
-                                                            <td className="p-2 text-sm">{indent.product}</td>
-                                                            <td className="p-2 text-sm">{indent.quantity}</td>
-                                                            <td className="p-2 text-sm">{indent.uom}</td>
-                                                            <td className="p-2">
-                                                                <FormField
-                                                                    control={form.control}
-                                                                    name={`items.${index}.quantity`}
-                                                                    render={({ field }) => (
-                                                                        <FormItem>
-                                                                            <FormControl>
-                                                                                <div className="flex flex-col">
-                                                                                    <Input
-                                                                                        type="number"
-                                                                                        className="h-8"
-                                                                                        placeholder="Qty"
-                                                                                        max={indent.remainingQty}
-                                                                                        {...field}
-                                                                                    />
-                                                                                    <span className="text-xs text-muted-foreground mt-1">
-                                                                                        Max: {indent.remainingQty}
-                                                                                    </span>
-                                                                                </div>
-                                                                            </FormControl>
-                                                                        </FormItem>
-                                                                    )}
-                                                                />
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-
-                                    {/* Mobile Card View */}
-                                    <div className="md:hidden space-y-3 p-3">
-                                        {matchingIndents.map((indent, index) => (
-                                            <div key={indent.indentNumber} className="bg-muted/50 p-3 rounded-lg space-y-2">
-                                                <div className="grid grid-cols-2 gap-2 text-sm">
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">Indent Number</p>
-                                                        <p className="font-medium break-words">{indent.indentNumber}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">UOM</p>
-                                                        <p className="font-medium">{indent.uom}</p>
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs text-muted-foreground">Item Name</p>
-                                                    <p className="font-medium text-sm break-words">{indent.product}</p>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">Purchase Qty</p>
-                                                        <p className="font-medium">{indent.quantity}</p>
-                                                    </div>
-                                                    <div>
-                                                        <FormField
-                                                            control={form.control}
-                                                            name={`items.${index}.quantity`}
-                                                            render={({ field }) => (
-                                                                <FormItem>
-                                                                    <FormLabel className="text-xs text-muted-foreground">
-                                                                        Received Qty
-                                                                    </FormLabel>
-                                                                    <FormControl>
-                                                                        <div className="flex flex-col">
-                                                                            <Input
-                                                                                type="number"
-                                                                                className="h-9"
-                                                                                placeholder="Qty"
-                                                                                max={indent.remainingQty}
-                                                                                {...field}
-                                                                            />
-                                                                            <span className="text-xs text-muted-foreground mt-1">
-                                                                                Max: {indent.remainingQty}
-                                                                            </span>
-                                                                        </div>
-                                                                    </FormControl>
-                                                                </FormItem>
-                                                            )}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <DialogFooter>
+                                <DialogFooter className="border-t pt-4">
                                     <DialogClose asChild>
-                                        <Button variant="secondary" type="button">
+                                        <Button variant="ghost" type="button" className="text-xs h-9">
                                             Cancel
                                         </Button>
                                     </DialogClose>
-                                    <Button type="submit" disabled={loading}>
+                                    <Button type="submit" disabled={loading} className="h-9 px-6 font-semibold shadow-lg hover:shadow-xl transition-all">
                                         {loading ? (
                                             <>
-                                                <Loader size={20} color="#ffffff" className="mr-2" />
-                                                Receiving...
+                                                <Loader size={18} color="#ffffff" className="mr-2" />
+                                                Processing...
                                             </>
                                         ) : (
-                                            'Receive'
+                                            'Submit & Process'
                                         )}
                                     </Button>
                                 </DialogFooter>

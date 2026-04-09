@@ -30,7 +30,7 @@ import { PuffLoader as Loader } from 'react-spinners';
 import { Textarea } from '../ui/textarea';
 import { toast } from 'sonner';
 import { PackageCheck } from 'lucide-react';
-import { Tabs, TabsContent } from '../ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
 import { formatDate } from '@/lib/utils';
@@ -43,6 +43,7 @@ import { postToSheet } from '@/lib/fetchers';
 interface StoreOutTableData {
     id: number;
     indentNo: string;
+    firm: string;
     department: string;
     product: string;
     date: string;
@@ -53,10 +54,13 @@ interface StoreOutTableData {
     uom: string;
     specifications: string;
     attachment: string;
+    validityDate: string;
+    indentType: string;
 }
 interface HistoryData {
     approvalDate: string;
     indentNo: string;
+    firm: string;
     department: string;
     product: string;
     date: string;
@@ -67,6 +71,8 @@ interface HistoryData {
     issuedStatus: string;
     requestedQuantity: number;
     issueApprovedBy: string;
+    validityDate: string;
+    indentType: string;
 }
 
 export default () => {
@@ -79,6 +85,7 @@ export default () => {
     const [rejecting, setRejecting] = useState(false);
     const [loading, setLoading] = useState(false);
     const [dataLoading, setDataLoading] = useState(true);
+    const [mainTab, setMainTab] = useState('store-out');
 
     // Filter states
     const [pendingFilters, setPendingFilters] = useState({
@@ -152,18 +159,19 @@ export default () => {
             const allData = await fetchFromSupabasePaginated(
                 'indent',
                 '*',
-                { column: 'createdAt', options: { ascending: false } }, // Corrected sorting column
-                (q) => q.eq('indentType', 'Store Out')
+                { column: 'createdAt', options: { ascending: false } },
+                (q) => q.in('indentType', ['Store Out', 'Store Out Return'])
             );
 
             if (allData) {
                 const pendingData = allData.filter(record =>
-                    record.indentType === 'Store Out' && record.actual_6 == null
+                    (record.indentType === 'Store Out' || record.indentType === 'Store Out Return') && record.actual_6 == null
                 );
 
                 const pendingTableData = pendingData.map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber || '',
+                    firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     product: record.productName || '',
@@ -174,17 +182,20 @@ export default () => {
                     uom: record.uom || '',
                     specifications: record.specifications || 'Not specified',
                     attachment: record.attachment || 'N/A',
+                    validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
+                    indentType: record.indentType || 'Store Out',
                 }));
                 setTableData(pendingTableData);
 
                 // History: actual_6 not null
                 const historyDataResult = allData.filter(record =>
-                    record.indentType === 'Store Out' && record.actual_6 != null
+                    (record.indentType === 'Store Out' || record.indentType === 'Store Out Return') && record.actual_6 != null
                 );
 
                 const historyTableData = historyDataResult.map((record: any) => ({
                     approvalDate: formatDate(new Date(record.actual_6)),
                     indentNo: record.indentNumber || '',
+                    firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     product: record.productName || '',
@@ -196,6 +207,8 @@ export default () => {
                     uom: record.uom || '',
                     issuedStatus: record.issue_status || '',
                     issueApprovedBy: record.issue_approved_by || '',
+                    validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
+                    indentType: record.indentType || 'Store Out',
                 }));
                 setHistoryData(historyTableData);
             }
@@ -228,6 +241,7 @@ export default () => {
                 'Area of Use': item.areaOfUse,
                 'Quantity': item.quantity,
                 'UOM': item.uom,
+                'Validity Date': item.validityDate,
                 'Specifications': item.specifications,
                 'Attachment': item.attachment || 'No attachment'
             }));
@@ -263,15 +277,23 @@ export default () => {
     // Derived filtered data
     const filteredTableData = tableData.filter(item => {
         return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
-               (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
-               (pendingFilters.product === 'All' || item.product === pendingFilters.product);
+            (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
+            (pendingFilters.product === 'All' || item.product === pendingFilters.product);
     });
 
     const filteredHistoryData = historyData.filter(item => {
         return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
-               (historyFilters.department === 'All' || item.department === historyFilters.department) &&
-               (historyFilters.product === 'All' || item.product === historyFilters.product);
+            (historyFilters.department === 'All' || item.department === historyFilters.department) &&
+            (historyFilters.product === 'All' || item.product === historyFilters.product);
     });
+
+    const displayPendingData = filteredTableData.filter(item => 
+        mainTab === 'store-out' ? item.indentType === 'Store Out' : item.indentType === 'Store Out Return'
+    );
+
+    const displayHistoryData = filteredHistoryData.filter(item => 
+        mainTab === 'store-out' ? item.indentType === 'Store Out' : item.indentType === 'Store Out Return'
+    );
 
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -353,10 +375,12 @@ export default () => {
             ]
             : []),
         { accessorKey: 'indentNo', header: 'Indent No.' },
+        { accessorKey: 'firm', header: 'Firm' },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'product', header: 'Item' },
         { accessorKey: 'date', header: 'Date' },
+        { accessorKey: 'validityDate', header: 'Validity Date' },
         { accessorKey: 'specifications', header: 'Specifications' },
         {
             accessorKey: 'attachment',
@@ -426,6 +450,7 @@ export default () => {
         },
 
         { accessorKey: "indentNo", header: "Indent No." },
+        { accessorKey: "firm", header: "Firm" },
         { accessorKey: "indenter", header: "Indenter" },
         { accessorKey: "department", header: "Department" },
         { accessorKey: "product", header: "Item" },
@@ -486,6 +511,7 @@ export default () => {
 
 
         { accessorKey: "issueApprovedBy", header: "Issue Approved By" },
+        { accessorKey: "validityDate", header: "Validity Date" },
         { accessorKey: "date", header: "Request Date" },
         { accessorKey: "approvalDate", header: "Approval Date" },
         {
@@ -606,51 +632,92 @@ export default () => {
 
     return (
         <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-            <Tabs defaultValue="pending">
-                <Heading heading="Store Out Approval" subtext="Approve store out requests" tabs>
-                    <PackageCheck size={50} className="text-primary" />
-                </Heading>
-                <TabsContent value="pending">
-                    <DataTable
-                        data={filteredTableData}
-                        columns={columns}
-                        searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
-                        dataLoading={dataLoading}
-                        extraActions={
-                            <div className="flex items-center gap-2">
-                                <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
-                                <Button
-                                    variant="default"
-                                    onClick={onDownloadClick}
-                                    style={{
-                                        background: "linear-gradient(90deg, #4CAF50, #2E7D32)",
-                                        border: "none",
-                                        borderRadius: "8px",
-                                        padding: "0 16px",
-                                        fontWeight: "bold",
-                                        boxShadow: "0 4px 8px rgba(0,0,0,0.15)",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "8px",
-                                    }}
-                                >
-                                    <DownloadOutlined />
-                                    {loading ? "Downloading..." : "Download"}
-                                </Button>
-                            </div>
-                        }
-                    />
+            <Tabs defaultValue="store-out" onValueChange={setMainTab} className="w-full">
+                <div className="px-5 pt-4">
+                    <TabsList className="grid w-full grid-cols-2 shadow-sm border">
+                        <TabsTrigger value="store-out">Store Out Approval</TabsTrigger>
+                        <TabsTrigger value="return">Store Out Return Approval</TabsTrigger>
+                    </TabsList>
+                </div>
+
+                <TabsContent value="store-out">
+                    <Tabs defaultValue="pending">
+                        <Heading heading="Store Out Approval" subtext="Approve store out requests" tabs>
+                            <PackageCheck size={50} className="text-primary" />
+                        </Heading>
+                        <TabsContent value="pending">
+                            <DataTable
+                                data={displayPendingData}
+                                columns={columns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
+                                dataLoading={dataLoading}
+                                extraActions={
+                                    <div className="flex items-center gap-2">
+                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData.filter(d => d.indentType === 'Store Out')} />
+                                        <Button
+                                            variant="default"
+                                            onClick={onDownloadClick}
+                                            className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8"
+                                        >
+                                            <DownloadOutlined />
+                                            {loading ? "Downloading..." : "Download"}
+                                        </Button>
+                                    </div>
+                                }
+                            />
+                        </TabsContent>
+                        <TabsContent value="history">
+                            <DataTable
+                                data={displayHistoryData}
+                                columns={historyColumns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
+                                dataLoading={dataLoading}
+                                extraActions={
+                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData.filter(d => d.indentType === 'Store Out')} />
+                                }
+                            />
+                        </TabsContent>
+                    </Tabs>
                 </TabsContent>
-                <TabsContent value="history">
-                    <DataTable
-                        data={filteredHistoryData}
-                        columns={historyColumns}
-                        searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
-                        dataLoading={dataLoading}
-                        extraActions={
-                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
-                        }
-                    />
+
+                <TabsContent value="return">
+                    <Tabs defaultValue="pending">
+                        <Heading heading="Store Out Return" subtext="Manage returned items" tabs>
+                            <PackageCheck size={50} className="text-primary" />
+                        </Heading>
+                        <TabsContent value="pending">
+                            <DataTable
+                                data={displayPendingData}
+                                columns={columns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
+                                dataLoading={dataLoading}
+                                extraActions={
+                                    <div className="flex items-center gap-2">
+                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData.filter(d => d.indentType === 'Store Out Return')} />
+                                        <Button
+                                            variant="default"
+                                            onClick={onDownloadClick}
+                                            className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8"
+                                        >
+                                            <DownloadOutlined />
+                                            {loading ? "Downloading..." : "Download"}
+                                        </Button>
+                                    </div>
+                                }
+                            />
+                        </TabsContent>
+                        <TabsContent value="history">
+                            <DataTable
+                                data={displayHistoryData}
+                                columns={historyColumns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
+                                dataLoading={dataLoading}
+                                extraActions={
+                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData.filter(d => d.indentType === 'Store Out Return')} />
+                                }
+                            />
+                        </TabsContent>
+                    </Tabs>
                 </TabsContent>
             </Tabs>
             {selectedIndent && (

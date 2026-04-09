@@ -1,9 +1,10 @@
-export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'GET PURCHASE' | 'GET_PURCHASE' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT';
+export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT';
 
 export type IndentSheet = {
     timestamp: string;
     indentNumber: string;
     indenterName: string;
+    firm: string;
     department: string;
     areaOfUse: string;
     groupHead: string;
@@ -95,22 +96,20 @@ export type IndentSheet = {
 export type ReceivedSheet = {
     timestamp: string;
     indentNumber: string;
-    poDate: string;
     poNumber: string;
     vendor: string;
-    receivedStatus: string;
+    product: string;
     receivedQuantity: number;
-    uom: string;
     photoOfProduct: string;
-    warrantyStatus: string;
-    endDate: string;
     billStatus: string;
     billNumber: string;
     billAmount: number;
+    typeOfBill?: string;
+    paymentType?: string;
+    discountAmount?: number;
+    advanceAmount?: number;
+    leadTimeToLiftMaterial?: string;
     photoOfBill: string;
-    anyTransportations: string;
-    transporterName: string;
-    transportingAmount: number;
 };
 
 export type InventorySheet = {
@@ -234,7 +233,6 @@ export type UserPermissions = {
     pendingIndentsView: boolean;
     ordersView: boolean;
     poMaster: boolean;
-    getPurchase: boolean;
 
     // New permissions for Dashboard and Inventory
     dashboard: boolean;
@@ -261,7 +259,6 @@ export const allPermissionKeys = [
     "pendingIndentsView",
     "ordersView",
     "poMaster",
-    "getPurchase",
     "dashboard",
     "inventory",
     "setting",

@@ -20,6 +20,7 @@ interface HistoryData {
     totalAmount: number;
     status: 'Revised' | 'Not Recieved' | 'Recieved';
     indentNumber: string;
+    firm: string;
 
     id: number;
 }
@@ -58,6 +59,7 @@ export default () => {
                                 totalAmount: Number(sheet.total_po_amount) || 0,
                                 vendorName: sheet.party_name || '',
                                 indentNumber: sheet.internal_code || '',
+                                firm: sheet.firm || 'N/A',
                                 id: sheet.id || 0,
                                 status: (indentSheet.map((s) => s.poNumber).includes(sheet.po_number || '')
                                     ? receivedSheet.map((r) => r.poNumber).includes(sheet.po_number || '')
@@ -114,6 +116,7 @@ export default () => {
     const historyColumns: ColumnDef<HistoryData>[] = [
         { accessorKey: 'poNumber', header: 'PO Number' },
         { accessorKey: 'indentNumber', header: 'Indent Number' },
+        { accessorKey: 'firm', header: 'Firm' },
         {
             accessorKey: 'poCopy',
             header: 'PO Copy',

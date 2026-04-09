@@ -44,7 +44,7 @@ export default () => {
                 approved: Number(i.approved || 0),
                 outQuantity: Number(i.outQuantity || 0),
             }))
-            .reverse()
+                .reverse()
         );
     }, [inventorySheet]);
     useEffect(() => {

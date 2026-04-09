@@ -18,9 +18,10 @@ interface AllIndentTableData {
     id: string;
     timestamp: string;
     indentNumber: string;
+    firm: string;
     indenterName: string;
     indentApproveBy: string;
-    indentType: 'Purchase' | 'Store Out';
+    indentType: 'Purchase' | 'Store Out' | 'Store Out Return';
     department: string;
     groupHead: string;
     productName: string;
@@ -77,9 +78,10 @@ export default () => {
                     id: record.id ? record.id.toString() : Math.random().toString(),
                     timestamp: formatDate(new Date(record.createdAt || record.created_at)),
                     indentNumber: record.indentNumber || record.indent_number || '',
+                    firm: record.firm || 'N/A',
                     indenterName: record.indenterName || record.indenter_name || '',
                     indentApproveBy: record.indentApprovedBy || record.indent_approve_by || '',
-                    indentType: (record.indentType || record.indent_type) as 'Purchase' | 'Store Out' || 'Purchase',
+                    indentType: (record.indentType || record.indent_type) as 'Purchase' | 'Store Out' | 'Store Out Return' || 'Purchase',
                     department: record.department || '',
                     groupHead: record.groupHead || record.group_head || '',
                     productName: record.productName || record.product_name || '',
@@ -184,6 +186,9 @@ export default () => {
                 // Prepare update object with only changed fields
                 const updatePayload: any = {};
 
+                if (update.firm !== originalRecord.firm) {
+                    updatePayload.firm = update.firm;
+                }
                 if (update.indenterName !== originalRecord.indenterName) {
                     updatePayload.indenterName = update.indenterName;
                 }
@@ -299,6 +304,33 @@ export default () => {
             size: 100,
         },
         {
+            accessorKey: 'firm',
+            header: 'Firm',
+            cell: ({ row }) => {
+                const indent = row.original;
+                const isSelected = selectedRows.has(indent.id);
+                const currentValue = bulkUpdates.get(indent.id)?.firm || indent.firm;
+
+                return (
+                    <Select
+                        value={currentValue}
+                        onValueChange={(value) => handleBulkUpdate(indent.id, 'firm', value)}
+                        disabled={!isSelected}
+                    >
+                        <SelectTrigger className={`w-32 text-xs sm:text-sm ${!isSelected ? 'opacity-50' : ''}`}>
+                            <SelectValue placeholder="Select firm" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {master?.firms?.map((firm: string, i: number) => (
+                                <SelectItem key={i} value={firm}>{firm}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                );
+            },
+            size: 140,
+        },
+        {
             accessorKey: 'indenterName',
             header: 'Indenter Name',
             cell: ({ row }) => {
@@ -339,6 +371,7 @@ export default () => {
                         <SelectContent>
                             <SelectItem value="Purchase">Purchase</SelectItem>
                             <SelectItem value="Store Out">Store Out</SelectItem>
+                            <SelectItem value="Store Out Return">Store Out Return</SelectItem>
                         </SelectContent>
                     </Select>
                 );

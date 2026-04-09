@@ -48,9 +48,11 @@ export default () => {
     }, []);
 
     const schema = z.object({
+        firm: z.string().nonempty('Select a firm'),
         indenterName: z.string().nonempty(),
         indentApproveBy: z.string().nonempty(),
-        indentType: z.enum(['Purchase', 'Store Out'], { required_error: 'Select a status' }),
+        indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return'], { required_error: 'Select a status' }),
+        validityDate: z.string().optional(),
         products: z
             .array(
                 z.object({
@@ -70,9 +72,11 @@ export default () => {
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
+            firm: '',
             indenterName: '',
             indentApproveBy: '',
-            indentType: '' as any, // Change from undefined to ''
+            indentType: '' as any,
+            validityDate: '',
             products: [
                 {
                     attachment: undefined,
@@ -89,6 +93,7 @@ export default () => {
     });
 
     const products = form.watch('products');
+    const indentType = form.watch('indentType');
     const { fields, append, remove } = useFieldArray({
         control: form.control,
         name: 'products',
@@ -152,6 +157,7 @@ export default () => {
                 const row = {
                     createdAt: createdAt,
                     indentNumber: currentIndentNumber,
+                    firm: data.firm,
                     indenterName: data.indenterName,
                     department: product.department,
                     areaOfUse: product.areaOfUse,
@@ -162,6 +168,7 @@ export default () => {
                     specifications: product.specifications || '',
                     indentApprovedBy: data.indentApproveBy,
                     indentType: data.indentType,
+                    validityDate: (data.indentType === 'Store Out' || data.indentType === 'Store Out Return') ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
                     planned: plannedStr, // Store current date in same format as requested
                 };
 
@@ -189,9 +196,11 @@ export default () => {
             updateIndentSheet(); // Update context for sidebars
 
             form.reset({
+                firm: '',
                 indenterName: '',
                 indentApproveBy: '',
                 indentType: '' as any,
+                validityDate: '',
                 products: [
                     {
                         attachment: undefined,
@@ -223,7 +232,34 @@ export default () => {
             </Heading>
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit, onError)} className="space-y-6 p-5">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <FormField
+                            control={form.control}
+                            name="firm"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>
+                                        Firm
+                                        <span className="text-destructive">*</span>
+                                    </FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder="Select firm" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {master?.firms?.map((firm: string, i: number) => (
+                                                <SelectItem key={i} value={firm}>
+                                                    {firm}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </FormItem>
+                            )}
+                        />
+
                         <FormField
                             control={form.control}
                             name="indenterName"
@@ -258,6 +294,7 @@ export default () => {
                                         <SelectContent>
                                             <SelectItem value="Purchase">Purchase</SelectItem>
                                             <SelectItem value="Store Out">Store Out</SelectItem>
+                                            <SelectItem value="Store Out Return">Store Out Return</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </FormItem>
@@ -279,6 +316,23 @@ export default () => {
                                 </FormItem>
                             )}
                         />
+
+                        {(indentType === 'Store Out' || indentType === 'Store Out Return') && (
+                            <FormField
+                                control={form.control}
+                                name="validityDate"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>
+                                            Validity Date
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input type="date" {...field} />
+                                        </FormControl>
+                                    </FormItem>
+                                )}
+                            />
+                        )}
                     </div>
 
                     <div className="space-y-4">

@@ -28,18 +28,22 @@ import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 
-function generatePoNumber(poNumbers: string[], today = new Date()): string {
+function generatePoNumber(poNumbers: string[], today = new Date(), firmName?: string): string {
     // Step 1: Get financial year from today's date
     const fyStart = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
     const fy = `${(fyStart % 100).toString().padStart(2, '0')}-${((fyStart + 1) % 100).toString().padStart(2, '0')}`;
 
-    const prefix = `SSPL/STORES/${fy}/`;
+    // Add firm name if provided, else keep as is
+    const firmPart = firmName && firmName !== 'N/A' && firmName !== '' ? `${firmName.toUpperCase().trim()}/` : '';
+    const prefix = `SSPL/${firmPart}STORES/${fy}/`;
 
     // Step 2: Extract numbers for curre nt financial year
     const numbersInFY = poNumbers
         .filter((po) => po != null && typeof po === 'string' && po.includes(`/${fy}/`))
         .map((po) => {
-            const match = po.match(/\/(\d+)(?:-\d+)?$/); // gets '80' from '80-2'
+            const parts = po.split('/');
+            const lastPart = parts[parts.length - 1];
+            const match = lastPart.match(/^(\d+)(?:-\d+)?$/);
             return match ? parseInt(match[1], 10) : null;
         })
         .filter((n): n is number => n !== null);
@@ -207,6 +211,7 @@ export default () => {
         terms: z.array(z.string().nonempty()).max(10),
         preparedBy: z.string().nonempty(),
         approvedBy: z.string().nonempty(),
+        transportationType: z.string().nonempty('Select transportation type'),
     });
 
 
@@ -227,6 +232,7 @@ export default () => {
             enquiryDate: undefined,
             indents: [],
             terms: detailsData?.defaultTerms || [], // Updated to camelCase
+            transportationType: 'F-FOR',
         },
     });
 
@@ -255,15 +261,21 @@ export default () => {
 
     useEffect(() => {
         if (mode === 'create') {
+            // Get firm from selected indents
+            const selectedFirm = indents.length > 0 
+                ? indentSheetData.find(i => i.indentNumber === indents[0].indentNumber)?.firm 
+                : undefined;
+
             form.setValue(
                 'poNumber',
                 generatePoNumber(
                     poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null),
-                    poDate
+                    poDate || new Date(),
+                    selectedFirm
                 )
             );
         }
-    }, [poDate, poMasterSheetData, mode]);
+    }, [poDate, poMasterSheetData, mode, indents, indentSheetData, form]);
 
     useEffect(() => {
         if (mode === 'revise') {
@@ -281,6 +293,7 @@ export default () => {
                 enquiryDate: undefined,
                 indents: [],
                 terms: [],
+                transportationType: 'F-FOR',
             });
         } else {
             form.reset({
@@ -297,6 +310,7 @@ export default () => {
                 enquiryDate: undefined,
                 indents: [],
                 terms: detailsData?.defaultTerms || [], // Updated to camelCase
+                transportationType: 'F-FOR',
             });
         }
     }, [mode, poMasterSheetData, detailsData]);
@@ -457,7 +471,7 @@ export default () => {
             });
 
             const pdfProps: POPdfProps = {
-                // companyLogo: logoBase64,
+                companyLogo: logoBase64,
                 companyName: detailsData?.companyName || '', // Updated to camelCase
                 companyPhone: detailsData?.companyPhone || '', // Updated to camelCase
                 companyGstin: detailsData?.companyGstin || '', // Updated to camelCase
@@ -480,6 +494,7 @@ export default () => {
                         poMasterSheetData.find((p: any) => (p.internalCode || p.po_number || '') === (item.indentNumber || '') && (p.poNumber || p.po_number || '') === (values.poNumber || ''));
                     return {
                         internalCode: indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || '',
+                        firm: indent?.firm || 'N/A',
                         product: indent?.productName || indent?.product_name || indent?.product || '',
                         description: indent?.specifications || indent?.description || '',
                         quantity: indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0,
@@ -522,6 +537,10 @@ export default () => {
                 terms: values.terms,
                 preparedBy: values.preparedBy,
                 approvedBy: values.approvedBy,
+                transportationType: values.transportationType,
+                firm: values.indents.length > 0 
+                    ? indentSheetData.find(i => i.indentNumber === values.indents[0].indentNumber)?.firm || 'N/A'
+                    : 'N/A',
             };
 
             const blob = await pdf(<POPdf {...pdfProps} />).toBlob();
@@ -599,6 +618,7 @@ export default () => {
                     pdf: url,
                     preparedBy: values.preparedBy,
                     approvedBy: values.approvedBy,
+                    transportationType: values.transportationType,
                     quotationNumber: values.quotationNumber,
                     quotationDate: values.quotationDate ? new Date(values.quotationDate) : null,
                     enquiryNumber: values.ourEnqNo,
@@ -1016,6 +1036,7 @@ export default () => {
                                         <TableRow>
                                             <TableHead>S/N</TableHead>
                                             <TableHead>Internal Code</TableHead>
+                                            <TableHead>Firm</TableHead>
                                             <TableHead>Product</TableHead>
                                             <TableHead>Description</TableHead>
                                             <TableHead>Qty</TableHead>
@@ -1039,6 +1060,7 @@ export default () => {
                                                 <TableRow key={field.id}>
                                                     <TableCell>{index + 1}</TableCell>
                                                     <TableCell>{indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code}</TableCell>
+                                                    <TableCell>{indent?.firm || 'N/A'}</TableCell>
                                                     <TableCell>{indent?.productName || indent?.product_name || indent?.product}</TableCell>
                                                     <TableCell>
                                                         {indent?.specifications || indent?.description || (
@@ -1191,7 +1213,7 @@ export default () => {
                             <hr />
 
                             <div>
-                                <p className="text-sm px-3 font-semibold">THE ABOVE</p>
+                                <p className="text-sm px-3 font-semibold">Terms & Conditions</p>
                                 <div>
                                     {termsArray.fields.map((field, index) => {
                                         const write = readOnly === index;
@@ -1288,6 +1310,26 @@ export default () => {
                             <div className="text-center flex justify-between gap-5 px-7 items-center">
                                 <FormField
                                     control={form.control}
+                                    name="transportationType"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-col justify-center items-center w-full">
+                                            <FormLabel>Transportation Type<span className="text-red-500">*</span></FormLabel>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger className="h-9 w-full text-center">
+                                                        <SelectValue placeholder="Select type" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="F-FOR">F-FOR</SelectItem>
+                                                    <SelectItem value="Ex-factory">Ex-factory</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
                                     name="preparedBy"
                                     render={({ field }) => (
                                         <FormItem className="flex flex-col justify-center items-center w-full">
@@ -1318,8 +1360,8 @@ export default () => {
                                         </FormItem>
                                     )}
                                 />
-                                <div className="text-center">
-                                    <p className="font-semibold text-sm">For Shri Shyam Oil Extractions Pvt. Ltd.</p>
+                                <div className="text-center w-full">
+                                    <p className="font-semibold text-[11px] leading-tight">For Shri Shyam Oil Extractions Pvt. Ltd.</p>
                                 </div>
                             </div>
                         </div>

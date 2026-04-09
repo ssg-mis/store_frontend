@@ -11,17 +11,13 @@ interface SheetsState {
     updateMasterSheet: () => void;
     updateAll: () => void;
     updateRelatedSheets: () => void;
-    updateApprovedIndentSheet: () => void;
-    updateRateUpdateSheet: () => void;
     updateThreePartyApprovalSheet: () => void;
-    updateGetPurchaseSheet: () => void;
 
     indentSheet: IndentSheet[];
     poMasterSheet: PoMasterSheet[];
     receivedSheet: ReceivedSheet[];
     inventorySheet: InventorySheet[];
     masterSheet: MasterConfigSheet | undefined;
-    getPurchaseSheet: any[];
     rateUpdateSheet: any[];
     threePartyApprovalSheet: any[];
     approvedIndentSheet: any[];
@@ -41,7 +37,6 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
     const [poMasterSheet, setPoMasterSheet] = useState<PoMasterSheet[]>([]);
     const [inventorySheet, setInventorySheet] = useState<InventorySheet[]>([]);
     const [masterSheet, setMasterSheet] = useState<MasterConfigSheet>();
-    const [getPurchaseSheet, setGetPurchaseSheet] = useState<any[]>([]);
     const [rateUpdateSheet, setRateUpdateSheet] = useState<any[]>([]);
     const [threePartyApprovalSheet, setThreePartyApprovalSheet] = useState<any[]>([]);
     const [approvedIndentSheet, setApprovedIndentSheet] = useState<any[]>([]);
@@ -88,9 +83,6 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         });
     }
 
-    function updateGetPurchaseSheet() {
-        fetchSheet('GET_PURCHASE').then((res) => setGetPurchaseSheet(res as any[]));
-    }
 
     function updateRateUpdateSheet() {
         fetchSheet('VENDOR_RATE_UPDATE').then((res) => setRateUpdateSheet(res as any[]));
@@ -106,7 +98,6 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Refresh all relational badge sheets at once (call after mutations)
     function updateRelatedSheets() {
-        updateGetPurchaseSheet();
         updateRateUpdateSheet();
         updateThreePartyApprovalSheet();
         updateApprovedIndentSheet();
@@ -123,7 +114,6 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         updateInventorySheet();
         
         // Fetch additional sheets silently
-        updateGetPurchaseSheet();
         updateRateUpdateSheet();
         updateThreePartyApprovalSheet();
         updateApprovedIndentSheet();
@@ -154,12 +144,10 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
                 updateApprovedIndentSheet,
                 updateRateUpdateSheet,
                 updateThreePartyApprovalSheet,
-                updateGetPurchaseSheet,
                 indentSheet,
                 poMasterSheet,
                 inventorySheet,
                 receivedSheet,
-                getPurchaseSheet,
                 rateUpdateSheet,
                 threePartyApprovalSheet,
                 approvedIndentSheet,

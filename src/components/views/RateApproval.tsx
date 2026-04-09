@@ -32,6 +32,7 @@ import { Input } from '../ui/input';
 interface RateApprovalData {
     id: number;
     indentNo: string;
+    firm: string;
     indenter: string;
     department: string;
     product: string;
@@ -42,6 +43,7 @@ interface RateApprovalData {
 interface HistoryData {
     id: number;
     indentNo: string;
+    firm: string;
     indenter: string;
     department: string;
     product: string;
@@ -107,6 +109,7 @@ export default () => {
                     .map((record: any) => ({
                         id: record.id,
                         indentNo: record.indentNumber || record.indent_number || '',
+                        firm: record.firm || 'N/A',
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
@@ -134,6 +137,7 @@ export default () => {
                     .map((record: any) => ({
                         id: record.id,
                         indentNo: record.indentNumber || record.indent_number || '',
+                        firm: record.firm || 'N/A',
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
@@ -244,6 +248,7 @@ export default () => {
             },
         },
         { accessorKey: 'indentNo', header: 'Indent No.' },
+        { accessorKey: 'firm', header: 'Firm' },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'product', header: 'Product' },
@@ -305,6 +310,7 @@ export default () => {
             },
         },
         { accessorKey: 'indentNo', header: 'Indent No.' },
+        { accessorKey: 'firm', header: 'Firm' },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'product', header: 'Product' },
@@ -363,6 +369,7 @@ export default () => {
                 .map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber || record.indent_number || '',
+                    firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     product: record.productName || '',
@@ -384,6 +391,7 @@ export default () => {
                 .map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber || record.indent_number || '',
+                    firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     product: record.productName || '',
@@ -444,6 +452,7 @@ export default () => {
                 .map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber || record.indent_number || '',
+                    firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     product: record.productName || '',
@@ -541,46 +550,62 @@ export default () => {
                                     <FormField
                                         control={form.control}
                                         name="vendor"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Select a vendor</FormLabel>
-                                                <FormControl>
-                                                    <RadioGroup onValueChange={field.onChange} defaultValue={field.value?.toString()}>
-                                                        {selectedIndent.vendors.map(
-                                                            (vendor, index) => (
-                                                                <FormItem key={index}>
-                                                                    <FormLabel className="flex items-center gap-4 border hover:bg-accent p-3 rounded-md">
-                                                                        <FormControl>
-                                                                            <RadioGroupItem
-                                                                                value={`${index}`}
-                                                                            />
-                                                                        </FormControl>
-                                                                        <div className="font-normal w-full">
-                                                                            <div className="flex justify-between items-center w-full">
-                                                                                <div>
-                                                                                    <p className="font-medium text-base">
-                                                                                        {vendor[0]}
-                                                                                    </p>
-                                                                                    <p className="text-xs">
-                                                                                        Payment
-                                                                                        Term:{' '}
-                                                                                        {vendor[2]}
-                                                                                    </p>
+                                        render={({ field }) => {
+                                            // Calculate the lowest price among vendors with valid names and rates > 0
+                                            const validVendors = selectedIndent.vendors.filter(v => v[0] && parseFloat(v[1]) > 0);
+                                            const minRate = validVendors.length > 0 
+                                                ? Math.min(...validVendors.map(v => parseFloat(v[1]))) 
+                                                : null;
+
+                                            return (
+                                                <FormItem>
+                                                    <FormLabel>Select a vendor</FormLabel>
+                                                    <FormControl>
+                                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value?.toString()}>
+                                                            {selectedIndent.vendors.map(
+                                                                (vendor, index) => {
+                                                                    const isLowest = minRate !== null && vendor[0] && parseFloat(vendor[1]) === minRate;
+                                                                    
+                                                                    return (
+                                                                        <FormItem key={index}>
+                                                                            <FormLabel className={`flex items-center gap-4 border hover:bg-accent p-3 rounded-md cursor-pointer transition-all ${isLowest ? 'border-green-500 bg-green-50/30' : ''}`}>
+                                                                                <FormControl>
+                                                                                    <RadioGroupItem
+                                                                                        value={`${index}`}
+                                                                                    />
+                                                                                </FormControl>
+                                                                                <div className="font-normal w-full">
+                                                                                    <div className="flex justify-between items-center w-full">
+                                                                                        <div>
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <p className="font-medium text-base">
+                                                                                                    {vendor[0]}
+                                                                                                </p>
+                                                                                                {isLowest && (
+                                                                                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold border border-green-200 uppercase tracking-wider">
+                                                                                                        L1 (Lowest)
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                            <p className="text-xs text-muted-foreground">
+                                                                                                Payment Term: {vendor[2]}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                        <p className={`text-base font-semibold ${isLowest ? 'text-green-700' : ''}`}>
+                                                                                            ₹{vendor[1]}
+                                                                                        </p>
+                                                                                    </div>
                                                                                 </div>
-                                                                                <p className="text-base">
-                                                                                    &#8377;
-                                                                                    {vendor[1]}
-                                                                                </p>
-                                                                            </div>
-                                                                        </div>
-                                                                    </FormLabel>
-                                                                </FormItem>
-                                                            )
-                                                        )}
-                                                    </RadioGroup>
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
+                                                                            </FormLabel>
+                                                                        </FormItem>
+                                                                    );
+                                                                }
+                                                            )}
+                                                        </RadioGroup>
+                                                    </FormControl>
+                                                </FormItem>
+                                            );
+                                        }}
                                     />
                                 </div>
                                 <DialogFooter>

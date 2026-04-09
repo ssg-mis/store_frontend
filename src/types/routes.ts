@@ -5,7 +5,6 @@ export interface NotificationsData {
     indents: IndentSheet[];
     poMasters: PoMasterSheet[];
     received: ReceivedSheet[];
-    getPurchases: any[];
     rateUpdates: any[];
     threePartyApprovals: any[];
     approvedIndents: any[];

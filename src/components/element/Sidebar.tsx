@@ -24,7 +24,6 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
         indentSheet, 
         poMasterSheet,
         receivedSheet,
-        getPurchaseSheet,
         rateUpdateSheet,
         threePartyApprovalSheet,
         approvedIndentSheet,
@@ -142,7 +141,6 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
                                         indents: indentSheet || [],
                                         poMasters: poMasterSheet || [],
                                         received: receivedSheet || [],
-                                        getPurchases: getPurchaseSheet || [],
                                         rateUpdates: rateUpdateSheet || [],
                                         threePartyApprovals: threePartyApprovalSheet || [],
                                         approvedIndents: approvedIndentSheet || []
@@ -152,7 +150,6 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
                                                 indents: indentSheet || [],
                                                 poMasters: poMasterSheet || [],
                                                 received: receivedSheet || [],
-                                                getPurchases: getPurchaseSheet || [],
                                                 rateUpdates: rateUpdateSheet || [],
                                                 threePartyApprovals: threePartyApprovalSheet || [],
                                                 approvedIndents: approvedIndentSheet || []

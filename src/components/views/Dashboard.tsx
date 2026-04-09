@@ -70,7 +70,7 @@ export default function Dashboard() {
 
         setChartData(stats.topProducts);
         setTopVendors(stats.topVendors);
-        
+
         setIndent({ quantity: stats.totalIndentedQuantity, count: stats.totalIndentCount });
         setPurchase({ quantity: stats.totalPurchasedQuantity, count: stats.receivedPurchaseCount });
         setOut({ quantity: stats.totalIssuedQuantity, count: stats.issuedIndentCount });
@@ -158,7 +158,7 @@ export default function Dashboard() {
                             <CardTitle className="text-xl font-bold text-slate-800">High Frequency Products</CardTitle>
                             <p className="text-sm text-slate-400 mt-1">Products prioritized by order frequency</p>
                         </div>
-                        <div className="p-2 border rounded-full text-slate-400"><TrendingUp size={16}/></div>
+                        <div className="p-2 border rounded-full text-slate-400"><TrendingUp size={16} /></div>
                     </CardHeader>
                     <CardContent>
                         <ChartContainer className="h-[350px] w-full" config={chartConfig}>

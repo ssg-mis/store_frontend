@@ -77,6 +77,7 @@ export async function fetchIndentMasterData() {
 
         const departments = [...new Set(camelData.map((d: any) => d.department))].filter(Boolean) as string[];
         const groupHeads = [...new Set(camelData.map((d: any) => d.groupHead))].filter(Boolean) as string[];
+        const firms = [...new Set(camelData.map((d: any) => d.firmName))].filter(Boolean) as string[];
 
         const groupHeadItems: Record<string, string[]> = {};
         groupHeads.forEach(gh => {
@@ -86,7 +87,8 @@ export async function fetchIndentMasterData() {
         return {
             departments,
             createGroupHeads: groupHeads,
-            groupHeadItems
+            groupHeadItems,
+            firms
         };
     } catch (error) {
         console.error('Error fetching indent master data:', error);

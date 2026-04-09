@@ -9,19 +9,28 @@ import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet, approve
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { Tabs, TabsContent } from '../ui/tabs';
-import { ClipboardCheck, PenSquare, Search } from 'lucide-react';
+import { ClipboardCheck, PenSquare, Search, Send } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
 import { Pill } from '../ui/pill';
 import { Input } from '../ui/input';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "../ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
 const statuses = ['Select', 'Reject', 'Three Party', 'Regular'];
 
 interface ApproveTableData {
     id: number;
     indentNo: string;
+    firm: string;
     indenter: string;
     department: string;
     product: string;
@@ -37,6 +46,7 @@ interface ApproveTableData {
 
 interface HistoryData {
     indentNo: string;
+    firm: string;
     indenter: string;
     department: string;
     product: string;
@@ -65,6 +75,7 @@ export default () => {
     const [submitting, setSubmitting] = useState(false);
     const [dataLoading, setDataLoading] = useState(true);
     const [master, setMaster] = useState<any>(null);
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
 
     // Filter states
     const [pendingFilters, setPendingFilters] = useState({
@@ -92,6 +103,7 @@ export default () => {
                 const mappedData = purchaseIndents.map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber,
+                    firm: record.firm || 'N/A',
                     indenter: record.indenterName,
                     department: record.department || '',
                     product: record.productName,
@@ -185,23 +197,11 @@ export default () => {
     ) => {
         setBulkUpdates((prevUpdates) => {
             const newUpdates = new Map(prevUpdates);
-            if (field === 'vendorType') {
-                const vendorValue = value as string;
-                selectedRows.forEach((selectedIndentNo) => {
-                    const currentUpdate = newUpdates.get(selectedIndentNo) || {};
-                    newUpdates.set(selectedIndentNo, {
-                        ...currentUpdate,
-                        vendorType: vendorValue,
-                    });
-                });
-            } else {
-                const qtyValue = value as number;
-                const currentUpdate = newUpdates.get(indentNo) || {};
-                newUpdates.set(indentNo, {
-                    ...currentUpdate,
-                    quantity: qtyValue,
-                });
-            }
+            const currentUpdate = newUpdates.get(indentNo) || {};
+            newUpdates.set(indentNo, {
+                ...currentUpdate,
+                [field]: value,
+            });
             return newUpdates;
         });
     };
@@ -271,6 +271,7 @@ export default () => {
 
             setSelectedRows(new Set());
             setBulkUpdates(new Map());
+            setIsReviewOpen(false);
         } catch (error) {
             console.error('Error in bulk updates:', error);
             toast.error('Failed to submit bulk updates');
@@ -308,19 +309,7 @@ export default () => {
         }
     };
 
-    const onDownloadClick = () => {
-        // Simple CSV download placeholder
-        const headers = ["Indent No", "Indenter", "Department", "Product", "Quantity", "UOM", "Vendor Type", "Date", "Status"];
-        const rows = tableData.map(d => [d.indentNo, d.indenter, d.department, d.product, d.quantity, d.uom, d.vendorType, d.date, d.status]);
-        const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].map(e => e.join(",")).join("\n");
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "indents.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
+    // Removed onDownloadClick as per user request
 
     // Helper to get unique filter options
     const getFilterOptions = (data: any[], key: string) => {
@@ -331,14 +320,14 @@ export default () => {
     // Derived filtered data
     const filteredTableData = tableData.filter(item => {
         return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
-               (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
-               (pendingFilters.product === 'All' || item.product === pendingFilters.product);
+            (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
+            (pendingFilters.product === 'All' || item.product === pendingFilters.product);
     });
 
     const filteredHistoryData = historyData.filter(item => {
         return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
-               (historyFilters.department === 'All' || item.department === historyFilters.department) &&
-               (historyFilters.product === 'All' || item.product === historyFilters.product);
+            (historyFilters.department === 'All' || item.department === historyFilters.department) &&
+            (historyFilters.product === 'All' || item.product === historyFilters.product);
     });
 
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
@@ -411,6 +400,12 @@ export default () => {
             header: 'Indent No',
             cell: ({ getValue }) => <div className="font-medium text-xs sm:text-sm">{getValue() as string}</div>,
             size: 100,
+        },
+        {
+            accessorKey: 'firm',
+            header: 'Firm',
+            cell: ({ getValue }) => <div className="text-xs sm:text-sm">{getValue() as string}</div>,
+            size: 120,
         },
         {
             accessorKey: 'indenter',
@@ -516,6 +511,7 @@ export default () => {
 
     const historyColumns: ColumnDef<HistoryData>[] = [
         { accessorKey: 'indentNo', header: 'Indent No', size: 100 },
+        { accessorKey: 'firm', header: 'Firm', size: 120 },
         { accessorKey: 'indenter', header: 'Indenter', size: 120 },
         { accessorKey: 'product', header: 'Product', size: 150 },
         { accessorKey: 'approvedQuantity', header: 'Appr. Qty', size: 80 },
@@ -539,12 +535,7 @@ export default () => {
                 </Heading>
                 <TabsContent value="pending" className="w-full max-w-full">
                     <div className="space-y-4">
-                        {selectedRows.size > 0 && (
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 sm:p-4 bg-blue-50 rounded-lg gap-2">
-                                <span className="text-sm font-medium">{selectedRows.size} row(s) selected</span>
-                                <Button onClick={handleSubmitBulkUpdates} disabled={submitting}>Submit Updates</Button>
-                            </div>
-                        )}
+                        {/* Bulk submit banner removed as it's now integrated into the toolbar Submit button */}
                         <DataTable
                             data={filteredTableData}
                             columns={columns}
@@ -553,9 +544,23 @@ export default () => {
                             extraActions={
                                 <div className="flex flex-wrap items-center gap-2">
                                     <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
-                                    <Button onClick={onDownloadClick} className="h-8 text-xs">
-                                        <DownloadOutlined /> Download
-                                    </Button>
+                                    {selectedRows.size > 1 ? (
+                                        <Button 
+                                            onClick={() => setIsReviewOpen(true)} 
+                                            className="h-8 text-xs bg-green-600 hover:bg-green-700 flex items-center gap-2"
+                                            disabled={submitting}
+                                        >
+                                            <Send size={14} /> Submit ({selectedRows.size})
+                                        </Button>
+                                    ) : (
+                                        <Button 
+                                            onClick={handleSubmitBulkUpdates} 
+                                            disabled={selectedRows.size === 0 || submitting} 
+                                            className="h-8 text-xs flex items-center gap-2"
+                                        >
+                                            <Send size={14} /> Submit
+                                        </Button>
+                                    )}
                                 </div>
                             }
                         />
@@ -572,6 +577,65 @@ export default () => {
                     />
                 </TabsContent>
             </Tabs>
+
+            <Dialog open={isReviewOpen} onOpenChange={setIsReviewOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Review Bulk Approval</DialogTitle>
+                    </DialogHeader>
+                    
+                    <div className="py-4">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Indent No</TableHead>
+                                    <TableHead>Product</TableHead>
+                                    <TableHead className="text-right">Appr. Qty</TableHead>
+                                    <TableHead>Vendor Type</TableHead>
+                                    <TableHead>Planned Date</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {Array.from(selectedRows).map(indentNo => {
+                                    const indent = tableData.find(d => d.indentNo === indentNo);
+                                    const updates = bulkUpdates.get(indentNo);
+                                    if (!indent) return null;
+                                    return (
+                                        <TableRow key={indentNo}>
+                                            <TableCell className="font-medium text-xs sm:text-sm">{indentNo}</TableCell>
+                                            <TableCell className="text-xs sm:text-sm">{indent.product}</TableCell>
+                                            <TableCell className="text-right text-xs sm:text-sm">
+                                                {updates?.quantity ?? indent.quantity} {indent.uom}
+                                            </TableCell>
+                                            <TableCell className="text-xs sm:text-sm">
+                                                <Pill variant={updates?.vendorType === 'Reject' ? 'reject' : updates?.vendorType === 'Regular' ? 'primary' : 'secondary'}>
+                                                    {updates?.vendorType || 'Select'}
+                                                </Pill>
+                                            </TableCell>
+                                            <TableCell className="text-xs sm:text-sm">
+                                                {updates?.plannedDate ? formatDate(new Date(updates.plannedDate)) : 'N/A'}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </div>
+
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setIsReviewOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            onClick={handleSubmitBulkUpdates} 
+                            disabled={submitting}
+                            className="bg-green-600 hover:bg-green-700"
+                        >
+                            {submitting ? <Loader size={20} color="white" /> : 'Confirm & Approve All'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

@@ -15,7 +15,6 @@ import VendorUpdate from './components/views/VendorUpdate';
 import RateApproval from './components/views/RateApproval';
 import ReceiveItems from './components/views/ReceiveItems';
 import StoreOutApproval from './components/views/StoreOutApproval';
-import GetPurchase from './components/views/getPurchase';
 import TrainnigVideo from './components/views/TrainingVideo';
 import License from './components/views/License';
 import AllIndent from './components/views/AllIndent';
@@ -226,25 +225,17 @@ const routes: RouteAttributes[] = [
     //     notifications: () => 0,
     // },
     {
-        path: 'get-purchase',
-        gateKey: 'getPurchase',
-        name: 'Get Purchase',
-        icon: <Package2 size={20} />,
-        element: <GetPurchase />,
-        notifications: () => 0,
-    },
-    {
         path: 'receive-items',
         gateKey: 'receiveItemView',
         name: 'Receive Items',
         icon: <Truck size={20} />,
         element: <ReceiveItems />,
         notifications: (data) => {
-            const billedIndents = new Set(data.getPurchases.map((g: any) => String(g.indentNumber || g.indent_number || '').trim()));
             return data.poMasters.filter((po: any) => {
                 const indentNum = String(po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '').trim();
-                if (!billedIndents.has(indentNum)) return false;
-                const totalReceived = data.received.filter((r: any) => (r.indentNumber || r.indent_number) === indentNum).reduce((sum, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+                const totalReceived = data.received
+                    .filter((r: any) => String(r.indentNumber || r.indent_number || '').trim() === indentNum)
+                    .reduce((sum, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
                 const poQty = Number(po.quantity) || 0;
                 return (poQty - totalReceived) > 0;
             }).length;

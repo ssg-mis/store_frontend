@@ -11,6 +11,7 @@ import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 interface PendingIndentsData {
     date: string;
     indentNo: string;
+    firm: string;
     product: string;
     quantity: number;
     rate: number;
@@ -49,10 +50,11 @@ export default () => {
                     const tableData = data.map((record: any) => {
                         const indentNo = record.indentNumber || record.indent_number || '';
                         const approval = approvalMap[indentNo];
-                        
+
                         return {
                             date: formatDate(new Date(record.createdAt || record.created_at)),
                             indentNo: indentNo,
+                            firm: record.firm || 'N/A',
                             product: record.productName || record.product_name || '',
                             quantity: record.approvedQuantity || record.approved_quantity || record.quantity || 0,
                             rate: approval?.approvedRate || record.approvedRate || record.approved_rate || 0,
@@ -85,6 +87,11 @@ export default () => {
         {
             accessorKey: 'indentNo',
             header: 'Indent Number',
+            cell: ({ getValue }) => <div className="px-2">{getValue() as string}</div>
+        },
+        {
+            accessorKey: 'firm',
+            header: 'Firm',
             cell: ({ getValue }) => <div className="px-2">{getValue() as string}</div>
         },
         {

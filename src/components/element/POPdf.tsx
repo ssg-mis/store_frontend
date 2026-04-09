@@ -1,4 +1,4 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 
 const styles = StyleSheet.create({
     page: {
@@ -102,13 +102,18 @@ const styles = StyleSheet.create({
         borderRight: '1pt solid black',
         padding: 4,
     },
+    tableCellFirm: {
+        width: '10%',
+        borderRight: '1pt solid black',
+        padding: 4,
+    },
     tableCell3: {
-        width: '12%',
+        width: '10%',
         borderRight: '1pt solid black',
         padding: 4,
     },
     tableCell4: {
-        width: '22%',
+        width: '16%',
         borderRight: '1pt solid black',
         padding: 4,
     },
@@ -138,7 +143,7 @@ const styles = StyleSheet.create({
         padding: 4,
     },
     tableCell10: {
-        width: '16%',
+        width: '14%',
         padding: 4,
     },
     tableRow: {
@@ -146,7 +151,7 @@ const styles = StyleSheet.create({
         borderBottom: '1pt solid black',
     },
     tableTotalCell: {
-        width: '84%',
+        width: '86%',
         borderRight: '1pt solid black',
         padding: 4,
         textAlign: 'right',
@@ -206,6 +211,7 @@ const styles = StyleSheet.create({
 
 interface Item {
     internalCode: string;
+    firm: string;
     product: string;
     description: string;
     quantity: number;
@@ -217,6 +223,7 @@ interface Item {
 }
 
 export interface POPdfProps {
+    companyLogo?: string;
     companyName: string;
     companyPhone: string;
     companyGstin: string;
@@ -241,9 +248,12 @@ export interface POPdfProps {
     terms: string[];
     preparedBy: string;
     approvedBy: string;
+    transportationType: string;
+    firm: string;
 }
 
 export default ({
+    companyLogo,
     companyName,
     companyPhone,
     companyGstin,
@@ -268,6 +278,8 @@ export default ({
     terms,
     preparedBy,
     approvedBy,
+    transportationType,
+    firm,
 }: POPdfProps) => {
     return (
         <Document>
@@ -275,9 +287,15 @@ export default ({
                 <View style={styles.mainContainer}>
                     <View>
                         <View style={styles.header}>
-                            <Text style={styles.companyName}>{companyName}</Text>
-                            <Text>{companyAddress}</Text>
-                            <Text>Phone: +{companyPhone}</Text>
+                            {companyLogo && (
+                                <Image 
+                                    src={companyLogo} 
+                                    style={{ width: 60, height: 60, objectFit: 'contain', marginRight: 15 }} 
+                                />
+                            )}
+                            <View style={{ flex: 1, alignItems: 'center' }}>
+                                <Text style={styles.companyName}>Shri Shyam Oil Extractions Pvt. Ltd.</Text>
+                            </View>
                         </View>
 
                         <View style={styles.divider} />
@@ -308,8 +326,24 @@ export default ({
                                 <Text style={styles.detailValue}>{orderNumber}</Text>
                             </View>
                             <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Firm:</Text>
+                                <Text style={styles.detailValue}>{firm}</Text>
+                            </View>
+                            <View style={styles.detailRow}>
                                 <Text style={styles.detailLabel}>PO Date:</Text>
                                 <Text style={styles.detailValue}>{orderDate}</Text>
+                            </View>
+                            <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Quotation No:</Text>
+                                <Text style={styles.detailValue}>{quotationNumber || 'N/A'}</Text>
+                            </View>
+                            <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Quotation Date:</Text>
+                                <Text style={styles.detailValue}>{quotationDate || 'N/A'}</Text>
+                            </View>
+                            <View style={styles.detailRow}>
+                                <Text style={styles.detailLabel}>Transportation:</Text>
+                                <Text style={styles.detailValue}>{transportationType}</Text>
                             </View>
                         </View>
                     </View>
@@ -371,6 +405,7 @@ export default ({
                         <View style={styles.tableHeaderRow}>
                             <Text style={styles.tableCell1}>S/N</Text>
                             <Text style={styles.tableCell2}>Internal Code</Text>
+                            <Text style={styles.tableCellFirm}>Firm</Text>
                             <Text style={styles.tableCell3}>Product</Text>
                             <Text style={styles.tableCell4}>Description</Text>
                             <Text style={styles.tableCell5}>Qty</Text>
@@ -385,6 +420,7 @@ export default ({
                             <View style={styles.tableRow} key={i}>
                                 <Text style={styles.tableCell1}>{i + 1}</Text>
                                 <Text style={styles.tableCell2}>{item.internalCode}</Text>
+                                <Text style={styles.tableCellFirm}>{item.firm}</Text>
                                 <Text style={styles.tableCell3}>{item.product}</Text>
                                 <Text style={styles.tableCell4}>{item.description}</Text>
                                 <Text style={styles.tableCell5}>{item.quantity}</Text>
@@ -412,7 +448,7 @@ export default ({
                     <View style={styles.divider} />
 
                     <View style={styles.termsContainer}>
-                        <Text style={styles.termsHeader}>The Above</Text>
+                        <Text style={styles.termsHeader}>Terms & Conditions</Text>
                         {terms.map((term, i) => (
                             <Text style={styles.termsText} key={i}>
                                 {i + 1}. {term}

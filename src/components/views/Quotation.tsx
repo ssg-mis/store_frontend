@@ -180,7 +180,7 @@ export default function QuotationPage() {
 
         const masterData = await fetchSheet('MASTER');
         const rawMasterForFilter = await fetchSheet('MASTER_DATA') as unknown as MasterDataRow[];
-        
+
         console.log('MASTER sheet raw data:', masterData);
         console.log('Raw Master Data for filtering:', rawMasterForFilter);
 
@@ -252,23 +252,23 @@ export default function QuotationPage() {
       // 1. Stage 1 must be done (Approved)
       // The backend IndentController adds a 'status' field: 'Approved' if approvedIndents.length > 0
       const isApproved = item.status === 'Approved' || (item.approvedIndents && item.approvedIndents.length > 0);
-      
+
       // 2. Identify if it already has a quotation
       const hasQuotationInHistory = allHistory.some(h => h.indentNo === item.indentNumber);
-      
+
       // 3. Stage check: Identify if it already moved to Vendor Rate Update or Three Party Approval
-      const isAlreadyInNextStage = 
-        (item.vendorRateUpdates && item.vendorRateUpdates.length > 0) || 
+      const isAlreadyInNextStage =
+        (item.vendorRateUpdates && item.vendorRateUpdates.length > 0) ||
         (item.threePartyApproval && item.threePartyApproval.length > 0);
 
       // 4. If we are in revise mode, include items that were already in this quotation
-      const isPartOfCurrentQuotation = mode === 'revise' && selectedQuotationNo && 
+      const isPartOfCurrentQuotation = mode === 'revise' && selectedQuotationNo &&
         allHistory.some(h => h.quatationNo === selectedQuotationNo && h.indentNo === item.indentNumber);
 
       // Eligible if Approved AND (Not yet in any quotation OR part of the current revision)
       // AND also NOT yet in Vendor Rate Update/Approval stages (unless revising)
-      const isBasicEligible = isApproved && 
-        (!hasQuotationInHistory || isPartOfCurrentQuotation) && 
+      const isBasicEligible = isApproved &&
+        (!hasQuotationInHistory || isPartOfCurrentQuotation) &&
         (!isAlreadyInNextStage || isPartOfCurrentQuotation);
 
       // 5. Supplier-based filtering (User request: "when i select any supplier name then show there data only")
@@ -297,10 +297,10 @@ export default function QuotationPage() {
     setSelectedItems(prev => {
       const stillEligibleIds = new Set(eligibleItems.map(item => item.indentNumber));
       const filtered = prev.filter(id => stillEligibleIds.has(id));
-      
+
       // If nothing changed, return original to avoid infinite loop
       if (filtered.length === prev.length) return prev;
-      
+
       console.log('Auto-unselected items because they are no longer eligible for the selected supplier(s)');
       return filtered;
     });
@@ -342,7 +342,7 @@ export default function QuotationPage() {
   // Handle multiple supplier selection from MASTER sheet - Robust lookup
   const handleSupplierSelect = (supplierName: string) => {
     if (!supplierName) return;
-    
+
     setSelectedSuppliers(prev => {
       const isAlreadySelected = prev.some(s => s.trim().toLowerCase() === supplierName.trim().toLowerCase());
       const newSuppliers = isAlreadySelected
@@ -353,7 +353,7 @@ export default function QuotationPage() {
 
       // Fetch supplier info from MASTER sheet data
       const infos = newSuppliers.map(name => {
-        const masterSupplier = masterSuppliers.find(s => 
+        const masterSupplier = masterSuppliers.find(s =>
           (s.supplierName || '').trim().toLowerCase() === name.trim().toLowerCase()
         );
         return {
@@ -375,14 +375,14 @@ export default function QuotationPage() {
   // Logic for Revise mode: Populate form when selectedQuotationNo changes
   useEffect(() => {
     if (mode === 'revise' && selectedQuotationNo) {
-      const historyRecords = allHistory.filter(h => 
+      const historyRecords = allHistory.filter(h =>
         (h.quatationNo) === selectedQuotationNo
       );
 
       if (historyRecords.length > 0) {
         // Unique suppliers from these records
         const uniqueSuppliers = Array.from(new Set(historyRecords.map(h => h.supplierName)));
-        
+
         // Find them in masterData to get full info
         const infos = uniqueSuppliers.map(name => {
           const master = masterSuppliers.find(s => (s.supplierName || '').trim().toLowerCase() === name.trim().toLowerCase());
@@ -401,12 +401,12 @@ export default function QuotationPage() {
         setSelectedSuppliers(uniqueSuppliers);
         setSupplierInfos(infos as SupplierInfo[]);
         setSelectedItems(uniqueIndents);
-        
+
         // Update form
         form.setValue('quotationNumber', selectedQuotationNo);
         form.setValue('suppliers', uniqueSuppliers);
         form.setValue('selectedIndents', uniqueIndents);
-        
+
         // Optionally set date if we have it
         const firstRecord = historyRecords[0];
         if (firstRecord.timestamp) {
@@ -888,6 +888,7 @@ export default function QuotationPage() {
                           </TableHead>
                           <TableHead>S/N</TableHead>
                           <TableHead>Internal Code</TableHead>
+                          <TableHead>Firm</TableHead>
                           <TableHead>Product</TableHead>
                           <TableHead>Description</TableHead>
                           <TableHead>Qty</TableHead>
@@ -898,8 +899,8 @@ export default function QuotationPage() {
                         {eligibleItems.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={7} className="text-center text-muted-foreground py-10">
-                              {mode === 'create' 
-                                ? "No eligible items found (Only APPROVED indents without quotations are shown)" 
+                              {mode === 'create'
+                                ? "No eligible items found (Only APPROVED indents without quotations are shown)"
                                 : "No items found for this quotation"}
                             </TableCell>
                           </TableRow>
@@ -916,6 +917,7 @@ export default function QuotationPage() {
                               </TableCell>
                               <TableCell>{index + 1}</TableCell>
                               <TableCell>{item.indentNumber}</TableCell>
+                              <TableCell>{item.firm || 'N/A'}</TableCell>
                               <TableCell>{item.productName}</TableCell>
                               <TableCell>{item.specifications || <span className="text-muted-foreground">No Description</span>}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
