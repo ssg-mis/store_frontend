@@ -294,7 +294,7 @@ export default ({
                                 />
                             )}
                             <View style={{ flex: 1, alignItems: 'center' }}>
-                                <Text style={styles.companyName}>Shri Shyam Oil Extractions Pvt. Ltd.</Text>
+                                <Text style={styles.companyName}>Shri Shyam Oil Extractions Pvt Ltd</Text>
                             </View>
                         </View>
 

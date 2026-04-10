@@ -267,44 +267,15 @@ export default function QuotationPage() {
 
       // Eligible if Approved AND (Not yet in any quotation OR part of the current revision)
       // AND also NOT yet in Vendor Rate Update/Approval stages (unless revising)
-      const isBasicEligible = isApproved &&
+      return isApproved &&
         (!hasQuotationInHistory || isPartOfCurrentQuotation) &&
         (!isAlreadyInNextStage || isPartOfCurrentQuotation);
-
-      // 5. Supplier-based filtering (User request: "when i select any supplier name then show there data only")
-      if (selectedSuppliers.length === 0) {
-        return isBasicEligible; // Show all if no supplier selected
-      }
-
-      // If suppliers are selected, further filter to only show items they provide in master data
-      const matchesSupplier = fullMasterData.some(m => {
-        const isSelectedVendor = selectedSuppliers.some(s => s.trim().toLowerCase() === (m.vendorName || '').trim().toLowerCase());
-        const isMatchingItem = (m.itemName || '').trim().toLowerCase() === (item.productName || '').trim().toLowerCase();
-        return isSelectedVendor && isMatchingItem;
-      });
-
-      return isBasicEligible && matchesSupplier;
     }).reverse();
 
     console.log('Filtered eligible items:', filtered.length);
     return filtered;
-  }, [indentSheet, mode, selectedQuotationNo, allHistory, selectedSuppliers, fullMasterData]);
+  }, [indentSheet, mode, selectedQuotationNo, allHistory]);
 
-  // Sync selection: remove items that are no longer in the eligible list (e.g., filtered out by supplier choice)
-  useEffect(() => {
-    if (eligibleItems.length === 0 && selectedItems.length === 0) return;
-
-    setSelectedItems(prev => {
-      const stillEligibleIds = new Set(eligibleItems.map(item => item.indentNumber));
-      const filtered = prev.filter(id => stillEligibleIds.has(id));
-
-      // If nothing changed, return original to avoid infinite loop
-      if (filtered.length === prev.length) return prev;
-
-      console.log('Auto-unselected items because they are no longer eligible for the selected supplier(s)');
-      return filtered;
-    });
-  }, [eligibleItems, selectedItems.length]); // Track length instead of array to avoid re-triggering itself too easily if items change internally
 
 
   const form = useForm<QuotationForm>({
@@ -566,6 +537,7 @@ export default function QuotationPage() {
           qty: String(item.quantity || ''),
           unit: item.uom || '',
           pdfLink: pdfUrl,
+          firm: item.firm || 'N/A',
         }));
 
         allQuotationRows.push(...quotationHistoryRows);
@@ -676,12 +648,12 @@ export default function QuotationPage() {
                       name="suppliers"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Suppliers (From MASTER Sheet)</FormLabel>
+                          <FormLabel>Suppliers (From MASTER Table)</FormLabel>
                           <FormControl>
                             <div className="space-y-2">
                               <Select onValueChange={handleSupplierSelect}>
                                 <SelectTrigger size="sm" className="w-full">
-                                  <SelectValue placeholder="Select suppliers from MASTER sheet" />
+                                  <SelectValue placeholder="Select suppliers from MASTER Table" />
                                 </SelectTrigger>
                                 <SelectContent className="z-[100] max-h-[300px]">
                                   {masterSuppliers.length === 0 ? (
@@ -953,4 +925,3 @@ export default function QuotationPage() {
     </div>
   );
 }
-
