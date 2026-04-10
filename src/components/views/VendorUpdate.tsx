@@ -26,6 +26,7 @@ import { UserCheck, PenSquare } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
+import ExcelEditorDialog from '../element/ExcelEditorDialog';
 import { Pill } from '../ui/pill';
 import { formatDate } from '@/lib/utils';
 
@@ -64,6 +65,7 @@ interface HistoryData {
     vendorName?: string;
     requestDate: string;
     approvalDate: string;
+    comparisonSheet?: string;
 }
 
 export default () => {
@@ -76,6 +78,8 @@ export default () => {
     const [tableData, setTableData] = useState<VendorUpdateData[]>([]);
     const [openDialog, setOpenDialog] = useState(false);
     const [editingRow, setEditingRow] = useState<string | null>(null);
+    const [uploadingFileId, setUploadingFileId] = useState<number | null>(null);
+    const [excelEditorConfig, setExcelEditorConfig] = useState<{ open: boolean; historyItemId: number | null; indentNo: string; fileUrl: string | null; }>({ open: false, historyItemId: null, indentNo: '', fileUrl: null });
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
     const [vendorSearch, setVendorSearch] = useState('');
     const [vendors, setVendors] = useState<any[]>([]);
@@ -198,6 +202,7 @@ export default () => {
                         vendorName: record.vendorName1 || '',
                         requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
+                        comparisonSheet: record.comparisonSheet || '',
                     });
                 });
             }
@@ -243,6 +248,51 @@ export default () => {
         fetchData();
     }, []);
 
+    const handleDirectFileUpload = async (historyItemId: number, indentNo: string, file: File) => {
+        try {
+            setUploadingFileId(historyItemId);
+            
+            const url = await uploadFile(file, import.meta.env.VITE_COMPARISON_SHEET_FOLDER);
+            if (!url) throw new Error("File upload failed");
+
+            const updatePayload = {
+                id: historyItemId,
+                indent_number: indentNo,
+                comparisonSheet: url,
+            };
+
+            const result = await postToSheet([updatePayload], 'update', 'VENDOR_RATE_UPDATE');
+            if (!result.success) throw new Error('API update failed');
+
+            toast.success(`Comparison sheet updated for ${indentNo}`);
+            await fetchData();
+        } catch (error: any) {
+            console.error('Direct file upload error:', error);
+            toast.error('Failed to update file: ' + error.message);
+        } finally {
+            setUploadingFileId(null);
+        }
+    };
+
+    const handleExcelEditorSave = async (newUrl: string) => {
+        try {
+            const updatePayload = {
+                id: excelEditorConfig.historyItemId,
+                indent_number: excelEditorConfig.indentNo,
+                comparisonSheet: newUrl,
+            };
+
+            const result = await postToSheet([updatePayload], 'update', 'VENDOR_RATE_UPDATE');
+            if (!result.success) throw new Error('API update failed');
+
+            toast.success(`Comparison sheet updated for ${excelEditorConfig.indentNo}`);
+            setExcelEditorConfig(prev => ({ ...prev, open: false }));
+            await fetchData();
+        } catch (error: any) {
+            console.error('Direct file update error:', error);
+            toast.error('Failed to update database record: ' + error.message);
+        }
+    };
 
     const handleEditClick = (row: HistoryData) => {
         setEditingRow(row.indentNo);
@@ -698,6 +748,51 @@ export default () => {
                                 onClick={() => handleEditClick(row.original)}
                             >
                                 <PenSquare className="h-3 w-3" />
+                            </Button>
+                        )}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: 'comparisonSheet',
+            header: 'Sheet',
+            cell: ({ row }) => {
+                const indent = row.original;
+                // Only Three Party items in history have a comparisonSheet capability in VENDOR_RATE_UPDATE
+                if (indent.source !== 'rate_update') return <span className="text-muted-foreground">—</span>;
+
+                const isUploading = uploadingFileId === indent.id;
+
+                return (
+                    <div className="flex items-center gap-2">
+                        {indent.comparisonSheet ? (
+                            <div className="flex gap-2 items-center">
+                                <a 
+                                    href={indent.comparisonSheet} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="text-blue-500 hover:underline text-xs"
+                                >
+                                    View
+                                </a>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="h-6 text-[10px] px-2 py-0"
+                                    onClick={() => setExcelEditorConfig({ open: true, historyItemId: indent.id, indentNo: indent.indentNo, fileUrl: indent.comparisonSheet || null })}
+                                >
+                                    Edit Sheet
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-6 text-[10px] px-2 py-0"
+                                onClick={() => setExcelEditorConfig({ open: true, historyItemId: indent.id, indentNo: indent.indentNo, fileUrl: null })}
+                            >
+                                Create Sheet
                             </Button>
                         )}
                     </div>
@@ -1385,6 +1480,13 @@ export default () => {
                     </DialogContent>
                 ) : null}
             </Dialog>
+
+            <ExcelEditorDialog
+                open={excelEditorConfig.open}
+                fileUrl={excelEditorConfig.fileUrl}
+                onClose={() => setExcelEditorConfig(prev => ({ ...prev, open: false }))}
+                onSave={handleExcelEditorSave}
+            />
         </div>
     )
-};
+};
