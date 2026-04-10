@@ -12,6 +12,8 @@ interface SheetsState {
     updateAll: () => void;
     updateRelatedSheets: () => void;
     updateThreePartyApprovalSheet: () => void;
+    updateApprovedIndentSheet: () => void;
+    updateRateUpdateSheet: () => void;
 
     indentSheet: IndentSheet[];
     poMasterSheet: PoMasterSheet[];
