@@ -1,6 +1,6 @@
 import { Database, Plus } from 'lucide-react';
 import Heading from '../element/Heading';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 interface MasterRow {
     id: number;
     vendor_name: string;
+    vendorName?: string;
     vendor_gstin: string | null;
     vendorAddress?: string | null; // Note: address might be snake_case in DB too, checking prisma
     vendor_email: string | null;
@@ -35,6 +36,7 @@ interface MasterRow {
     group_head: string | null;
     itemName: string | null;
     firm_name: string | null;
+    firmName?: string | null;
     createdAt: string | null;
 }
 
@@ -166,7 +168,7 @@ const columns: ColumnDef<MasterRow>[] = [
     {
         accessorKey: 'firm_name',
         header: 'Firm Name',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
+        cell: ({ row }) => <TruncCell value={row.original.firm_name || row.original.firmName} width={160} />,
     },
 ];
 
@@ -178,29 +180,54 @@ export default function MasterData() {
     const [form, setForm] = useState<MasterForm>(emptyForm);
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
-    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm'>('item');
+    const [activeTab, setActiveTab] = useState<'item' | 'vendor'>('item');
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
-    
+
+    const vendorToFirmMap = useMemo(() => {
+        const map: Record<string, string> = {};
+        tableData.forEach(r => {
+            const vendor = r.vendor_name || r.vendorName;
+            const firm = r.firm_name || r.firmName;
+            if (vendor && firm && firm !== '---' && firm !== 'null' && firm !== 'undefined') {
+                map[vendor] = firm;
+            }
+        });
+        return map;
+    }, [tableData]);
+
     // Show all data properly no matter what any column has more or less data, 
     // but filter out completely empty/null rows.
-    const nonEmptyData = tableData.filter(r => {
-        const fields = [
-            r.vendor_name,
-            r.vendor_gstin,
-            r.vendor_email,
-            r.payment_term,
-            r.department,
-            r.group_head,
-            r.itemName,
-            r.firm_name
-        ];
-        return fields.some(f => f && f !== 'null' && f !== '---' && f.trim() !== '');
-    });
+    const nonEmptyData = useMemo(() => {
+        return tableData
+            .filter(r => {
+                const fields = [
+                    r.vendor_name,
+                    r.vendor_gstin,
+                    r.vendor_email,
+                    r.payment_term,
+                    r.department,
+                    r.group_head,
+                    r.itemName,
+                    r.firm_name
+                ];
+                return fields.some(f => f && f !== 'null' && f !== '---' && f.trim() !== '');
+            })
+            .map(r => {
+                const vendor = r.vendor_name || r.vendorName;
+                const firm = r.firm_name || r.firmName;
+                return {
+                    ...r,
+                    firm_name: firm || (vendor ? vendorToFirmMap[vendor] : firm)
+                };
+            });
+    }, [tableData, vendorToFirmMap]);
 
-    const filteredData = vendorFilter === 'All'
-        ? nonEmptyData
-        : nonEmptyData.filter(r => r.vendor_name === vendorFilter);
+    const filteredData = useMemo(() => {
+        return vendorFilter === 'All'
+            ? nonEmptyData
+            : nonEmptyData.filter(r => r.vendor_name === vendorFilter);
+    }, [nonEmptyData, vendorFilter]);
 
     /* fetch */
     async function fetchData() {
@@ -211,6 +238,11 @@ export default function MasterData() {
                 '*',
                 { column: 'id', options: { ascending: false } }
             );
+
+            console.log("Fetched Firm Names:", (data || []).map((d: any) => ({
+                vendor: d.vendor_name || d.vendorName,
+                firm: d.firm_name || d.firmName
+            })));
 
             setTableData(data || []);
         } catch (err: any) {
@@ -249,6 +281,7 @@ export default function MasterData() {
                 group_head: form.group_head.trim() || null,
                 groupHead: form.group_head.trim() || null,
                 itemName: form.item_name.trim() || null,
+                firm_name: form.firm_name.trim() || null,
             }], 'insert', 'MASTER');
 
             if (!result.success) throw new Error('Failed to save item data');
@@ -272,6 +305,7 @@ export default function MasterData() {
                 vendor_address: form.vendor_address.trim() || null,
                 vendor_email: form.vendor_email.trim() || null,
                 payment_term: form.payment_term.trim() || null,
+                firm_name: form.firm_name.trim() || null,
                 department: null,
                 group_head: null,
                 groupHead: null,
@@ -289,33 +323,6 @@ export default function MasterData() {
         }
     }
 
-    async function handleFirmSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        setSubmitting(true);
-        try {
-            const result = await postToSheet([{
-                vendor_name: null,
-                vendor_gstin: null,
-                vendor_address: null,
-                vendor_email: null,
-                payment_term: null,
-                department: null,
-                group_head: null,
-                groupHead: null,
-                itemName: null,
-                firm_name: form.firm_name.trim(),
-            }], 'insert', 'MASTER');
-
-            if (!result.success) throw new Error('Failed to save firm data');
-            toast.success('Firm master data saved successfully!');
-            setSheetOpen(false);
-            fetchData();
-        } catch (err: any) {
-            toast.error(err?.message ?? 'Failed to save firm data');
-        } finally {
-            setSubmitting(false);
-        }
-    }
 
     return (
         <div className="space-y-6 w-full overflow-x-hidden">
@@ -331,7 +338,7 @@ export default function MasterData() {
                 <DataTable
                     data={filteredData}
                     columns={columns}
-                    searchFields={['vendor_name', 'department', 'group_head', 'itemName', 'vendor_gstin', 'vendor_email', 'payment_term']}
+                    searchFields={['vendor_name', 'department', 'group_head', 'itemName', 'vendor_gstin', 'vendor_email', 'payment_term', 'firm_name']}
                     dataLoading={dataLoading}
                     pagination={true}
                     extraActions={
@@ -367,16 +374,6 @@ export default function MasterData() {
                                 <Plus className="mr-2 h-4 w-4" />
                                 Add Vendor Info
                             </Button>
-                            <Button
-                                className="h-9 shrink-0"
-                                onClick={() => {
-                                    setActiveTab('firm');
-                                    setSheetOpen(true);
-                                }}
-                            >
-                                <Plus className="mr-2 h-4 w-4" />
-                                Add Firm
-                            </Button>
                         </div>
                     }
                 />
@@ -390,14 +387,12 @@ export default function MasterData() {
                 >
                     <SheetHeader className="sticky top-0 bg-background z-10 pb-3 border-b mb-6">
                         <SheetTitle>
-                            {activeTab === 'item' ? 'Add Item Info' : activeTab === 'vendor' ? 'Add Vendor Info' : 'Add Firm'}
+                            {activeTab === 'item' ? 'Add Item Info' : 'Add Vendor Info'}
                         </SheetTitle>
                         <SheetDescription>
-                            {activeTab === 'item' 
-                                ? 'Fill in the item and department details.' 
-                                : activeTab === 'vendor' 
-                                ? 'Fill in the vendor contact and payment details.' 
-                                : 'Add a new firm name to the system.'}
+                            {activeTab === 'item'
+                                ? 'Fill in the item and department details.'
+                                : 'Fill in the vendor contact and firm details.'}
                         </SheetDescription>
                     </SheetHeader>
 
@@ -437,7 +432,7 @@ export default function MasterData() {
                                 </div>
                             </form>
                         </div>
-                    ) : activeTab === 'vendor' ? (
+                    ) : (
                         <div className="flex-1 overflow-y-auto space-y-4 px-1">
                             <form id="vendor-form" onSubmit={handleVendorSubmit} className="space-y-4">
                                 <Field
@@ -469,6 +464,13 @@ export default function MasterData() {
                                     placeholder="e.g. Net 30"
                                 />
                                 <Field
+                                    label="Firm Name"
+                                    id="firm_name"
+                                    value={form.firm_name}
+                                    onChange={setField('firm_name')}
+                                    placeholder="e.g. Shri Shyam Oil Extractions"
+                                />
+                                <Field
                                     label="Vendor Address"
                                     id="vendor_address"
                                     value={form.vendor_address}
@@ -485,30 +487,6 @@ export default function MasterData() {
                                             <Loader size={16} color="white" className="mr-2" />
                                         )}
                                         {submitting ? 'Saving Vendor…' : 'Save Vendor Data'}
-                                    </Button>
-                                </div>
-                            </form>
-                        </div>
-                    ) : (
-                        <div className="flex-1 overflow-y-auto space-y-4 px-1">
-                            <form id="firm-form" onSubmit={handleFirmSubmit} className="space-y-4">
-                                <Field
-                                    label="Firm Name"
-                                    id="firm_name"
-                                    value={form.firm_name}
-                                    onChange={setField('firm_name')}
-                                    required
-                                />
-                                <div className="pt-4 flex gap-2">
-                                    <Button
-                                        type="submit"
-                                        disabled={submitting}
-                                        className="flex-1 h-11"
-                                    >
-                                        {submitting && (
-                                            <Loader size={16} color="white" className="mr-2" />
-                                        )}
-                                        {submitting ? 'Saving Firm…' : 'Save Firm Data'}
                                     </Button>
                                 </div>
                             </form>

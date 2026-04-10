@@ -182,6 +182,7 @@ export type MasterDataRow = {
     department?: string | null;
     groupHead?: string | null;
     itemName?: string | null;
+    firmName?: string | null;
     createdAt?: string | null;
 
     // Snake case equivalents for Database compatibility
@@ -191,6 +192,7 @@ export type MasterDataRow = {
     vendor_email?: string | null;
     payment_term?: string | null;
     group_head?: string | null;
+    firm_name?: string | null;
 };
 
 export type MasterConfigSheet = {
