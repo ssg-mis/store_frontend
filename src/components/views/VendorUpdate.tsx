@@ -1,5 +1,5 @@
 import type { ColumnDef, Row } from '@tanstack/react-table';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import DataTable from '../element/DataTable';
 import { Button } from '../ui/button';
 import {
@@ -28,7 +28,7 @@ import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
 import ExcelEditorDialog from '../element/ExcelEditorDialog';
 import { Pill } from '../ui/pill';
-import { formatDate } from '@/lib/utils';
+import { formatDate, debounce } from '@/lib/utils';
 
 
 
@@ -84,9 +84,24 @@ export default () => {
     const [vendorSearch, setVendorSearch] = useState('');
     const [vendors, setVendors] = useState<any[]>([]);
     const [vendorsLoading, setVendorsLoading] = useState(true);
-    const [dataLoading, setDataLoading] = useState(true);
     const [paymentTerms, setPaymentTerms] = useState<string[]>([]);
     const [paymentTermsLoading, setPaymentTermsLoading] = useState(true);
+
+    // Server-side pagination states
+    const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
+    const [historyInitialLoading, setHistoryInitialLoading] = useState(true);
+    const [pendingSearching, setPendingSearching] = useState(false);
+    const [historySearching, setHistorySearching] = useState(false);
+    const [pendingLoadingMore, setPendingLoadingMore] = useState(false);
+    const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+    const [pendingTotal, setPendingTotal] = useState(0);
+    const [historyTotal, setHistoryTotal] = useState(0);
+    const [pendingPage, setPendingPage] = useState(1);
+    const [historyPage, setHistoryPage] = useState(1);
+    const [pendingSearch, setPendingSearch] = useState('');
+    const [historySearch, setHistorySearch] = useState('');
+    const pendingAbortRef = useRef<AbortController | null>(null);
+    const historyAbortRef = useRef<AbortController | null>(null);
 
     // Filter states
     const [pendingFilters, setPendingFilters] = useState({
@@ -138,67 +153,98 @@ export default () => {
 
 
 
-    const fetchData = async () => {
-        setDataLoading(true);
+    const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (pendingAbortRef.current) pendingAbortRef.current.abort();
+        const controller = new AbortController();
+        pendingAbortRef.current = controller;
+
+        if (!append && tableData.length === 0) setPendingInitialLoading(true);
+        else if (!append) setPendingSearching(true);
+        else setPendingLoadingMore(true);
+
         try {
-            // 1. Fetch Approved Indents for the PENDING tab
-            const approvedIndentsData = await fetchFromSupabasePaginated(
-                'approved_indent',
-                '*',
-                { column: 'createdAt', options: { ascending: false } }
+            const data: any = await fetchFromSupabasePaginated('approved_indent', '*',
+                { column: 'createdAt', options: { ascending: false } },
+                undefined, undefined,
+                { page: pageValue, limit: 50, search: searchQuery, status: 'Pending' }
             );
 
-            if (approvedIndentsData) {
-                // Filter out indents that already have a vendor rate update OR a three-party approval
-                const pendingTableData = approvedIndentsData
-                    .filter((record: any) => {
-                        return !(record.hasRateUpdate || record.hasThreeParty);
-                    })
-                    .map((record: any) => ({
+            if (controller.signal.aborted) return;
+
+            if (data && data.items) {
+                const mappedData = data.items.map((record: any) => ({
+                    id: record.id,
+                    indentId: record.indentId,
+                    indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                    firm: record.firm || 'N/A',
+                    indenter: record.indenterName || '',
+                    department: record.department || '',
+                    product: record.productName || '',
+                    quantity: record.approvedQuantity || 0,
+                    uom: record.uom || '',
+                    vendorType: record.vendorType as VendorUpdateData['vendorType'],
+                    requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
+                }));
+                setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
+                setPendingTotal(data.total);
+            }
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching vendor pending data:', error);
+            toast.error('Failed to fetch data: ' + error.message);
+        } finally {
+            if (!controller.signal.aborted) {
+                setPendingInitialLoading(false);
+                setPendingSearching(false);
+                setPendingLoadingMore(false);
+            }
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const fetchHistoryData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (historyAbortRef.current) historyAbortRef.current.abort();
+        const controller = new AbortController();
+        historyAbortRef.current = controller;
+
+        if (!append && historyData.length === 0) setHistoryInitialLoading(true);
+        else if (!append) setHistorySearching(true);
+        else setHistoryLoadingMore(true);
+
+        try {
+            // Fetch from vendor_rate_update (Pending = not yet three-party approved)
+            const [rateData, threePartyData]: [any, any] = await Promise.all([
+                fetchFromSupabasePaginated('vendor_rate_update', '*',
+                    { column: 'createdAt', options: { ascending: false } },
+                    undefined, undefined,
+                    { page: pageValue, limit: 50, search: searchQuery }
+                ),
+                fetchFromSupabasePaginated('three_party_approval', '*',
+                    { column: 'createdAt', options: { ascending: false } },
+                    undefined, undefined,
+                    { page: pageValue, limit: 50, search: searchQuery }
+                )
+            ]);
+
+            if (controller.signal.aborted) return;
+
+            const historyItems: HistoryData[] = [];
+
+            if (rateData && rateData.items) {
+                rateData.items.forEach((record: any) => {
+                    historyItems.push({
                         id: record.id,
-                        indentId: record.indentId,
-                        indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                        source: 'rate_update',
+                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        indentNo: record.indentNumber || '',
                         firm: record.firm || 'N/A',
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
-                        vendorType: record.vendorType as VendorUpdateData['vendorType'],
-                        requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                        approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
-                    }));
-                setTableData(pendingTableData);
-            }
-
-            // 2. Fetch History from BOTH tables
-            const [rateUpdates, threePartyApprovals] = await Promise.all([
-                fetchFromSupabasePaginated('vendor_rate_update', '*'),
-                fetchFromSupabasePaginated('three_party_approval', '*')
-            ]);
-
-            const historyItems: any[] = [];
-
-            if (rateUpdates) {
-                rateUpdates.forEach((record: any) => {
-                    const indentNo = record.indentNumber || record.indent_number || record.indentNo || '';
-                    const approvalMatch = approvedIndentsData?.find((a: any) => 
-                        (a.indentNumber === indentNo || a.indent_number === indentNo || a.indentNo === indentNo)
-                    );
-
-                    historyItems.push({
-                        id: record.id,
-                        source: 'rate_update',
-                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                        indentNo: indentNo,
-                        firm: record.firm || approvalMatch?.firm || 'N/A',
-                        indenter: record.indenterName || '',
-                        department: record.department || '',
-                        product: record.productName || '',
-                        quantity: record.approvedQuantity || 0,
-                        uom: record.uom || '',
                         rate: record.rate1 || 0,
-                        vendorType: approvalMatch?.vendorType || 'Regular',
+                        vendorType: 'Regular',
                         vendorName: record.vendorName1 || '',
                         requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
@@ -207,26 +253,21 @@ export default () => {
                 });
             }
 
-            if (threePartyApprovals) {
-                threePartyApprovals.forEach((record: any) => {
-                    const indentNo = record.indentNumber || record.indent_number || record.indentNo || '';
-                    const approvalMatch = approvedIndentsData?.find((a: any) => 
-                        (a.indentNumber === indentNo || a.indent_number === indentNo || a.indentNo === indentNo)
-                    );
-
+            if (threePartyData && threePartyData.items) {
+                threePartyData.items.forEach((record: any) => {
                     historyItems.push({
                         id: record.id,
                         source: 'three_party',
                         date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                        indentNo: indentNo,
-                        firm: record.firm || approvalMatch?.firm || 'N/A',
+                        indentNo: record.indentNumber || '',
+                        firm: record.firm || 'N/A',
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
                         rate: record.approvedRate || 0,
-                        vendorType: approvalMatch?.vendorType || 'Three Party',
+                        vendorType: 'Three Party',
                         vendorName: record.approvedVendorName || '',
                         requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
@@ -234,20 +275,57 @@ export default () => {
                 });
             }
 
-            setHistoryData(historyItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+            const sorted = historyItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            setHistoryData(prev => append ? [...prev, ...sorted] : sorted);
+            // Use the larger total as the combined total
+            const combinedTotal = (rateData?.total || 0) + (threePartyData?.total || 0);
+            setHistoryTotal(combinedTotal);
         } catch (error: any) {
-            console.error('Error fetching data for Vendor Update:', error);
-            toast.error('Failed to fetch data: ' + error.message);
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching vendor history:', error);
+            toast.error('Failed to fetch history: ' + error.message);
         } finally {
-            setDataLoading(false);
+            if (!controller.signal.aborted) {
+                setHistoryInitialLoading(false);
+                setHistorySearching(false);
+                setHistoryLoadingMore(false);
+            }
         }
-    };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Fetching table data on mount
+    // Wrapper to refresh both tabs (used after mutations)
+    const fetchData = useCallback(async () => {
+        await Promise.all([fetchPendingData(1, ''), fetchHistoryData(1, '')]);
+    }, [fetchPendingData, fetchHistoryData]);
+
+    // Initial load
     useEffect(() => {
-        fetchData();
-    }, []);
+        fetchPendingData(1, '');
+        fetchHistoryData(1, '');
+        return () => {
+            pendingAbortRef.current?.abort();
+            historyAbortRef.current?.abort();
+        };
+    }, [fetchPendingData, fetchHistoryData]);
 
+    // Debounced search handlers
+    const debouncedPendingSearch = useCallback(
+        debounce((query: string) => {
+            setPendingPage(1);
+            setPendingSearch(query);
+            fetchPendingData(1, query);
+        }, 500),
+        [fetchPendingData]
+    );
+
+    const debouncedHistorySearch = useCallback(
+        debounce((query: string) => {
+            setHistoryPage(1);
+            setHistorySearch(query);
+            fetchHistoryData(1, query);
+        }, 500),
+        [fetchHistoryData]
+    );
     const handleDirectFileUpload = async (historyItemId: number, indentNo: string, file: File) => {
         try {
             setUploadingFileId(historyItemId);
@@ -1056,10 +1134,20 @@ export default () => {
                     </Heading>
                     <TabsContent value="pending" className="w-full">
                     <DataTable
-                        data={filteredTableData}
+                        data={tableData}
                         columns={columns}
                         searchFields={['indentNo', 'product', 'department', 'indenter']}
-                        dataLoading={dataLoading}
+                        dataLoading={pendingInitialLoading}
+                        isSearching={pendingSearching}
+                        totalCount={pendingTotal}
+                        currentPage={pendingPage}
+                        onPageChange={(page) => {
+                            setPendingPage(page);
+                            fetchPendingData(page, pendingSearch, false);
+                        }}
+                        onSearchChange={debouncedPendingSearch}
+                        pagination={true}
+                        pageSize={50}
                         extraActions={
                             <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
                         }
@@ -1067,10 +1155,20 @@ export default () => {
                 </TabsContent>
                 <TabsContent value="history" className="w-full">
                     <DataTable
-                        data={filteredHistoryData}
+                        data={historyData}
                         columns={historyColumns}
                         searchFields={['indentNo', 'product', 'department', 'indenter', 'vendorName']}
-                        dataLoading={dataLoading}
+                        dataLoading={historyInitialLoading}
+                        isSearching={historySearching}
+                        totalCount={historyTotal}
+                        currentPage={historyPage}
+                        onPageChange={(page) => {
+                            setHistoryPage(page);
+                            fetchHistoryData(page, historySearch, false);
+                        }}
+                        onSearchChange={debouncedHistorySearch}
+                        pagination={true}
+                        pageSize={50}
                         extraActions={
                             <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
                         }

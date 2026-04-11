@@ -1,9 +1,9 @@
 import { ListTodo } from 'lucide-react';
 import Heading from '../element/Heading';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { formatDate } from '@/lib/utils';
+import { formatDate, debounce } from '@/lib/utils';
 import DataTable from '../element/DataTable';
 import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -65,73 +65,99 @@ const parseGSTPercent = (value: any): number => {
 
 export default () => {
 
-    const [loading, setLoading] = useState(true);
     const [tableData, setTableData] = useState<PendingIndentsData[]>([]);
 
-    // Filter states
+    // Filter states (kept for FilterBar options)
     const [filters, setFilters] = useState({
         partyName: 'All',
         product: 'All'
     });
 
-    useEffect(() => {
-        const fetchPOMaster = async () => {
-            try {
-                setLoading(true);
-                const data = await fetchFromSupabasePaginated(
-                    'po_master',
-                    '*',
-                    { column: 'createdAt', options: { ascending: true } }
-                );
+    // Server-side pagination states
+    const [initialLoading, setInitialLoading] = useState(true);
+    const [isSearching, setIsSearching] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(1);
+    const [search, setSearch] = useState('');
+    const abortRef = useRef<AbortController | null>(null);
 
-                if (data) {
-                    setTableData(
-                        data
-                            // Filter for pending POs - adjust this condition based on your pending criteria
-                            .filter(() => {
-                                // Example: You can add filtering logic here if needed
-                                // For now, showing all records
-                                return true;
-                            })
-                            .map((sheet: any) => {
-                                // Try different possible property names for GST
-                                let gstValue = sheet.gstPercent || 0; 
+    const fetchData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (abortRef.current) abortRef.current.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
 
-                                return {
-                                    timestamp: sheet.createdAt ? formatDate(new Date(sheet.createdAt)) : '',
-                                    partyName: sheet.partyName || '',
-                                    poNumber: sheet.poNumber || '',
-                                    quotationNumber: sheet.quotationNumber || '', 
-                                    quotationDate: sheet.quotationDate ? formatDate(new Date(sheet.quotationDate)) : '',
-                                    enquiryNumber: sheet.enquiryNumber || '',
-                                    enquiryDate: sheet.enquiryDate ? formatDate(new Date(sheet.enquiryDate)) : '',
-                                    internalCode: sheet.internalCode || '',
-                                    product: sheet.product || '',
-                                    description: sheet.description || '',
-                                    quantity: Number(sheet.quantity) || 0,
-                                    unit: sheet.unit || '',
-                                    rate: Number(sheet.rate) || 0,
-                                    gstPercent: parseGSTPercent(gstValue),
-                                    discountPercent: Number(sheet.discountPercent) || 0,
-                                    amount: Number(sheet.amount) || 0,
-                                    totalPoAmount: Number(sheet.totalPOAmount || sheet.totalPoAmount) || 0,
-                                    preparedBy: sheet.preparedBy || '',
-                                    approvedBy: sheet.approvedBy || '',
-                                    pdf: sheet.pdf || '', 
-                                };
-                            })
-                            .reverse()
-                    );
-                }
-            } catch (error) {
-                console.error('Error fetching PO master:', error);
-            } finally {
-                setLoading(false);
+        if (!append && tableData.length === 0) setInitialLoading(true);
+        else if (!append) setIsSearching(true);
+        else setIsLoadingMore(true);
+
+        try {
+            const data: any = await fetchFromSupabasePaginated(
+                'po_master',
+                '*',
+                { column: 'createdAt', options: { ascending: false } }, 
+                undefined, undefined,
+                { page: pageValue, limit: 50, search: searchQuery, abortSignal: controller.signal }
+            );
+
+            if (controller.signal.aborted) return;
+
+            if (data && data.items) {
+                const mappedData = data.items.map((sheet: any) => {
+                    let gstValue = sheet.gstPercent || 0; 
+
+                    return {
+                        timestamp: sheet.createdAt ? formatDate(new Date(sheet.createdAt)) : '',
+                        partyName: sheet.partyName || '',
+                        poNumber: sheet.poNumber || '',
+                        quotationNumber: sheet.quotationNumber || '',
+                        quotationDate: sheet.quotationDate ? formatDate(new Date(sheet.quotationDate)) : '',
+                        enquiryNumber: sheet.enquiryNumber || '',
+                        enquiryDate: sheet.enquiryDate ? formatDate(new Date(sheet.enquiryDate)) : '',
+                        internalCode: sheet.internalCode || '',
+                        product: sheet.product || '',
+                        description: sheet.description || '',
+                        quantity: sheet.quantity || 0,
+                        unit: sheet.unit || '',
+                        rate: Number(sheet.rate) || 0,
+                        gstPercent: parseGSTPercent(gstValue),
+                        discountPercent: sheet.discountPercent || 0,
+                        amount: Number(sheet.amount) || 0,
+                        totalPoAmount: Number(sheet.totalPOAmount || sheet.totalPoAmount) || 0,
+                        preparedBy: sheet.preparedBy || '',
+                        approvedBy: sheet.approvedBy || '',
+                        pdf: sheet.pdf || '',
+                    };
+                });
+                
+                setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
+                setTotal(data.total);
             }
-        };
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching PO Master:', error);
+        } finally {
+            if (!controller.signal.aborted) {
+                setInitialLoading(false);
+                setIsSearching(false);
+                setIsLoadingMore(false);
+            }
+        }
+    }, [tableData.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-        fetchPOMaster();
-    }, []);
+    useEffect(() => {
+        fetchData(1, '');
+        return () => abortRef.current?.abort();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const debouncedSearch = useCallback(
+        debounce((query: string) => {
+            setPage(1);
+            setSearch(query);
+            fetchData(1, query);
+        }, 500),
+        [fetchData]
+    );
 
     // Helper to get unique filter options
     const getFilterOptions = (data: any[], key: string) => {
@@ -253,7 +279,7 @@ export default () => {
                 <ListTodo size={50} className="text-primary" />
             </Heading>
             <DataTable
-                data={filteredTableData}
+                data={tableData}
                 columns={columns}
                 searchFields={[
                     'partyName',
@@ -265,7 +291,17 @@ export default () => {
                     'preparedBy',
                     'approvedBy'
                 ]}
-                dataLoading={loading}
+                dataLoading={initialLoading}
+                isSearching={isSearching}
+                totalCount={total}
+                currentPage={page}
+                onPageChange={(newPage) => {
+                    setPage(newPage);
+                    fetchData(newPage, search, false);
+                }}
+                onSearchChange={debouncedSearch}
+                pagination={true}
+                pageSize={50}
                 extraActions={
                     <FilterBar filters={filters} setFilters={setFilters} data={tableData} />
                 }

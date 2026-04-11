@@ -1,7 +1,7 @@
 
 import { type ColumnDef, type Row } from '@tanstack/react-table';
 import DataTable from '../element/DataTable';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { DownloadOutlined } from "@ant-design/icons";
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { Tabs, TabsContent } from '../ui/tabs';
 import { ClipboardCheck, PenSquare, Search, Send } from 'lucide-react';
-import { formatDate } from '@/lib/utils';
+import { formatDate, debounce } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
@@ -57,6 +57,7 @@ interface HistoryData {
     approvedDate: string;
     delay?: string;
     specifications: string;
+    attachment: string;
     lastUpdated?: string;
 }
 
@@ -64,43 +65,60 @@ export default () => {
     const { user } = useAuth();
     const { updateIndentSheet, updateRelatedSheets } = useSheets();
 
-    const [tableData, setTableData] = useState<ApproveTableData[]>([]);
-    const [historyData, setHistoryData] = useState<HistoryData[]>([]);
+    const [pendingItems, setPendingItems] = useState<ApproveTableData[]>([]);
+    const [historyItems, setHistoryItems] = useState<HistoryData[]>([]);
+    const [pendingTotal, setPendingTotal] = useState(0);
+    const [historyTotal, setHistoryTotal] = useState(0);
+    const [pendingPage, setPendingPage] = useState(1);
+    const [historyPage, setHistoryPage] = useState(1);
+    const [pendingSearch, setPendingSearch] = useState('');
+    const [historySearch, setHistorySearch] = useState('');
+    const [pendingLoadingMore, setPendingLoadingMore] = useState(false);
+    const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+
     const [editingRow, setEditingRow] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
     const [loading, setLoading] = useState(false);
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
     const [bulkUpdates, setBulkUpdates] = useState<Map<string, { vendorType?: string; quantity?: number; product?: string; plannedDate?: string }>>(new Map());
-    const [searchTermProduct, setSearchTermProduct] = useState('');
     const [submitting, setSubmitting] = useState(false);
-    const [dataLoading, setDataLoading] = useState(true);
+    // Separate initial loading (shows skeleton) from background searching (shows progress bar)
+    const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
+    const [historyInitialLoading, setHistoryInitialLoading] = useState(true);
+    const [pendingSearching, setPendingSearching] = useState(false);
+    const [historySearching, setHistorySearching] = useState(false);
     const [master, setMaster] = useState<any>(null);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
 
-    // Filter states
-    const [pendingFilters, setPendingFilters] = useState({
-        indenter: 'All',
-        department: 'All',
-        product: 'All'
-    });
-    const [historyFilters, setHistoryFilters] = useState({
-        indenter: 'All',
-        department: 'All',
-        product: 'All'
-    });
+    const [pendingFilters, setPendingFilters] = useState({ indenter: 'All', department: 'All', product: 'All' });
+    const [historyFilters, setHistoryFilters] = useState({ indenter: 'All', department: 'All', product: 'All' });
 
-    const fetchData = async () => {
-        setDataLoading(true);
+    // AbortController refs to cancel stale requests on rapid search
+    const pendingAbortRef = useRef<AbortController | null>(null);
+    const historyAbortRef = useRef<AbortController | null>(null);
+
+    const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        // Cancel any in-flight request
+        if (pendingAbortRef.current) pendingAbortRef.current.abort();
+        const controller = new AbortController();
+        pendingAbortRef.current = controller;
+
+        if (!append && pendingItems.length === 0) setPendingInitialLoading(true);
+        else if (!append) setPendingSearching(true);
+        else setPendingLoadingMore(true);
+
         try {
-            // Backend now handles mapping and status tracking via relations
-            const data = await fetchFromSupabasePaginated('indent');
+            const data: any = await fetchFromSupabasePaginated('indent', '*', { column: 'created_at', options: { ascending: false } }, undefined, undefined, {
+                page: pageValue,
+                limit: 50,
+                search: searchQuery,
+                status: 'Pending'
+            });
 
-            if (data) {
-                // All Indents (filtered for Purchase for this view)
-                const purchaseIndents = data.filter((r: any) => r.indentType === 'Purchase');
+            if (controller.signal.aborted) return;
 
-                // Mapping is now much simpler as the backend provides the correct fields
-                const mappedData = purchaseIndents.map((record: any) => ({
+            if (data && data.items) {
+                const mappedData = data.items.map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber,
                     firm: record.firm || 'N/A',
@@ -110,43 +128,124 @@ export default () => {
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
                     specifications: record.specifications || '',
-                    vendorType: record.status === 'Pending' ? 'Select' : (record.vendorType || record.vendor_type || 'Regular'),
+                    vendorType: 'Select',
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                    status: record.status, // 'Pending' or 'Approved' from backend
+                    attachment: record.attachment || '',
+                    status: 'Pending',
                     plannedDate: record.plannedDate,
                     approvedQuantity: record.approvedQuantity,
                     delay: record.delay
                 }));
 
-                // Set table data for pending and history
-                setTableData(mappedData.filter(d => d.status === 'Pending'));
-                setHistoryData(mappedData.filter(d => d.status === 'Approved').map(d => ({
-                    ...d,
-                    approvedQuantity: d.approvedQuantity || d.quantity,
-                    approvedDate: d.plannedDate ? formatDate(new Date(d.plannedDate)) : d.date,
-                    delay: d.delay || 'No delay'
-                })));
+                setPendingItems(prev => append ? [...prev, ...mappedData] : mappedData);
+                setPendingTotal(data.total);
             }
-        } catch (error) {
-            console.error('Error fetching data:', error);
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching pending data:', error);
             toast.error('Failed to fetch data');
         } finally {
-            setDataLoading(false);
+            if (!controller.signal.aborted) {
+                setPendingInitialLoading(false);
+                setPendingSearching(false);
+                setPendingLoadingMore(false);
+            }
         }
-    };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Fetching table data on mount
+    const fetchHistoryData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        // Cancel any in-flight request
+        if (historyAbortRef.current) historyAbortRef.current.abort();
+        const controller = new AbortController();
+        historyAbortRef.current = controller;
+
+        if (!append && historyItems.length === 0) setHistoryInitialLoading(true);
+        else if (!append) setHistorySearching(true);
+        else setHistoryLoadingMore(true);
+
+        try {
+            const data: any = await fetchFromSupabasePaginated('indent', '*', { column: 'created_at', options: { ascending: false } }, undefined, undefined, {
+                page: pageValue,
+                limit: 50,
+                search: searchQuery,
+                status: 'Approved'
+            });
+
+            if (controller.signal.aborted) return;
+
+            if (data && data.items) {
+                const mappedData = data.items.map((record: any) => ({
+                    indentNo: record.indentNumber,
+                    id: record.id,
+                    firm: record.firm || 'N/A',
+                    indenter: record.indenterName,
+                    department: record.department || '',
+                    product: record.productName,
+                    quantity: record.quantity || 0,
+                    uom: record.uom || '',
+                    specifications: record.specifications || '',
+                    vendorType: record.vendorType || record.vendor_type || 'Regular',
+                    date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    approvedDate: record.plannedDate ? formatDate(new Date(record.plannedDate)) : (record.createdAt ? formatDate(new Date(record.createdAt)) : ''),
+                    attachment: record.attachment || '',
+                    approvedQuantity: record.approvedQuantity || record.quantity,
+                    delay: record.delay || 'No delay'
+                }));
+
+                setHistoryItems(prev => append ? [...prev, ...mappedData] : mappedData);
+                setHistoryTotal(data.total);
+            }
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching history data:', error);
+            toast.error('Failed to fetch history');
+        } finally {
+            if (!controller.signal.aborted) {
+                setHistoryInitialLoading(false);
+                setHistorySearching(false);
+                setHistoryLoadingMore(false);
+            }
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Initial Load — run once
     useEffect(() => {
-        fetchData();
+        fetchPendingData(1, '');
+        fetchHistoryData(1, '');
         fetchIndentMasterData().then(setMaster);
-    }, []);
+
+        return () => {
+            // Cancel in-flight requests on unmount
+            pendingAbortRef.current?.abort();
+            historyAbortRef.current?.abort();
+        };
+    }, [fetchPendingData, fetchHistoryData]);
+
+    // Stable debounced search handlers using useCallback
+    const debouncedPendingSearch = useCallback(
+        debounce((query: string) => {
+            setPendingPage(1);
+            setPendingSearch(query);
+            fetchPendingData(1, query);
+        }, 500),
+        [fetchPendingData]
+    );
+
+    const debouncedHistorySearch = useCallback(
+        debounce((query: string) => {
+            setHistoryPage(1);
+            setHistorySearch(query);
+            fetchHistoryData(1, query);
+        }, 500),
+        [fetchHistoryData]
+    );
 
     const handleRowSelect = (indentNo: string, checked: boolean) => {
         setSelectedRows(prev => {
             const newSet = new Set(prev);
             if (checked) {
                 newSet.add(indentNo);
-                const currentRow = tableData.find(row => row.indentNo === indentNo);
+                const currentRow = pendingItems.find(row => row.indentNo === indentNo);
                 if (currentRow) {
                     setBulkUpdates(prevUpdates => {
                         const newUpdates = new Map(prevUpdates);
@@ -173,9 +272,9 @@ export default () => {
 
     const handleSelectAll = (checked: boolean) => {
         if (checked) {
-            setSelectedRows(new Set(tableData.map(row => row.indentNo)));
+            setSelectedRows(new Set(pendingItems.map(row => row.indentNo)));
             const newUpdates = new Map();
-            tableData.forEach(row => {
+            pendingItems.forEach(row => {
                 newUpdates.set(row.indentNo, {
                     vendorType: 'Select',
                     quantity: row.quantity,
@@ -231,7 +330,7 @@ export default () => {
         try {
             const updatesToProcess = Array.from(selectedRows).map(indentNo => {
                 const update = bulkUpdates.get(indentNo);
-                const originalRecord = tableData.find(s => s.indentNo === indentNo);
+                const originalRecord = pendingItems.find(s => s.indentNo === indentNo);
 
                 if (!originalRecord || !update) return null;
 
@@ -267,7 +366,11 @@ export default () => {
 
             updateIndentSheet();
             updateRelatedSheets();
-            await fetchData();
+            
+            // Refresh first page of data
+            setPendingPage(1);
+            fetchPendingData(1, pendingSearch);
+            fetchHistoryData(1, historySearch);
 
             setSelectedRows(new Set());
             setBulkUpdates(new Map());
@@ -296,7 +399,8 @@ export default () => {
             const result = await postToSheet([editValues], 'update', 'INDENT');
             if (result.success) {
                 toast.success('Record updated successfully');
-                await fetchData();
+                setHistoryPage(1);
+                fetchHistoryData(1, historySearch);
                 setEditingRow(null);
             } else {
                 toast.error('Failed to update record');
@@ -318,13 +422,14 @@ export default () => {
     };
 
     // Derived filtered data
-    const filteredTableData = tableData.filter(item => {
+    // Derived filtered data (local refinements on the 50 fetched items)
+    const filteredTableData = pendingItems.filter(item => {
         return (pendingFilters.indenter === 'All' || item.indenter === pendingFilters.indenter) &&
             (pendingFilters.department === 'All' || item.department === pendingFilters.department) &&
             (pendingFilters.product === 'All' || item.product === pendingFilters.product);
     });
 
-    const filteredHistoryData = historyData.filter(item => {
+    const filteredHistoryData = historyItems.filter(item => {
         return (historyFilters.indenter === 'All' || item.indenter === historyFilters.indenter) &&
             (historyFilters.department === 'All' || item.department === historyFilters.department) &&
             (historyFilters.product === 'All' || item.product === historyFilters.product);
@@ -381,7 +486,7 @@ export default () => {
                 <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-gray-300"
-                    checked={tableData.length > 0 && selectedRows.size === tableData.length}
+                    checked={pendingItems.length > 0 && selectedRows.size === pendingItems.length}
                     onChange={(e) => handleSelectAll(e.target.checked)}
                 />
             ),
@@ -482,18 +587,23 @@ export default () => {
             cell: ({ row }) => {
                 const indent = row.original;
                 const isSelected = selectedRows.has(indent.indentNo);
-                const currentValue = bulkUpdates.get(indent.indentNo)?.plannedDate || new Date().toISOString().split('T')[0];
+                
+                // Priority: 1. Manual selection/edit, 2. Existing database value, 3. Today (only if selected)
+                const currentValue = bulkUpdates.get(indent.indentNo)?.plannedDate || indent.plannedDate || (isSelected ? new Date().toISOString().split('T')[0] : '');
+                
                 return (
-                    <Input
-                        type="date"
-                        value={currentValue}
-                        onChange={(e) => handleBulkUpdate(indent.indentNo, 'plannedDate', e.target.value)}
-                        className="w-32 h-8 text-xs sm:text-sm"
-                        disabled={!isSelected}
-                    />
+                    <div className="flex justify-center w-full">
+                        <Input
+                            type="date"
+                            value={currentValue}
+                            onChange={(e) => handleBulkUpdate(indent.indentNo, 'plannedDate', e.target.value)}
+                            className="w-[150px] h-9 text-[13px] pl-2 pr-1 cursor-pointer bg-background"
+                            disabled={!isSelected}
+                        />
+                    </div>
                 );
             },
-            size: 130,
+            size: 190,
         },
         {
             accessorKey: 'date',
@@ -506,6 +616,21 @@ export default () => {
             header: 'Specifications',
             cell: ({ getValue }) => <div className="text-xs sm:text-sm max-w-xs truncate">{getValue() as string}</div>,
             size: 150,
+        },
+        {
+            accessorKey: 'attachment',
+            header: 'Attachment',
+            cell: ({ row }) => {
+                const attachment = row.original.attachment;
+                return attachment ? (
+                    <a href={attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs sm:text-sm">
+                        View
+                    </a>
+                ) : (
+                    <div className="text-xs sm:text-sm text-gray-500">-</div>
+                );
+            },
+            size: 80,
         }
     ];
 
@@ -524,7 +649,22 @@ export default () => {
         },
         { accessorKey: 'date', header: 'Request Date', size: 100 },
         { accessorKey: 'approvedDate', header: 'Approval Date', size: 100 },
-        { accessorKey: 'delay', header: 'Delay', size: 80 }
+        { accessorKey: 'delay', header: 'Delay', size: 80 },
+        {
+            accessorKey: 'attachment',
+            header: 'Attachment',
+            cell: ({ row }) => {
+                const attachment = row.original.attachment;
+                return attachment ? (
+                    <a href={attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        View
+                    </a>
+                ) : (
+                    <div className="text-gray-500">-</div>
+                );
+            },
+            size: 80,
+        }
     ];
 
     return (
@@ -535,15 +675,24 @@ export default () => {
                 </Heading>
                 <TabsContent value="pending" className="w-full max-w-full">
                     <div className="space-y-4">
-                        {/* Bulk submit banner removed as it's now integrated into the toolbar Submit button */}
                         <DataTable
                             data={filteredTableData}
                             columns={columns}
                             searchFields={['indentNo', 'product', 'department', 'indenter']}
-                            dataLoading={dataLoading}
+                            dataLoading={pendingInitialLoading}
+                            isSearching={pendingSearching}
+                            pagination={true}
+                            pageSize={50}
+                            totalCount={pendingTotal}
+                            currentPage={pendingPage}
+                            onSearchChange={debouncedPendingSearch}
+                            onPageChange={(page) => {
+                                setPendingPage(page);
+                                fetchPendingData(page, pendingSearch, false);
+                            }}
                             extraActions={
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                                    <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={pendingItems} />
                                     {selectedRows.size > 1 ? (
                                         <Button 
                                             onClick={() => setIsReviewOpen(true)} 
@@ -571,8 +720,19 @@ export default () => {
                         data={filteredHistoryData}
                         columns={historyColumns}
                         searchFields={['indentNo', 'product', 'department', 'indenter']}
+                        dataLoading={historyInitialLoading}
+                        isSearching={historySearching}
+                        pagination={true}
+                        pageSize={50}
+                        totalCount={historyTotal}
+                        currentPage={historyPage}
+                        onSearchChange={debouncedHistorySearch}
+                        onPageChange={(page) => {
+                            setHistoryPage(page);
+                            fetchHistoryData(page, historySearch, false);
+                        }}
                         extraActions={
-                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyItems} />
                         }
                     />
                 </TabsContent>
@@ -597,7 +757,7 @@ export default () => {
                             </TableHeader>
                             <TableBody>
                                 {Array.from(selectedRows).map(indentNo => {
-                                    const indent = tableData.find(d => d.indentNo === indentNo);
+                                    const indent = pendingItems.find(d => d.indentNo === indentNo);
                                     const updates = bulkUpdates.get(indentNo);
                                     if (!indent) return null;
                                     return (

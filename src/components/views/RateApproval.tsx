@@ -9,7 +9,7 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '../ui/dialog';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import DataTable from '../element/DataTable';
 import { Button } from '../ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
-import { formatDate } from '@/lib/utils';
+import { formatDate, debounce } from '@/lib/utils';
 import { Input } from '../ui/input';
 
 interface RateApprovalData {
@@ -60,9 +60,8 @@ export default () => {
     const [tableData, setTableData] = useState<RateApprovalData[]>([]);
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);
     const [openDialog, setOpenDialog] = useState(false);
-    const [dataLoading, setDataLoading] = useState(true);
 
-    // Filter states
+    // Filter states (kept for FilterBar, though search is now server-side)
     const [pendingFilters, setPendingFilters] = useState({
         indenter: 'All',
         department: 'All',
@@ -74,91 +73,147 @@ export default () => {
         product: 'All',
     });
 
-    // Fetching table data
-    useEffect(() => {
-        const fetchData = async () => {
-            setDataLoading(true);
-            try {
-                // Fetch all vendor_rate_update records (Three Party submissions)
-                const rateUpdates = await fetchFromSupabasePaginated(
-                    'vendor_rate_update',
-                    '*',
-                    { column: 'createdAt', options: { ascending: false } }
-                );
+    // Server-side pagination states
+    const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
+    const [historyInitialLoading, setHistoryInitialLoading] = useState(true);
+    const [pendingSearching, setPendingSearching] = useState(false);
+    const [historySearching, setHistorySearching] = useState(false);
+    const [pendingLoadingMore, setPendingLoadingMore] = useState(false);
+    const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+    const [pendingTotal, setPendingTotal] = useState(0);
+    const [historyTotal, setHistoryTotal] = useState(0);
+    const [pendingPage, setPendingPage] = useState(1);
+    const [historyPage, setHistoryPage] = useState(1);
+    const [pendingSearch, setPendingSearch] = useState('');
+    const [historySearch, setHistorySearch] = useState('');
+    const pendingAbortRef = useRef<AbortController | null>(null);
+    const historyAbortRef = useRef<AbortController | null>(null);
 
-                // Fetch all three_party_approval records (approved ones)
-                const threePartyApprovals = await fetchFromSupabasePaginated(
-                    'three_party_approval',
-                    '*',
-                    { column: 'createdAt', options: { ascending: false } }
-                );
+    const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (pendingAbortRef.current) pendingAbortRef.current.abort();
+        const controller = new AbortController();
+        pendingAbortRef.current = controller;
 
-                // Build a set of approved indent numbers for quick lookup
-                const approvedIndentNumbers = new Set(
-                    (threePartyApprovals || []).map((r: any) =>
-                        r.indentNumber || r.indent_number || ''
-                    )
-                );
+        if (!append && tableData.length === 0) setPendingInitialLoading(true);
+        else if (!append) setPendingSearching(true);
+        else setPendingLoadingMore(true);
 
-                // PENDING: vendor_rate_update records that are NOT yet in three_party_approval
-                const pendingTableData = (rateUpdates || [])
-                    .filter((record: any) => {
-                        const indentNo = record.indentNumber || record.indent_number || '';
-                        return !approvedIndentNumbers.has(indentNo);
-                    })
-                    .map((record: any) => ({
-                        id: record.id,
-                        indentNo: record.indentNumber || record.indent_number || '',
-                        firm: record.firm || 'N/A',
-                        indenter: record.indenterName || '',
-                        department: record.department || '',
-                        product: record.productName || '',
-                        comparisonSheet: record.comparisonSheet || '',
-                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                        vendors: [
-                            [record.vendorName1 || '', record.rate1?.toString() || '0', record.paymentTerm1 || ''] as [string, string, string],
-                            [record.vendorName2 || '', record.rate2?.toString() || '0', record.paymentTerm2 || ''] as [string, string, string],
-                            [record.vendorName3 || '', record.rate3?.toString() || '0', record.paymentTerm3 || ''] as [string, string, string],
-                        ],
-                    }));
-                setTableData(pendingTableData);
+        try {
+            const data: any = await fetchFromSupabasePaginated('vendor_rate_update', '*',
+                { column: 'createdAt', options: { ascending: false } },
+                undefined, undefined,
+                { page: pageValue, limit: 50, search: searchQuery, status: 'Pending' }
+            );
 
-                // Build set of indent numbers that came through the Three Party flow (vendor_rate_update)
-                const threePartyIndentNumbers = new Set(
-                    (rateUpdates || []).map((r: any) => r.indentNumber || r.indent_number || '')
-                );
+            if (controller.signal.aborted) return;
 
-                // HISTORY: only three_party_approval records whose indent also exists in vendor_rate_update
-                const historyTableData = (threePartyApprovals || [])
-                    .filter((record: any) => {
-                        const indentNo = record.indentNumber || record.indent_number || '';
-                        return threePartyIndentNumbers.has(indentNo);
-                    })
-                    .map((record: any) => ({
-                        id: record.id,
-                        indentNo: record.indentNumber || record.indent_number || '',
-                        firm: record.firm || 'N/A',
-                        indenter: record.indenterName || '',
-                        department: record.department || '',
-                        product: record.productName || '',
-                        date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
-                        vendor: [
-                            record.approvedVendorName || '',
-                            record.approvedRate?.toString() || '0'
-                        ] as [string, string],
-                    }));
-                setHistoryData(historyTableData);
-
-            } catch (error: any) {
-                console.error('Error fetching data from Supabase:', error);
-                toast.error('Failed to fetch data: ' + error.message);
-            } finally {
-                setDataLoading(false);
+            if (data && data.items) {
+                const mappedData = data.items.map((r: any) => ({
+                    id: r.id,
+                    indentNo: r.indentNumber || '',
+                    firm: r.firm || 'N/A',
+                    indenter: r.indenterName || '',
+                    department: r.department || '',
+                    product: r.productName || '',
+                    comparisonSheet: r.comparisonSheet || '',
+                    vendors: [
+                        [r.vendorName1 || '', String(r.rate1 || 0), r.paymentTerm1 || ''],
+                        [r.vendorName2 || '', String(r.rate2 || 0), r.paymentTerm2 || ''],
+                        [r.vendorName3 || '', String(r.rate3 || 0), r.paymentTerm3 || ''],
+                    ],
+                    date: r.createdAt ? formatDate(new Date(r.createdAt)) : '',
+                }));
+                setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
+                setPendingTotal(data.total);
             }
-        };
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching rate approval pending data:', error);
+            toast.error('Failed to fetch data: ' + error.message);
+        } finally {
+            if (!controller.signal.aborted) {
+                setPendingInitialLoading(false);
+                setPendingSearching(false);
+                setPendingLoadingMore(false);
+            }
+        }
+    }, [tableData.length]);
 
-        fetchData();
-    }, []);
+    const fetchHistoryData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (historyAbortRef.current) historyAbortRef.current.abort();
+        const controller = new AbortController();
+        historyAbortRef.current = controller;
+
+        if (!append && historyData.length === 0) setHistoryInitialLoading(true);
+        else if (!append) setHistorySearching(true);
+        else setHistoryLoadingMore(true);
+
+        try {
+            const data: any = await fetchFromSupabasePaginated('three_party_approval', '*',
+                { column: 'createdAt', options: { ascending: false } },
+                undefined, undefined,
+                { page: pageValue, limit: 50, search: searchQuery }
+            );
+
+            if (controller.signal.aborted) return;
+
+            if (data && data.items) {
+                const mappedData = data.items.map((r: any) => ({
+                    id: r.id,
+                    indentNo: r.indentNumber || '',
+                    firm: r.firm || 'N/A',
+                    indenter: r.indenterName || '',
+                    department: r.department || '',
+                    product: r.productName || '',
+                    vendor: [r.approvedVendorName, String(r.approvedRate)],
+                    date: r.createdAt ? formatDate(new Date(r.createdAt)) : '',
+                }));
+                setHistoryData(prev => append ? [...prev, ...mappedData] : mappedData);
+                setHistoryTotal(data.total);
+            }
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching rate approval history:', error);
+            toast.error('Failed to fetch history: ' + error.message);
+        } finally {
+            if (!controller.signal.aborted) {
+                setHistoryInitialLoading(false);
+                setHistorySearching(false);
+                setHistoryLoadingMore(false);
+            }
+        }
+    }, [historyData.length]);
+
+    const fetchData = useCallback(async () => {
+        await Promise.all([fetchPendingData(1, ''), fetchHistoryData(1, '')]);
+    }, [fetchPendingData, fetchHistoryData]);
+
+    useEffect(() => {
+        fetchPendingData(1, '');
+        fetchHistoryData(1, '');
+        return () => {
+            pendingAbortRef.current?.abort();
+            historyAbortRef.current?.abort();
+        };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const debouncedPendingSearch = useCallback(
+        debounce((query: string) => {
+            setPendingPage(1);
+            setPendingSearch(query);
+            fetchPendingData(1, query);
+        }, 500),
+        [fetchPendingData]
+    );
+
+    const debouncedHistorySearch = useCallback(
+        debounce((query: string) => {
+            setHistoryPage(1);
+            setHistorySearch(query);
+            fetchHistoryData(1, query);
+        }, 500),
+        [fetchHistoryData]
+    );
 
     // Helper to get unique filter options
     const getFilterOptions = (data: any[], key: string) => {
@@ -485,10 +540,20 @@ export default () => {
                     <TabsContent value="pending" className="overflow-hidden w-full">
                         <div className="overflow-x-auto max-w-[calc(100vw-3rem)] md:max-w-full">
                             <DataTable
-                                data={filteredTableData}
+                                data={tableData}
                                 columns={columns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date']}
-                                dataLoading={dataLoading}
+                                dataLoading={pendingInitialLoading}
+                                isSearching={pendingSearching}
+                                totalCount={pendingTotal}
+                                currentPage={pendingPage}
+                                onPageChange={(page) => {
+                                    setPendingPage(page);
+                                    fetchPendingData(page, pendingSearch, false);
+                                }}
+                                onSearchChange={debouncedPendingSearch}
+                                pagination={true}
+                                pageSize={50}
                                 extraActions={
                                     <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
                                 }
@@ -498,10 +563,20 @@ export default () => {
                     <TabsContent value="history" className="overflow-hidden w-full">
                         <div className="overflow-x-auto max-w-[calc(100vw-3rem)] md:max-w-full">
                             <DataTable
-                                data={filteredHistoryData}
+                                data={historyData}
                                 columns={historyColumns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date']}
-                                dataLoading={dataLoading}
+                                dataLoading={historyInitialLoading}
+                                isSearching={historySearching}
+                                totalCount={historyTotal}
+                                currentPage={historyPage}
+                                onPageChange={(page) => {
+                                    setHistoryPage(page);
+                                    fetchHistoryData(page, historySearch, false);
+                                }}
+                                onSearchChange={debouncedHistorySearch}
+                                pagination={true}
+                                pageSize={50}
                                 extraActions={
                                     <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
                                 }

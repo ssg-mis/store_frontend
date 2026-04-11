@@ -1,8 +1,8 @@
 import { ListTodo } from 'lucide-react';
 import Heading from '../element/Heading';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { formatDate } from '@/lib/utils';
+import { formatDate, debounce } from '@/lib/utils';
 import DataTable from '../element/DataTable';
 // supabase removed - using dummy data via fetchers
 
@@ -23,59 +23,73 @@ interface PendingIndentsData {
 
 export default () => {
     const [tableData, setTableData] = useState<PendingIndentsData[]>([]);
-    const [dataLoading, setDataLoading] = useState(true);
+    const [initialLoading, setInitialLoading] = useState(true);
+    const [searching, setSearching] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(1);
+    const [search, setSearch] = useState('');
+    const abortRef = useRef<AbortController | null>(null);
 
-    // Fetching table data
-    useEffect(() => {
-        const fetchData = async () => {
-            setDataLoading(true);
-            try {
-                // Fetch indents for Stage 4 (Pending POs)
-                const data = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'planned_4', options: { ascending: false } },
-                    (q) => q.not('planned_4', 'is', null).is('actual_4', null)
-                );
+    const fetchData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (abortRef.current) abortRef.current.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
 
-                // Fetch approvals to get vendor names and rates
-                const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
-                const approvalMap: Record<string, any> = {};
-                (approvals || []).forEach((a: any) => {
-                    const key = a.indentNumber || a.indent_number;
-                    if (key) approvalMap[key] = a;
-                });
+        if (!append && tableData.length === 0) setInitialLoading(true);
+        else if (!append) setSearching(true);
+        else setLoadingMore(true);
 
-                if (data) {
-                    const tableData = data.map((record: any) => {
-                        const indentNo = record.indentNumber || record.indent_number || '';
-                        const approval = approvalMap[indentNo];
+        try {
+            const data: any = await fetchFromSupabasePaginated('indent', '*',
+                { column: 'planned_4', options: { ascending: false } },
+                undefined, undefined,
+                { page: pageValue, limit: 50, search: searchQuery, status: 'PendingPO', abortSignal: controller.signal }
+            );
 
-                        return {
-                            date: formatDate(new Date(record.createdAt || record.created_at)),
-                            indentNo: indentNo,
-                            firm: record.firm || 'N/A',
-                            product: record.productName || record.product_name || '',
-                            quantity: record.approvedQuantity || record.approved_quantity || record.quantity || 0,
-                            rate: approval?.approvedRate || record.approvedRate || record.approved_rate || 0,
-                            uom: record.uom || '',
-                            vendorName: approval?.approvedVendorName || record.approvedVendorName || record.approved_vendor_name || '',
-                            paymentTerm: approval?.approvedPaymentTerm || record.approvedPaymentTerm || record.approved_payment_term || '',
-                            specifications: record.specifications || '',
-                        };
-                    });
+            if (controller.signal.aborted) return;
 
-                    setTableData(tableData);
-                }
-            } catch (error: any) {
-                console.error('Error fetching data from Supabase:', error);
-            } finally {
-                setDataLoading(false);
+            if (data && data.items) {
+                const mappedData = data.items.map((record: any) => ({
+                    date: formatDate(new Date(record.createdAt)),
+                    indentNo: record.indentNumber || '',
+                    firm: record.firm || 'N/A',
+                    product: record.productName || '',
+                    quantity: record.approvedQuantity || record.quantity || 0,
+                    rate: record.approvedRate || 0,
+                    uom: record.uom || '',
+                    vendorName: record.approvedVendorName || '',
+                    paymentTerm: record.approvedPaymentTerm || '',
+                    specifications: record.specifications || '',
+                }));
+                setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
+                setTotal(data.total);
             }
-        };
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching Pending POs:', error);
+        } finally {
+            if (!controller.signal.aborted) {
+                setInitialLoading(false);
+                setSearching(false);
+                setLoadingMore(false);
+            }
+        }
+    }, [tableData.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-        fetchData();
-    }, []);
+    useEffect(() => {
+        fetchData(1, '');
+        return () => abortRef.current?.abort();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const debouncedSearch = useCallback(
+        debounce((query: string) => {
+            setPage(1);
+            setSearch(query);
+            fetchData(1, query);
+        }, 500),
+        [fetchData]
+    );
 
     // Creating table columns with compact Product column
     const columns: ColumnDef<PendingIndentsData>[] = [
@@ -152,7 +166,17 @@ export default () => {
                 data={tableData}
                 columns={columns}
                 searchFields={['indentNo', 'date', 'product', 'vendorName', 'paymentTerm', 'specifications']}
-                dataLoading={dataLoading}
+                dataLoading={initialLoading}
+                isSearching={searching}
+                totalCount={total}
+                currentPage={page}
+                onPageChange={(newPage) => {
+                    setPage(newPage);
+                    fetchData(newPage, search, false);
+                }}
+                onSearchChange={debouncedSearch}
+                pagination={true}
+                pageSize={50}
                 className="h-[80dvh]"
             />
         </div>

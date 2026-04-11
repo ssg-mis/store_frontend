@@ -35,7 +35,7 @@ export default function ExcelEditorDialog({ fileUrl, open, onClose, onSave }: Ex
                 const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", blankrows: true }) as string[][];
                 
                 // Ensure data is at least somewhat rectangular
                 const maxCols = Math.max(...jsonData.map((row: any) => row?.length || 0), 0);
@@ -45,11 +45,22 @@ export default function ExcelEditorDialog({ fileUrl, open, onClose, onSave }: Ex
                     return newRow;
                 });
 
-                if (normalizedData.length === 0) {
-                    normalizedData.push(Array(maxCols || 1).fill(""));
+                // Pad grid to minimum size to look like a full spreadsheet
+                const MIN_ROWS = 20;
+                const MIN_COLS = 8;
+                const targetCols = Math.max(maxCols, MIN_COLS);
+                
+                const paddedData = normalizedData.map(row => {
+                    const newRow = [...row];
+                    while (newRow.length < targetCols) newRow.push("");
+                    return newRow;
+                });
+
+                while (paddedData.length < MIN_ROWS) {
+                    paddedData.push(Array(targetCols).fill(""));
                 }
                 
-                setData(normalizedData);
+                setData(paddedData);
             } catch (err: any) {
                 console.error("Error loading excel:", err);
                 toast.error("Could not load Excel file securely. It might be blocked by CORS.");

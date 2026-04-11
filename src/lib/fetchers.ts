@@ -63,9 +63,29 @@ export async function uploadFile(
     uploadType: 'upload' | 'email' | 'supabase' = 'upload',
     email?: string
 ): Promise<string> {
-    // Demo mode: return a fake URL
-    await new Promise((r) => setTimeout(r, 300)); // Simulate upload delay
-    return `https://demo.example.com/uploads/${Date.now()}_${file.name}`;
+    const formData = new FormData();
+    // Append text fields FIRST so multer can access them in req.body
+    if (folderId) formData.append('folderId', folderId);
+    if (email) formData.append('email', email);
+    formData.append('file', file);
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/upload`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Upload failed: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        return data.url;
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        throw error;
+    }
 }
 
 export async function fetchIndentMasterData() {
@@ -109,7 +129,15 @@ export async function fetchFromSupabasePaginated(
         options: { ascending: false },
     },
     queryBuilder?: (query: any) => any,
-    pagination?: { from: number; to: number }
+    pagination?: { from: number; to: number },
+    options: {
+        page?: number;
+        limit?: number;
+        search?: string;
+        status?: string;
+        indentType?: string;
+        abortSignal?: AbortSignal;
+    } = {}
 ) {
     // Map table names to API endpoints
     const endpointMap: Record<string, string> = {
@@ -128,11 +156,31 @@ export async function fetchFromSupabasePaginated(
     };
 
     const endpoint = endpointMap[tableName] || `/${tableName.replace(/_/g, '-')}`;
+    
+    // Build query string from options
+    const queryParams = new URLSearchParams();
+    if (options.page) queryParams.append('page', options.page.toString());
+    if (options.limit) queryParams.append('limit', options.limit.toString());
+    if (options.search) queryParams.append('search', options.search);
+    if (options.status) queryParams.append('status', options.status);
+    if (options.indentType) queryParams.append('indentType', options.indentType);
+
+    const queryString = queryParams.toString();
+    const url = `${API_BASE_URL}${endpoint}${queryString ? `?${queryString}` : ''}`;
 
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`);
+        const response = await fetch(url, { signal: options.abortSignal });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         let data = await response.json();
+
+        // Handle structural response from paginated backend
+        if (data && typeof data === 'object' && !Array.isArray(data) && data.items) {
+            // If it's the new format, return as is (but callers might expect array)
+            // To ensure compatibility, we'll let the specific views handle the new format
+            return data;
+        }
+
+        // --- LEGACY LOCAL PROCESSING ---
 
         // Filter using queryBuilder if provided
         if (queryBuilder) {
@@ -159,6 +207,7 @@ export async function fetchFromSupabasePaginated(
 
         return data;
     } catch (error) {
+        if ((error as any).name === 'AbortError') return null;
         console.error(`Error fetching ${tableName}:`, error);
         return [];
     }

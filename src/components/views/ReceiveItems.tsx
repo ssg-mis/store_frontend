@@ -1,6 +1,5 @@
-
 import type { ColumnDef, Row } from '@tanstack/react-table';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import DataTable from '../element/DataTable';
 import { z } from 'zod';
 import { useForm, type FieldErrors } from 'react-hook-form';
@@ -28,7 +27,7 @@ import { Truck, SquarePen, Check, X, Search } from 'lucide-react';
 import { Tabs, TabsContent } from '../ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
-import { formatDate } from '@/lib/utils';
+import { formatDate, debounce } from '@/lib/utils';
 import { useSheets } from '@/context/SheetsContext';
 import { Pill } from '../ui/pill';
 
@@ -90,7 +89,7 @@ const ReceiveItems = () => {
     const [masterItems, setMasterItems] = useState<string[]>([]);
     const [productSearch, setProductSearch] = useState('');
 
-    // Filter states
+    // Filter states (kept for FilterBar options)
     const [pendingFilters, setPendingFilters] = useState({
         product: 'All',
         vendor: 'All',
@@ -100,112 +99,171 @@ const ReceiveItems = () => {
         vendor: 'All',
     });
 
-    const fetchPendingItems = async () => {
-        setLocalIndentLoading(true);
-        const poMasterData = await fetchFromSupabasePaginated(
-            'po_master',
-            '*',
-            { column: 'createdAt', options: { ascending: false } }
-        );
-        const receivedData = await fetchFromSupabasePaginated(
-            'received',
-            'indent_number, received_quantity',
-            { column: 'createdAt', options: { ascending: false } }
-        );
+    // Server-side pagination states
+    const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
+    const [historyInitialLoading, setHistoryInitialLoading] = useState(true);
+    const [pendingSearching, setPendingSearching] = useState(false);
+    const [historySearching, setHistorySearching] = useState(false);
+    const [pendingLoadingMore, setPendingLoadingMore] = useState(false);
+    const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+    const [pendingTotal, setPendingTotal] = useState(0);
+    const [historyTotal, setHistoryTotal] = useState(0);
+    const [pendingPage, setPendingPage] = useState(1);
+    const [historyPage, setHistoryPage] = useState(1);
+    const [pendingSearch, setPendingSearch] = useState('');
+    const [historySearch, setHistorySearch] = useState('');
+    const pendingAbortRef = useRef<AbortController | null>(null);
+    const historyAbortRef = useRef<AbortController | null>(null);
 
-        const mappedData = poMasterData
-            .map((po: any) => {
-                const indentNum = po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '';
-                const totalReceived = receivedData
-                    .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
-                    .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+    const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (pendingAbortRef.current) pendingAbortRef.current.abort();
+        const controller = new AbortController();
+        pendingAbortRef.current = controller;
 
-                const poQty = Number(po.quantity) || 0;
-                const remainingQty = Math.max(0, poQty - totalReceived);
+        if (!append && tableData.length === 0) setPendingInitialLoading(true);
+        else if (!append) setPendingSearching(true);
+        else setPendingLoadingMore(true);
 
-                return {
-                    indentNumber: indentNum,
-                    poNumber: po.poNumber || po.po_number,
-                    uom: po.unit,
-                    poCopy: po.pdf,
-                    vendor: po.partyName || po.party_name,
-                    quantity: poQty,
-                    rate: Number(po.rate) || 0,
-                    receivedQty: totalReceived,
-                    remainingQty: remainingQty,
-                    poDate: po.createdAt || po.created_at,
-                    product: po.product,
-                    firm: po.firm || po.indent?.firm || 'N/A',
-                    totalAmount: Number(po.totalPOAmount || po.total_po_amount) || 0,
-                    quotationNo: po.quotationNumber || po.quotation_number || 'N/A',
-                    quotationDate: po.quotationDate || po.quotation_date,
-                    transportType: po.transportationType || po.transportation_type || 'N/A',
-                };
-            }).filter((item) => item.remainingQty > 0);
+        try {
+            // Fetch PO Masters paginated
+            const poData: any = await fetchFromSupabasePaginated('po_master', '*',
+                { column: 'createdAt', options: { ascending: false } },
+                undefined, undefined,
+                { page: pageValue, limit: 100, search: searchQuery, abortSignal: controller.signal }
+            );
 
-        setTableData(mappedData.reverse());
-        setLocalIndentLoading(false);
-    };
+            // Calculation still needs received records (this is a compromise)
+            const receivedData = await fetchFromSupabasePaginated('received', 'indent_number, received_quantity');
 
-    const fetchHistoryItems = async () => {
-        setLocalReceivedLoading(true);
-        const poMasterData = await fetchFromSupabasePaginated(
-            'po_master',
-            '*',
-            { column: 'createdAt', options: { ascending: false } }
-        );
-        const receivedData = await fetchFromSupabasePaginated(
-            'received',
-            '*',
-            { column: 'createdAt', options: { ascending: false } }
-        );
+            if (controller.signal.aborted) return;
 
-        const mappedData = receivedData.map((receivedRecord: any) => {
-            const indentNum = receivedRecord.indentNumber || receivedRecord.indent_number || '';
-            const po = poMasterData.find((p: any) => (p.indentNumber || p.indent_number || p.internalCode || p.internal_code) === indentNum);
+            if (poData && poData.items) {
+                const mappedData = poData.items.map((po: any) => {
+                    const indentNum = po.indentNumber || po.indent_number || po.internalCode || '';
+                    const totalReceived = (receivedData || [])
+                        .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
+                        .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
 
-            const totalReceivedForIndent = receivedData
-                .filter((r: any) => (r.indentNumber || r.indent_number) === indentNum)
-                .reduce((sum: number, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
+                    const poQty = Number(po.quantity) || 0;
+                    const remainingQty = Math.max(0, poQty - totalReceived);
 
-            const poQty = po ? (Number(po.quantity) || 0) : 0;
-            const remainingQty = Math.max(0, poQty - totalReceivedForIndent);
-            const receivedRecordDate = receivedRecord.createdAt || receivedRecord.created_at || receivedRecord.timestamp;
+                    return {
+                        indentNumber: indentNum,
+                        poNumber: po.poNumber || po.po_number,
+                        uom: po.unit,
+                        poCopy: po.pdf,
+                        vendor: po.partyName || '',
+                        quantity: poQty,
+                        rate: Number(po.rate) || 0,
+                        receivedQty: totalReceived,
+                        remainingQty: remainingQty,
+                        poDate: po.createdAt,
+                        product: po.product,
+                        firm: po.firm || 'N/A',
+                        totalAmount: Number(po.totalPOAmount || po.totalPoAmount) || 0,
+                        quotationNo: po.quotationNumber || 'N/A',
+                        quotationDate: po.quotationDate,
+                        transportType: po.transportationType || 'N/A',
+                    };
+                }).filter((item: any) => item.remainingQty > 0);
 
-            return {
-                indentNumber: indentNum,
-                poNumber: receivedRecord.poNumber || receivedRecord.po_number || po?.poNumber || po?.po_number || '',
-                vendor: receivedRecord.vendor || po?.partyName || po?.party_name || '',
-                product: receivedRecord.product || po?.product || '',
-                firm: receivedRecord.indent?.firm || po?.indent?.firm || 'N/A',
-                orderQuantity: poQty,
-                receivedQuantity: Number(receivedRecord.receivedQuantity || receivedRecord.received_quantity) || 0,
-                remainingQty: remainingQty,
-                photoOfProduct: receivedRecord.photoOfProduct || receivedRecord.photo_of_product || '',
-                receivedDate: receivedRecordDate ? formatDate(new Date(receivedRecordDate)) : '',
-                billStatus: receivedRecord.billStatus || receivedRecord.bill_status || '',
-                billNumber: receivedRecord.billNumber || receivedRecord.bill_number || '',
-                billAmount: Number(receivedRecord.billAmount || receivedRecord.bill_amount) || 0,
-                typeOfBill: receivedRecord.typeOfBill || '',
-                paymentType: receivedRecord.paymentType || '',
-                discountAmount: Number(receivedRecord.discountAmount) || 0,
-                advanceAmount: Number(receivedRecord.advanceAmount) || 0,
-                leadTimeToLiftMaterial: receivedRecord.leadTimeToLiftMaterial || '',
-                photoOfBill: receivedRecord.photoOfBill || receivedRecord.photo_of_bill || '',
-            };
-        });
+                setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
+                setPendingTotal(poData.total);
+            }
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching pending items:', error);
+        } finally {
+            if (!controller.signal.aborted) {
+                setPendingInitialLoading(false);
+                setPendingSearching(false);
+                setPendingLoadingMore(false);
+            }
+        }
+    }, [tableData.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-        setHistoryData(mappedData.reverse());
-        setLocalReceivedLoading(false);
-    };
+    const fetchHistoryData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (historyAbortRef.current) historyAbortRef.current.abort();
+        const controller = new AbortController();
+        historyAbortRef.current = controller;
+
+        if (!append && historyData.length === 0) setHistoryInitialLoading(true);
+        else if (!append) setHistorySearching(true);
+        else setHistoryLoadingMore(true);
+
+        try {
+            const data: any = await fetchFromSupabasePaginated('received', '*',
+                { column: 'createdAt', options: { ascending: false } },
+                undefined, undefined,
+                { page: pageValue, limit: 100, search: searchQuery, abortSignal: controller.signal }
+            );
+
+            if (controller.signal.aborted) return;
+
+            if (data && data.items) {
+                const mappedData = data.items.map((receivedRecord: any) => {
+                    const indentNum = receivedRecord.indentNumber || receivedRecord.indent_number || '';
+                    return {
+                        indentNumber: indentNum,
+                        poNumber: receivedRecord.poNumber || receivedRecord.po_number || '',
+                        vendor: receivedRecord.vendor || '',
+                        product: receivedRecord.product || '',
+                        firm: receivedRecord.indent?.firm || 'N/A',
+                        orderQuantity: 0, // Simplified for pagination compatibility
+                        receivedDate: receivedRecord.createdAt ? formatDate(new Date(receivedRecord.createdAt)) : '',
+                        receivedQuantity: Number(receivedRecord.receivedQuantity) || 0,
+                        photoOfProduct: receivedRecord.photoOfProduct || '',
+                        billStatus: receivedRecord.billStatus || '',
+                        billNumber: receivedRecord.billNumber || '',
+                        billAmount: Number(receivedRecord.billAmount) || 0,
+                        photoOfBill: receivedRecord.photoOfBill || '',
+                    };
+                });
+                setHistoryData(prev => append ? [...prev, ...mappedData] : mappedData);
+                setHistoryTotal(data.total);
+            }
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching history items:', error);
+        } finally {
+            if (!controller.signal.aborted) {
+                setHistoryInitialLoading(false);
+                setHistorySearching(false);
+                setHistoryLoadingMore(false);
+            }
+        }
+    }, [historyData.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const fetchData = useCallback(async () => {
+        await Promise.all([fetchPendingData(1, ''), fetchHistoryData(1, '')]);
+    }, [fetchPendingData, fetchHistoryData]);
 
     useEffect(() => {
-        fetchPendingItems();
-    }, []);
+        fetchPendingData(1, '');
+        fetchHistoryData(1, '');
+        return () => {
+            pendingAbortRef.current?.abort();
+            historyAbortRef.current?.abort();
+        };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    useEffect(() => {
-        fetchHistoryItems();
-    }, []);
+    const debouncedPendingSearch = useCallback(
+        debounce((query: string) => {
+            setPendingPage(1);
+            setPendingSearch(query);
+            fetchPendingData(1, query);
+        }, 500),
+        [fetchPendingData]
+    );
+
+    const debouncedHistorySearch = useCallback(
+        debounce((query: string) => {
+            setHistoryPage(1);
+            setHistorySearch(query);
+            fetchHistoryData(1, query);
+        }, 500),
+        [fetchHistoryData]
+    );
 
     // Fetch master items for product dropdown
     useEffect(() => {
@@ -686,8 +744,7 @@ const ReceiveItems = () => {
             setOpenDialog(false);
             
             // Refresh local data
-            await fetchPendingItems();
-            await fetchHistoryItems();
+            await fetchData();
 
         } catch (error: any) {
             console.error('Error submitting received items:', error);
@@ -716,10 +773,20 @@ const ReceiveItems = () => {
 
                     <TabsContent value="pending">
                         <DataTable
-                            data={filteredTableData}
+                            data={tableData}
                             columns={columns}
                             searchFields={['indentNumber', 'poNumber', 'product', 'vendor', 'poDate']}
-                            dataLoading={localIndentLoading}
+                            dataLoading={pendingInitialLoading}
+                            isSearching={pendingSearching}
+                            totalCount={pendingTotal}
+                            currentPage={pendingPage}
+                            onPageChange={(page) => {
+                                setPendingPage(page);
+                                fetchPendingData(page, pendingSearch, false);
+                            }}
+                            onSearchChange={debouncedPendingSearch}
+                            pagination={true}
+                            pageSize={50}
                             extraActions={
                                 <div className="flex items-center gap-2">
                                     <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
@@ -748,7 +815,7 @@ const ReceiveItems = () => {
 
                     <TabsContent value="history">
                         <DataTable
-                            data={filteredHistoryData}
+                            data={historyData}
                             columns={historyColumns}
                             searchFields={[
                                 'indentNumber',
@@ -760,7 +827,17 @@ const ReceiveItems = () => {
                                 'receivedDate',
                                 'billNumber'
                             ]}
-                            dataLoading={localReceivedLoading}
+                            dataLoading={historyInitialLoading}
+                            isSearching={historySearching}
+                            totalCount={historyTotal}
+                            currentPage={historyPage}
+                            onPageChange={(page) => {
+                                setHistoryPage(page);
+                                fetchHistoryData(page, historySearch, false);
+                            }}
+                            onSearchChange={debouncedHistorySearch}
+                            pagination={true}
+                            pageSize={50}
                             extraActions={
                                 <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
                             }
@@ -804,6 +881,7 @@ const ReceiveItems = () => {
                                             <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider mb-1">Documents</p>
                                             {selectedIndent.poCopy ? (
                                                 <Button 
+                                                    type="button"
                                                     variant="outline" 
                                                     size="sm" 
                                                     className="h-8 text-[11px] font-bold flex items-center gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 shadow-sm transition-all hover:scale-105 active:scale-95"

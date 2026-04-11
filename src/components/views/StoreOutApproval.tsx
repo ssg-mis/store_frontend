@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import {
     Dialog,
@@ -33,7 +33,7 @@ import { PackageCheck } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
-import { formatDate } from '@/lib/utils';
+import { formatDate, debounce } from '@/lib/utils';
 import { Pill } from '../ui/pill';
 import { DownloadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
@@ -84,10 +84,9 @@ export default () => {
     const [selectedIndent, setSelectedIndent] = useState<StoreOutTableData | null>(null);
     const [rejecting, setRejecting] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [dataLoading, setDataLoading] = useState(true);
-    const [mainTab, setMainTab] = useState('store-out');
+    const [mainTab, setMainTab] = useState('store-out'); // 'store-out' or 'return'
 
-    // Filter states
+    // Filter states (kept for FilterBar options)
     const [pendingFilters, setPendingFilters] = useState({
         indenter: 'All',
         department: 'All',
@@ -98,6 +97,22 @@ export default () => {
         department: 'All',
         product: 'All',
     });
+
+    // Server-side pagination states
+    const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
+    const [historyInitialLoading, setHistoryInitialLoading] = useState(true);
+    const [pendingSearching, setPendingSearching] = useState(false);
+    const [historySearching, setHistorySearching] = useState(false);
+    const [pendingLoadingMore, setPendingLoadingMore] = useState(false);
+    const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+    const [pendingTotal, setPendingTotal] = useState(0);
+    const [historyTotal, setHistoryTotal] = useState(0);
+    const [pendingPage, setPendingPage] = useState(1);
+    const [historyPage, setHistoryPage] = useState(1);
+    const [pendingSearch, setPendingSearch] = useState('');
+    const [historySearch, setHistorySearch] = useState('');
+    const pendingAbortRef = useRef<AbortController | null>(null);
+    const historyAbortRef = useRef<AbortController | null>(null);
 
     const [editingRow, setEditingRow] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<{
@@ -151,24 +166,36 @@ export default () => {
 
 
 
-    // Fetching table data
-    const fetchData = async () => {
-        setDataLoading(true);
+    const getIndentTypeQuery = useCallback(() => {
+        return mainTab === 'store-out' ? 'Store Out' : 'Store Out Return';
+    }, [mainTab]);
+
+    const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (pendingAbortRef.current) pendingAbortRef.current.abort();
+        const controller = new AbortController();
+        pendingAbortRef.current = controller;
+
+        if (!append) setPendingSearching(true);
+        else setPendingLoadingMore(true);
+
         try {
-            // Fetch all Store Out indents with pagination
-            const allData = await fetchFromSupabasePaginated(
-                'indent',
-                '*',
+            const data: any = await fetchFromSupabasePaginated('indent', '*',
                 { column: 'createdAt', options: { ascending: false } },
-                (q) => q.in('indentType', ['Store Out', 'Store Out Return'])
+                undefined, undefined,
+                { 
+                    page: pageValue, 
+                    limit: 50, 
+                    search: searchQuery, 
+                    status: 'StoreOutPending', 
+                    indentType: getIndentTypeQuery(),
+                    abortSignal: controller.signal 
+                }
             );
 
-            if (allData) {
-                const pendingData = allData.filter(record =>
-                    (record.indentType === 'Store Out' || record.indentType === 'Store Out Return') && record.actual_6 == null
-                );
+            if (controller.signal.aborted) return;
 
-                const pendingTableData = pendingData.map((record: any) => ({
+            if (data && data.items) {
+                const mappedData = data.items.map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber || '',
                     firm: record.firm || 'N/A',
@@ -183,17 +210,51 @@ export default () => {
                     specifications: record.specifications || 'Not specified',
                     attachment: record.attachment || 'N/A',
                     validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
-                    indentType: record.indentType || 'Store Out',
+                    indentType: record.indentType || (mainTab === 'store-out' ? 'Store Out' : 'Store Out Return'),
                 }));
-                setTableData(pendingTableData);
+                const normalizedData = mappedData;
+                setTableData(prev => append ? [...prev, ...normalizedData] : normalizedData);
+                setPendingTotal(data.total);
+            }
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching Store Out Pending:', error);
+        } finally {
+            if (!controller.signal.aborted) {
+                setPendingInitialLoading(false);
+                setPendingSearching(false);
+                setPendingLoadingMore(false);
+            }
+        }
+    }, [getIndentTypeQuery, mainTab]);
 
-                // History: actual_6 not null
-                const historyDataResult = allData.filter(record =>
-                    (record.indentType === 'Store Out' || record.indentType === 'Store Out Return') && record.actual_6 != null
-                );
+    const fetchHistoryData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
+        if (historyAbortRef.current) historyAbortRef.current.abort();
+        const controller = new AbortController();
+        historyAbortRef.current = controller;
 
-                const historyTableData = historyDataResult.map((record: any) => ({
-                    approvalDate: formatDate(new Date(record.actual_6)),
+        if (!append) setHistorySearching(true);
+        else setHistoryLoadingMore(true);
+
+        try {
+            const data: any = await fetchFromSupabasePaginated('indent', '*',
+                { column: 'createdAt', options: { ascending: false } },
+                undefined, undefined,
+                { 
+                    page: pageValue, 
+                    limit: 50, 
+                    search: searchQuery, 
+                    status: 'StoreOutHistory', 
+                    indentType: getIndentTypeQuery(),
+                    abortSignal: controller.signal 
+                }
+            );
+
+            if (controller.signal.aborted) return;
+
+            if (data && data.items) {
+                const mappedData = data.items.map((record: any) => ({
+                    approvalDate: record.actual_6 ? formatDate(new Date(record.actual_6)) : '',
                     indentNo: record.indentNumber || '',
                     firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
@@ -208,21 +269,61 @@ export default () => {
                     issuedStatus: record.issue_status || '',
                     issueApprovedBy: record.issue_approved_by || '',
                     validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
-                    indentType: record.indentType || 'Store Out',
+                    indentType: record.indentType || (mainTab === 'store-out' ? 'Store Out' : 'Store Out Return'),
                 }));
-                setHistoryData(historyTableData);
+                const normalizedData = mappedData;
+                setHistoryData(prev => append ? [...prev, ...normalizedData] : normalizedData);
+                setHistoryTotal(data.total);
             }
-        } catch (error) {
-            console.error('Error fetching data:', error);
-            toast.error('Failed to fetch store out data');
+        } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            console.error('Error fetching Store Out History:', error);
         } finally {
-            setDataLoading(false);
+            if (!controller.signal.aborted) {
+                setHistoryInitialLoading(false);
+                setHistorySearching(false);
+                setHistoryLoadingMore(false);
+            }
         }
-    };
+    }, [getIndentTypeQuery, mainTab]);
+
+    const fetchData = useCallback(async () => {
+        await Promise.all([fetchPendingData(1, ''), fetchHistoryData(1, '')]);
+    }, [fetchPendingData, fetchHistoryData]);
 
     useEffect(() => {
+        // Clear data and set initial loading on tab switch
+        setTableData([]);
+        setHistoryData([]);
+        setPendingInitialLoading(true);
+        setHistoryInitialLoading(true);
+        setPendingPage(1);
+        setHistoryPage(1);
+        
         fetchData();
-    }, []);
+        return () => {
+            pendingAbortRef.current?.abort();
+            historyAbortRef.current?.abort();
+        };
+    }, [mainTab, fetchData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const debouncedPendingSearch = useCallback(
+        debounce((query: string) => {
+            setPendingPage(1);
+            setPendingSearch(query);
+            fetchPendingData(1, query);
+        }, 500),
+        [fetchPendingData]
+    );
+
+    const debouncedHistorySearch = useCallback(
+        debounce((query: string) => {
+            setHistoryPage(1);
+            setHistorySearch(query);
+            fetchHistoryData(1, query);
+        }, 500),
+        [fetchHistoryData]
+    );
 
     // Add this function inside your component, before the return statement
     const onDownloadClick = async () => {
@@ -632,7 +733,7 @@ export default () => {
 
     return (
         <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-            <Tabs defaultValue="store-out" onValueChange={setMainTab} className="w-full">
+            <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
                 <div className="px-5 pt-4">
                     <TabsList className="grid w-full grid-cols-2 shadow-sm border">
                         <TabsTrigger value="store-out">Store Out Approval</TabsTrigger>
@@ -650,10 +751,20 @@ export default () => {
                                 data={displayPendingData}
                                 columns={columns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
-                                dataLoading={dataLoading}
+                                dataLoading={pendingInitialLoading}
+                                isSearching={pendingSearching}
+                                totalCount={pendingTotal}
+                                currentPage={pendingPage}
+                                onPageChange={(page) => {
+                                    setPendingPage(page);
+                                    fetchPendingData(page, pendingSearch, false);
+                                }}
+                                onSearchChange={debouncedPendingSearch}
+                                pagination={true}
+                                pageSize={50}
                                 extraActions={
                                     <div className="flex items-center gap-2">
-                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData.filter(d => d.indentType === 'Store Out')} />
+                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
                                         <Button
                                             variant="default"
                                             onClick={onDownloadClick}
@@ -671,9 +782,19 @@ export default () => {
                                 data={displayHistoryData}
                                 columns={historyColumns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
-                                dataLoading={dataLoading}
+                                dataLoading={historyInitialLoading}
+                                isSearching={historySearching}
+                                totalCount={historyTotal}
+                                currentPage={historyPage}
+                                onPageChange={(page) => {
+                                    setHistoryPage(page);
+                                    fetchHistoryData(page, historySearch, false);
+                                }}
+                                onSearchChange={debouncedHistorySearch}
+                                pagination={true}
+                                pageSize={50}
                                 extraActions={
-                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData.filter(d => d.indentType === 'Store Out')} />
+                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
                                 }
                             />
                         </TabsContent>
@@ -690,10 +811,20 @@ export default () => {
                                 data={displayPendingData}
                                 columns={columns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
-                                dataLoading={dataLoading}
+                                dataLoading={pendingInitialLoading}
+                                isSearching={pendingSearching}
+                                totalCount={pendingTotal}
+                                currentPage={pendingPage}
+                                onPageChange={(page) => {
+                                    setPendingPage(page);
+                                    fetchPendingData(page, pendingSearch, false);
+                                }}
+                                onSearchChange={debouncedPendingSearch}
+                                pagination={true}
+                                pageSize={50}
                                 extraActions={
                                     <div className="flex items-center gap-2">
-                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData.filter(d => d.indentType === 'Store Out Return')} />
+                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
                                         <Button
                                             variant="default"
                                             onClick={onDownloadClick}
@@ -711,9 +842,19 @@ export default () => {
                                 data={displayHistoryData}
                                 columns={historyColumns}
                                 searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
-                                dataLoading={dataLoading}
+                                dataLoading={historyInitialLoading}
+                                isSearching={historySearching}
+                                totalCount={historyTotal}
+                                currentPage={historyPage}
+                                onPageChange={(page) => {
+                                    setHistoryPage(page);
+                                    fetchHistoryData(page, historySearch, false);
+                                }}
+                                onSearchChange={debouncedHistorySearch}
+                                pagination={true}
+                                pageSize={50}
                                 extraActions={
-                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData.filter(d => d.indentType === 'Store Out Return')} />
+                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
                                 }
                             />
                         </TabsContent>
