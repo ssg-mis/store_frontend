@@ -182,6 +182,7 @@ export type MasterDataRow = {
     department?: string | null;
     groupHead?: string | null;
     itemName?: string | null;
+    uom?: string | null;
     firmName?: string | null;
     createdAt?: string | null;
 
@@ -193,6 +194,13 @@ export type MasterDataRow = {
     payment_term?: string | null;
     group_head?: string | null;
     firm_name?: string | null;
+    uom_name?: string | null;
+    contact_person?: string | null;
+    mobile?: string | null;
+    pan_number?: string | null;
+    state?: string | null;
+    pin_code?: string | null;
+    isActive?: boolean;
 };
 
 export type MasterConfigSheet = {
@@ -216,6 +224,7 @@ export type UserPermissions = {
     username: string;
     password: string;
     name: string;
+    role?: string;
 
     administrate: boolean;
     createIndent: boolean;

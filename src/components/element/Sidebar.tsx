@@ -71,6 +71,11 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
         if (!user) return [];
 
         return items.filter((item) => {
+            // Role-based gate: hide if roleKey doesn't match user's role
+            if (item.roleKey && (user as any).role !== item.roleKey) {
+                return false;
+            }
+
             // Check legacy gateKey 'No Access' condition first if applicable
             if (item.gateKey && (user as any)[item.gateKey] === 'No Access') {
                 return false;

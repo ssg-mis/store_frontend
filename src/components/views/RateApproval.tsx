@@ -20,7 +20,7 @@ import { postToSheet, uploadFile, fetchFromSupabasePaginated } from '@/lib/fetch
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Users } from 'lucide-react';
+import { Users, FileDown } from 'lucide-react';
 import { Tabs, TabsContent } from '../ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useAuth } from '@/context/AuthContext';
@@ -28,6 +28,9 @@ import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
 import { formatDate, debounce } from '@/lib/utils';
 import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
+import { pdf } from '@react-pdf/renderer';
+import ComparisonPdf from '../element/ComparisonPdf';
 
 interface RateApprovalData {
     id: number;
@@ -36,6 +39,8 @@ interface RateApprovalData {
     indenter: string;
     department: string;
     product: string;
+    quantity: number;
+    uom: string;
     comparisonSheet: string;
     vendors: [string, string, string][];
     date: string;
@@ -115,6 +120,8 @@ export default () => {
                     indenter: r.indenterName || '',
                     department: r.department || '',
                     product: r.productName || '',
+                    quantity: r.approvedQuantity || r.quantity || 0,
+                    uom: r.uom || '',
                     comparisonSheet: r.comparisonSheet || '',
                     vendors: [
                         [r.vendorName1 || '', String(r.rate1 || 0), r.paymentTerm1 || ''],
@@ -328,18 +335,66 @@ export default () => {
             },
         },
 
+
         {
-            accessorKey: 'comparisonSheet',
-            header: 'Comparison Sheet',
-            enableSorting: false,    // <-- ADD THIS
+            id: 'comparisonPdf',
+            header: 'Comparison PDF',
+            enableSorting: false,
             cell: ({ row }) => {
-                const sheet = row.original.comparisonSheet;
-                return sheet ? (
-                    <a href={sheet} target="_blank">Comparison Sheet</a>
-                ) : <></>;
+                const indent = row.original;
+
+                const handleDownload = async () => {
+                    try {
+                        const vendors = indent.vendors
+                            .map((v) => ({
+                                name: v[0] || '',
+                                rate: v[1] ? parseFloat(v[1]) : null,
+                                paymentTerm: v[2] || '',
+                            }))
+                            .filter((v) => v.name);
+
+                        const blob = await pdf(
+                            <ComparisonPdf
+                                companyName="Shri Shyam Oil Extractions Pvt Ltd"
+                                companyAddress="Banari, Janjgir Champa-495668, Chhattisgarh"
+                                companyPhone="+919993023243"
+                                indentNo={indent.indentNo}
+                                product={indent.product}
+                                department={indent.department}
+                                indenter={indent.indenter}
+                                quantity={indent.quantity}
+                                uom={indent.uom}
+                                date={indent.date}
+                                vendors={vendors}
+                            />
+                        ).toBlob();
+
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `Comparison-${indent.indentNo}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(() => URL.revokeObjectURL(url), 100);
+                    } catch (err: any) {
+                        console.error('PDF generation error:', err);
+                        toast.error('Failed to generate PDF');
+                    }
+                };
+
+                return (
+                    <Button
+                        size="sm"
+                        className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-700 text-white"
+                        onClick={handleDownload}
+                    >
+                        <FileDown className="h-3 w-3" />
+                        Download PDF
+                    </Button>
+                );
             },
         },
-
     ];
 
     const historyColumns: ColumnDef<HistoryData>[] = [
@@ -375,12 +430,14 @@ export default () => {
     // Creating approval form
     const schema = z.object({
         vendor: z.coerce.number(),
+        remarks: z.string().optional(),
     });
 
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
             vendor: undefined,
+            remarks: '',
         },
     });
 
@@ -398,12 +455,22 @@ export default () => {
     async function onSubmit(values: z.infer<typeof schema>) {
         try {
             const selectedVendor = selectedIndent?.vendors[values.vendor];
+            const validVendors = selectedIndent?.vendors.filter(v => v[0] && parseFloat(v[1]) > 0) || [];
+            const minRate = validVendors.length > 0 ? Math.min(...validVendors.map(v => parseFloat(v[1]))) : null;
+            const isLowest = minRate !== null && selectedVendor?.[0] && parseFloat(selectedVendor?.[1] || '0') === minRate;
+
+            if (!isLowest && !values.remarks?.trim()) {
+                form.setError('remarks', { message: 'Remarks are required when selecting a higher priced vendor' });
+                return;
+            }
+
             // Save approved vendor to three_party_approval table
             const result = await postToSheet([{
                 indent_number: selectedIndent?.indentNo,
                 approvedVendorName: selectedVendor?.[0],
                 approvedRate: selectedVendor?.[1],
                 approvedPaymentTerm: selectedVendor?.[2],
+                remarks: !isLowest ? values.remarks : undefined,
             } as any], 'insert', 'THREE_PARTY_APPROVAL');
 
             if (!result.success) throw new Error('API update failed');
@@ -601,24 +668,26 @@ export default () => {
                                         </span>
                                     </DialogDescription>
                                 </DialogHeader>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-muted py-2 px-5 rounded-md ">
-                                    <div className="space-y-1">
-                                        <p className="font-medium">Indenter</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.indenter}
-                                        </p>
+                                <div className="rounded-lg border overflow-hidden">
+                                    <div className="bg-primary px-4 py-2 flex items-center justify-between">
+                                        <span className="text-sm font-bold text-primary-foreground tracking-wide">{selectedIndent.indentNo}</span>
+                                        <span className="text-[11px] bg-primary-foreground/20 text-primary-foreground rounded-full px-2 py-0.5 font-medium">
+                                            {selectedIndent.firm}
+                                        </span>
                                     </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium">Department</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.department}
-                                        </p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium">Product</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.product}
-                                        </p>
+                                    <div className="bg-muted/30 px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2">
+                                        {[
+                                            { label: 'Indenter',   value: selectedIndent.indenter },
+                                            { label: 'Department', value: selectedIndent.department },
+                                            { label: 'Product',    value: selectedIndent.product },
+                                        ].map(({ label, value }) =>
+                                            value ? (
+                                                <div key={label} className="flex flex-col">
+                                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+                                                    <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
+                                                </div>
+                                            ) : null
+                                        )}
                                     </div>
                                 </div>
                                 <div className="grid gap-3">
@@ -683,6 +752,40 @@ export default () => {
                                         }}
                                     />
                                 </div>
+                                {(() => {
+                                    const vendorIdx = form.watch('vendor');
+                                    if (vendorIdx === undefined || vendorIdx === null || isNaN(Number(vendorIdx))) return null;
+                                    const vendor = selectedIndent.vendors[Number(vendorIdx)];
+                                    if (!vendor || !vendor[0]) return null;
+                                    const validVendors = selectedIndent.vendors.filter(v => v[0] && parseFloat(v[1]) > 0);
+                                    const minRate = validVendors.length > 0 ? Math.min(...validVendors.map(v => parseFloat(v[1]))) : null;
+                                    const isLowest = minRate !== null && parseFloat(vendor[1]) === minRate;
+                                    if (isLowest) return null;
+                                    return (
+                                        <FormField
+                                            control={form.control}
+                                            name="remarks"
+                                            render={({ field, fieldState }) => (
+                                                <FormItem>
+                                                    <FormLabel>
+                                                        Remarks <span className="text-destructive">*</span>
+                                                    </FormLabel>
+                                                    <FormControl>
+                                                        <Textarea
+                                                            placeholder="Enter reason for selecting higher priced vendor..."
+                                                            className="resize-none"
+                                                            rows={3}
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    {fieldState.error && (
+                                                        <p className="text-xs text-destructive">{fieldState.error.message}</p>
+                                                    )}
+                                                </FormItem>
+                                            )}
+                                        />
+                                    );
+                                })()}
                                 <DialogFooter>
                                     <DialogClose asChild>
                                         <Button variant="outline">Close</Button>

@@ -421,7 +421,7 @@ export default () => {
         },
         {
             accessorKey: 'groupHead',
-            header: 'Group Head',
+            header: 'Department Head',
             cell: ({ row }) => {
                 const indent = row.original;
                 const isSelected = selectedRows.has(indent.id);
@@ -505,6 +505,26 @@ export default () => {
             size: 220,
         },
         {
+            accessorKey: 'uom',
+            header: 'UOM',
+            cell: ({ row }) => {
+                const indent = row.original;
+                const isSelected = selectedRows.has(indent.id);
+                const currentValue = bulkUpdates.get(indent.id)?.uom || indent.uom;
+
+                return (
+                    <Input
+                        value={currentValue}
+                        onChange={(e) => handleBulkUpdate(indent.id, 'uom', e.target.value)}
+                        disabled={!isSelected}
+                        className={`w-20 text-xs sm:text-sm ${!isSelected ? 'opacity-50' : ''}`}
+                        placeholder="UOM"
+                    />
+                );
+            },
+            size: 80,
+        },
+        {
             accessorKey: 'quantity',
             header: 'Quantity',
             cell: ({ row }) => {
@@ -521,26 +541,6 @@ export default () => {
                         className={`w-20 text-xs sm:text-sm ${!isSelected ? 'opacity-50' : ''}`}
                         min="0"
                         step="1"
-                    />
-                );
-            },
-            size: 80,
-        },
-        {
-            accessorKey: 'uom',
-            header: 'UOM',
-            cell: ({ row }) => {
-                const indent = row.original;
-                const isSelected = selectedRows.has(indent.id);
-                const currentValue = bulkUpdates.get(indent.id)?.uom || indent.uom;
-
-                return (
-                    <Input
-                        value={currentValue}
-                        onChange={(e) => handleBulkUpdate(indent.id, 'uom', e.target.value)}
-                        disabled={!isSelected}
-                        className={`w-20 text-xs sm:text-sm ${!isSelected ? 'opacity-50' : ''}`}
-                        placeholder="UOM"
                     />
                 );
             },

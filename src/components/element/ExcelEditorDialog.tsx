@@ -11,16 +11,35 @@ interface ExcelEditorProps {
     open: boolean;
     onClose: () => void;
     onSave: (newUrl: string) => void;
+    initialData?: string[][];
 }
 
-export default function ExcelEditorDialog({ fileUrl, open, onClose, onSave }: ExcelEditorProps) {
+export default function ExcelEditorDialog({ fileUrl, open, onClose, onSave, initialData }: ExcelEditorProps) {
     const [data, setData] = useState<string[][]>([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        if (!open || !fileUrl) {
+        if (!open) {
             setData([]);
+            return;
+        }
+
+        if (!fileUrl) {
+            const MIN_ROWS = 20;
+            const MIN_COLS = 8;
+            if (initialData && initialData.length > 0) {
+                const maxCols = Math.max(...initialData.map(row => row.length), MIN_COLS);
+                const padded = initialData.map(row => {
+                    const r = [...row];
+                    while (r.length < maxCols) r.push("");
+                    return r;
+                });
+                while (padded.length < MIN_ROWS) padded.push(Array(maxCols).fill(""));
+                setData(padded);
+            } else {
+                setData(Array(MIN_ROWS).fill(null).map(() => Array(MIN_COLS).fill("")));
+            }
             return;
         }
 
@@ -71,7 +90,7 @@ export default function ExcelEditorDialog({ fileUrl, open, onClose, onSave }: Ex
         };
 
         loadExcel();
-    }, [fileUrl, open]);
+    }, [fileUrl, open, initialData]);
 
     const handleSave = async () => {
         setSaving(true);

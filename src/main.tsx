@@ -59,11 +59,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function GatedRoute({
     children,
     identifier,
+    roleKey,
 }: {
     children: React.ReactNode;
     identifier?: keyof UserPermissions;
+    roleKey?: string;
 }) {
     const { user } = useAuth();
+
+    // Role-based gate: if roleKey is set, user.role must match
+    if (roleKey) {
+        if (!user || (user as any).role !== roleKey) {
+            return <Navigate to="/" replace />;
+        }
+    }
+
     if (!identifier) return children;
 
     const permissionValue = (user as any)[identifier];
@@ -95,6 +105,9 @@ function DefaultRoute({ routes }: { routes: RouteAttributes[] }) {
 
     // Find first accessible route
     const firstAccessibleRoute = routes.find(route => {
+        // Skip routes that require a role the user doesn't have
+        if (route.roleKey && (user as any).role !== route.roleKey) return false;
+
         // Skip routes without gateKey (always accessible)
         if (!route.gateKey) return true;
 
@@ -271,7 +284,7 @@ const routes: RouteAttributes[] = [
     },
     {
         path: 'setting',
-        gateKey: 'setting',
+        roleKey: 'ADMIN',
         name: 'Setting',
         icon: <Settings size={20} />,
         element: <Setting />,
@@ -310,11 +323,11 @@ createRoot(document.getElementById('root')!).render(
                         }
                     >
                         <Route index element={<DefaultRoute routes={routes} />} />
-                        {routes.map(({ path, element, gateKey }, index) => {
+                        {routes.map(({ path, element, gateKey, roleKey }, index) => {
                             return <Route
                                 key={`${path}-${index}`}
                                 path={path}
-                                element={<GatedRoute identifier={gateKey}>{element}</GatedRoute>}
+                                element={<GatedRoute identifier={gateKey} roleKey={roleKey}>{element}</GatedRoute>}
                             />
                         })}
                         <Route path="*" element={<Navigate to="/" replace />} />

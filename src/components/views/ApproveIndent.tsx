@@ -1,7 +1,7 @@
 
-import { type ColumnDef, type Row } from '@tanstack/react-table';
+import { type ColumnDef } from '@tanstack/react-table';
 import DataTable from '../element/DataTable';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { DownloadOutlined } from "@ant-design/icons";
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -30,14 +30,21 @@ const statuses = ['Select', 'Reject', 'Three Party', 'Regular'];
 interface ApproveTableData {
     id: number;
     indentNo: string;
+    indentType: string;
     firm: string;
     indenter: string;
     department: string;
+    areaOfUse: string;
+    groupHead: string;
+    indentApprovedBy: string;
     product: string;
+    productCode: string | null;
+    productCategory: string;
     quantity: number;
     uom: string;
     vendorType: 'Reject' | 'Three Party' | 'Regular' | 'Select';
     date: string;
+    validityDate: string;
     attachment: string;
     specifications: string;
     status: 'Pending' | 'Approved';
@@ -50,6 +57,7 @@ interface HistoryData {
     indenter: string;
     department: string;
     product: string;
+    productCode: string | null;
     uom: string;
     approvedQuantity: number;
     vendorType: 'Reject' | 'Three Party' | 'Regular' | 'Select';
@@ -79,8 +87,8 @@ export default () => {
     const [editingRow, setEditingRow] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
     const [loading, setLoading] = useState(false);
-    const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-    const [bulkUpdates, setBulkUpdates] = useState<Map<string, { vendorType?: string; quantity?: number; product?: string; plannedDate?: string }>>(new Map());
+    const [selectedIndents, setSelectedIndents] = useState<Set<string>>(new Set());
+    const [bulkUpdates, setBulkUpdates] = useState<Map<number, { vendorType?: string; quantity?: number; product?: string; plannedDate?: string }>>(new Map());
     const [submitting, setSubmitting] = useState(false);
     // Separate initial loading (shows skeleton) from background searching (shows progress bar)
     const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
@@ -89,6 +97,10 @@ export default () => {
     const [historySearching, setHistorySearching] = useState(false);
     const [master, setMaster] = useState<any>(null);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const [historyViewGroup, setHistoryViewGroup] = useState<{
+        indentNo: string; firm: string; indenter: string; department: string;
+        date: string; approvedDate: string; delay?: string; items: HistoryData[];
+    } | null>(null);
 
     const [pendingFilters, setPendingFilters] = useState({ indenter: 'All', department: 'All', product: 'All' });
     const [historyFilters, setHistoryFilters] = useState({ indenter: 'All', department: 'All', product: 'All' });
@@ -121,15 +133,22 @@ export default () => {
                 const mappedData = data.items.map((record: any) => ({
                     id: record.id,
                     indentNo: record.indentNumber,
+                    indentType: record.indentType || '',
                     firm: record.firm || 'N/A',
-                    indenter: record.indenterName,
+                    indenter: record.indenterName || '',
                     department: record.department || '',
-                    product: record.productName,
+                    areaOfUse: record.areaOfUse || '',
+                    groupHead: record.groupHead || '',
+                    indentApprovedBy: record.indentApprovedBy || '',
+                    product: record.productName || '',
+                    productCode: record.productCode || null,
+                    productCategory: record.productCategory || '',
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
                     specifications: record.specifications || '',
                     vendorType: 'Select',
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '',
                     attachment: record.attachment || '',
                     status: 'Pending',
                     plannedDate: record.plannedDate,
@@ -181,6 +200,7 @@ export default () => {
                     indenter: record.indenterName,
                     department: record.department || '',
                     product: record.productName,
+                    productCode: record.productCode || null,
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
                     specifications: record.specifications || '',
@@ -189,7 +209,7 @@ export default () => {
                     approvedDate: record.plannedDate ? formatDate(new Date(record.plannedDate)) : (record.createdAt ? formatDate(new Date(record.createdAt)) : ''),
                     attachment: record.attachment || '',
                     approvedQuantity: record.approvedQuantity || record.quantity,
-                    delay: record.delay || 'No delay'
+                    delay: (record.delay && !record.delay.includes('NaN')) ? record.delay : 'No delay'
                 }));
 
                 setHistoryItems(prev => append ? [...prev, ...mappedData] : mappedData);
@@ -240,29 +260,29 @@ export default () => {
         [fetchHistoryData]
     );
 
-    const handleRowSelect = (indentNo: string, checked: boolean) => {
-        setSelectedRows(prev => {
+    const handleIndentSelect = (indentNo: string, checked: boolean) => {
+        const indentItems = pendingItems.filter(item => item.indentNo === indentNo);
+        setSelectedIndents(prev => {
             const newSet = new Set(prev);
             if (checked) {
                 newSet.add(indentNo);
-                const currentRow = pendingItems.find(row => row.indentNo === indentNo);
-                if (currentRow) {
-                    setBulkUpdates(prevUpdates => {
-                        const newUpdates = new Map(prevUpdates);
-                        newUpdates.set(indentNo, {
+                setBulkUpdates(prevUpdates => {
+                    const newUpdates = new Map(prevUpdates);
+                    indentItems.forEach(item => {
+                        newUpdates.set(item.id, {
                             vendorType: 'Select',
-                            quantity: currentRow.quantity,
-                            product: currentRow.product,
-                            plannedDate: new Date().toISOString().split('T')[0] // Default to today
+                            quantity: item.quantity,
+                            product: item.product,
+                            plannedDate: new Date().toISOString().split('T')[0]
                         });
-                        return newUpdates;
                     });
-                }
+                    return newUpdates;
+                });
             } else {
                 newSet.delete(indentNo);
                 setBulkUpdates(prevUpdates => {
                     const newUpdates = new Map(prevUpdates);
-                    newUpdates.delete(indentNo);
+                    indentItems.forEach(item => newUpdates.delete(item.id));
                     return newUpdates;
                 });
             }
@@ -270,34 +290,35 @@ export default () => {
         });
     };
 
-    const handleSelectAll = (checked: boolean) => {
+    const handleSelectAllIndents = (checked: boolean) => {
         if (checked) {
-            setSelectedRows(new Set(pendingItems.map(row => row.indentNo)));
-            const newUpdates = new Map();
-            pendingItems.forEach(row => {
-                newUpdates.set(row.indentNo, {
+            const allIndentNos = [...new Set(pendingItems.map(item => item.indentNo))];
+            setSelectedIndents(new Set(allIndentNos));
+            const newUpdates = new Map<number, any>();
+            pendingItems.forEach(item => {
+                newUpdates.set(item.id, {
                     vendorType: 'Select',
-                    quantity: row.quantity,
-                    product: row.product,
+                    quantity: item.quantity,
+                    product: item.product,
                     plannedDate: new Date().toISOString().split('T')[0]
                 });
             });
             setBulkUpdates(newUpdates);
         } else {
-            setSelectedRows(new Set());
+            setSelectedIndents(new Set());
             setBulkUpdates(new Map());
         }
     };
 
     const handleBulkUpdate = (
-        indentNo: string,
+        id: number,
         field: 'vendorType' | 'quantity' | 'product' | 'plannedDate',
         value: string | number
     ) => {
         setBulkUpdates((prevUpdates) => {
             const newUpdates = new Map(prevUpdates);
-            const currentUpdate = newUpdates.get(indentNo) || {};
-            newUpdates.set(indentNo, {
+            const currentUpdate = newUpdates.get(id) || {};
+            newUpdates.set(id, {
                 ...currentUpdate,
                 [field]: value,
             });
@@ -306,78 +327,74 @@ export default () => {
     };
 
     const handleSubmitBulkUpdates = async () => {
-        if (selectedRows.size === 0) {
-            toast.error('Please select at least one row to update');
-            return;
-        }
+        // Collect all product IDs across selected indents
+        const selectedProductIds = pendingItems
+            .filter(item => selectedIndents.has(item.indentNo))
+            .map(item => item.id);
 
-        // Validation: Only allow 'Regular' or 'Three Party'
-        const invalidIndents: string[] = [];
-        selectedRows.forEach(indentNo => {
-            const update = bulkUpdates.get(indentNo);
-            const vendorType = update?.vendorType;
+        // Validation: every product must have Regular or Three Party
+        const invalidIndentNos: string[] = [];
+        selectedProductIds.forEach(id => {
+            const vendorType = bulkUpdates.get(id)?.vendorType;
             if (vendorType !== 'Regular' && vendorType !== 'Three Party') {
-                invalidIndents.push(indentNo);
+                const item = pendingItems.find(i => i.id === id);
+                if (item && !invalidIndentNos.includes(item.indentNo)) {
+                    invalidIndentNos.push(item.indentNo);
+                }
             }
         });
 
-        if (invalidIndents.length > 0) {
-            toast.error(`Please select 'Regular' or 'Three Party' for: ${invalidIndents.join(', ')}`);
+        if (invalidIndentNos.length > 0) {
+            toast.error(`Select 'Regular' or 'Three Party' for all products in: ${invalidIndentNos.join(', ')}`);
             return;
         }
 
         setSubmitting(true);
         try {
-            const updatesToProcess = Array.from(selectedRows).map(indentNo => {
-                const update = bulkUpdates.get(indentNo);
-                const originalRecord = pendingItems.find(s => s.indentNo === indentNo);
-
+            const updatesToProcess = selectedProductIds.map(id => {
+                const update = bulkUpdates.get(id);
+                const originalRecord = pendingItems.find(s => s.id === id);
                 if (!originalRecord || !update) return null;
-
-                const updatePayload: any = {
-                    quantity: update.quantity !== undefined ? update.quantity : originalRecord.quantity,
-                    productName: update.product || originalRecord.product,
-                    vendorType: update.vendorType || originalRecord.vendorType,
-                    planned: update.plannedDate || new Date().toISOString().split('T')[0]
-                };
 
                 return {
                     id: originalRecord.id,
                     updatePayload: {
-                        indentNumber: originalRecord.indentNo,
-                        ...updatePayload
+                        indentNumber: originalRecord.indentNo, // Base number
+                        productCode: originalRecord.productCode, // Specific code
+                        quantity: Math.min(
+                            Math.max(update.quantity !== undefined ? update.quantity : originalRecord.quantity, 1),
+                            originalRecord.quantity   // hard cap at original indent quantity
+                        ),
+                        productName: update.product || originalRecord.product,
+                        vendorType: update.vendorType || originalRecord.vendorType,
+                        planned: update.plannedDate || new Date().toISOString().split('T')[0]
                     }
                 };
             }).filter((item): item is NonNullable<typeof item> => item !== null);
 
             const approvalResults = await Promise.all(
-                updatesToProcess.map(async (item) => {
-                    return approveIndent(item.id, item.updatePayload);
-                })
+                updatesToProcess.map(item => approveIndent(item.id, item.updatePayload))
             );
 
             const errors = approvalResults.filter(r => !r.success);
             if (errors.length > 0) {
-                console.error('Some updates failed:', errors);
-                toast.warning(`Updated ${approvalResults.length - errors.length} indents, but ${errors.length} failed.`);
+                toast.warning(`Approved ${approvalResults.length - errors.length}, but ${errors.length} failed.`);
             } else {
-                toast.success(`Updated ${updatesToProcess.length} indents successfully`);
+                toast.success(`Approved ${updatesToProcess.length} products successfully`);
             }
 
             updateIndentSheet();
             updateRelatedSheets();
-            
-            // Refresh first page of data
             setPendingPage(1);
             fetchPendingData(1, pendingSearch);
             fetchHistoryData(1, historySearch);
 
-            setSelectedRows(new Set());
+            setSelectedIndents(new Set());
             setBulkUpdates(new Map());
             setIsReviewOpen(false);
         } catch (error) {
             console.error('Error in bulk updates:', error);
-            toast.error('Failed to submit bulk updates');
+            toast.error('Failed to submit');
         } finally {
             setSubmitting(false);
         }
@@ -435,6 +452,47 @@ export default () => {
             (historyFilters.product === 'All' || item.product === historyFilters.product);
     });
 
+    // Group pending items by indent number for indent-wise product display
+    const groupedPendingData = useMemo(() => {
+        const groups = new Map<string, ApproveTableData[]>();
+        filteredTableData.forEach(item => {
+            if (!groups.has(item.indentNo)) groups.set(item.indentNo, []);
+            groups.get(item.indentNo)!.push(item);
+        });
+        return Array.from(groups.entries()).map(([indentNo, items]) => {
+            const itemsWithCode = items.map(item => ({
+                ...item,
+                displayCode: item.productCode || '' // Show empty in UI if productCode is not in DB
+            }));
+            const first = items[0];
+            return {
+                indentNo,
+                indentType: first.indentType,
+                firm: first.firm,
+                indenter: first.indenter,
+                department: first.department,
+                areaOfUse: first.areaOfUse,
+                groupHead: first.groupHead,
+                indentApprovedBy: first.indentApprovedBy,
+                date: first.date,
+                validityDate: first.validityDate,
+                items: itemsWithCode,
+            };
+        });
+    }, [filteredTableData]);
+
+    const groupedHistoryData = useMemo(() => {
+        const groups = new Map<string, HistoryData[]>();
+        filteredHistoryData.forEach(item => {
+            if (!groups.has(item.indentNo)) groups.set(item.indentNo, []);
+            groups.get(item.indentNo)!.push(item);
+        });
+        return Array.from(groups.entries()).map(([indentNo, items]) => {
+            const first = items[0];
+            return { indentNo, firm: first.firm, indenter: first.indenter, department: first.department, date: first.date, approvedDate: first.approvedDate, delay: first.delay, items };
+        });
+    }, [filteredHistoryData]);
+
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
@@ -479,161 +537,6 @@ export default () => {
         </div>
     );
 
-    const columns: ColumnDef<ApproveTableData>[] = [
-        {
-            id: 'select',
-            header: ({ table }) => (
-                <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300"
-                    checked={pendingItems.length > 0 && selectedRows.size === pendingItems.length}
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                />
-            ),
-            cell: ({ row }) => (
-                <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300"
-                    checked={selectedRows.has(row.original.indentNo)}
-                    onChange={(e) => handleRowSelect(row.original.indentNo, e.target.checked)}
-                />
-            ),
-            size: 40,
-        },
-        {
-            accessorKey: 'indentNo',
-            header: 'Indent No',
-            cell: ({ getValue }) => <div className="font-medium text-xs sm:text-sm">{getValue() as string}</div>,
-            size: 100,
-        },
-        {
-            accessorKey: 'firm',
-            header: 'Firm',
-            cell: ({ getValue }) => <div className="text-xs sm:text-sm">{getValue() as string}</div>,
-            size: 120,
-        },
-        {
-            accessorKey: 'indenter',
-            header: 'Indenter',
-            cell: ({ getValue }) => <div className="text-xs sm:text-sm">{getValue() as string}</div>,
-            size: 120,
-        },
-        {
-            accessorKey: 'department',
-            header: 'Department',
-            cell: ({ getValue }) => <div className="text-xs sm:text-sm">{getValue() as string}</div>,
-            size: 120,
-        },
-        {
-            accessorKey: 'product',
-            header: 'Product',
-            cell: ({ getValue }) => <div className="text-xs sm:text-sm">{getValue() as string}</div>,
-            size: 150,
-        },
-        {
-            accessorKey: 'quantity',
-            header: 'Quantity',
-            cell: ({ row }) => {
-                const indent = row.original;
-                const isSelected = selectedRows.has(indent.indentNo);
-                const currentValue = bulkUpdates.get(indent.indentNo)?.quantity || indent.quantity;
-                return (
-                    <Input
-                        type="number"
-                        defaultValue={currentValue}
-                        onBlur={(e) => handleBulkUpdate(indent.indentNo, 'quantity', Number(e.target.value) || 0)}
-                        className="w-16 sm:w-20 text-xs sm:text-sm h-8"
-                        disabled={!isSelected}
-                    />
-                );
-            },
-            size: 80,
-        },
-        {
-            accessorKey: 'uom',
-            header: 'UOM',
-            cell: ({ getValue }) => <div className="text-xs sm:text-sm">{getValue() as string}</div>,
-            size: 60,
-        },
-        {
-            accessorKey: 'vendorType',
-            header: 'Vendor Type',
-            cell: ({ row }) => {
-                const indent = row.original;
-                const isSelected = selectedRows.has(indent.indentNo);
-                const currentValue = bulkUpdates.get(indent.indentNo)?.vendorType || indent.vendorType;
-                return (
-                    <Select
-                        value={currentValue}
-                        onValueChange={(val) => handleBulkUpdate(indent.indentNo, 'vendorType', val)}
-                        disabled={!isSelected}
-                    >
-                        <SelectTrigger className="w-24 sm:w-32 h-8 text-xs sm:text-sm">
-                            <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Select">Select</SelectItem>
-                            <SelectItem value="Regular">Regular</SelectItem>
-                            <SelectItem value="Three Party">Three Party</SelectItem>
-                        </SelectContent>
-                    </Select>
-                );
-            },
-            size: 110,
-        },
-        {
-            accessorKey: 'plannedDate',
-            header: 'Planned Date',
-            cell: ({ row }) => {
-                const indent = row.original;
-                const isSelected = selectedRows.has(indent.indentNo);
-                
-                // Priority: 1. Manual selection/edit, 2. Existing database value, 3. Today (only if selected)
-                const currentValue = bulkUpdates.get(indent.indentNo)?.plannedDate || indent.plannedDate || (isSelected ? new Date().toISOString().split('T')[0] : '');
-                
-                return (
-                    <div className="flex justify-center w-full">
-                        <Input
-                            type="date"
-                            value={currentValue}
-                            onChange={(e) => handleBulkUpdate(indent.indentNo, 'plannedDate', e.target.value)}
-                            className="w-[150px] h-9 text-[13px] pl-2 pr-1 cursor-pointer bg-background"
-                            disabled={!isSelected}
-                        />
-                    </div>
-                );
-            },
-            size: 190,
-        },
-        {
-            accessorKey: 'date',
-            header: 'Date',
-            cell: ({ getValue }) => <div className="text-xs sm:text-sm whitespace-nowrap">{getValue() as string}</div>,
-            size: 100,
-        },
-        {
-            accessorKey: 'specifications',
-            header: 'Specifications',
-            cell: ({ getValue }) => <div className="text-xs sm:text-sm max-w-xs truncate">{getValue() as string}</div>,
-            size: 150,
-        },
-        {
-            accessorKey: 'attachment',
-            header: 'Attachment',
-            cell: ({ row }) => {
-                const attachment = row.original.attachment;
-                return attachment ? (
-                    <a href={attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs sm:text-sm">
-                        View
-                    </a>
-                ) : (
-                    <div className="text-xs sm:text-sm text-gray-500">-</div>
-                );
-            },
-            size: 80,
-        }
-    ];
-
     const historyColumns: ColumnDef<HistoryData>[] = [
         { accessorKey: 'indentNo', header: 'Indent No', size: 100 },
         { accessorKey: 'firm', header: 'Firm', size: 120 },
@@ -674,126 +577,418 @@ export default () => {
                     <ClipboardCheck size={50} className="text-primary" />
                 </Heading>
                 <TabsContent value="pending" className="w-full max-w-full">
-                    <div className="space-y-4">
-                        <DataTable
-                            data={filteredTableData}
-                            columns={columns}
-                            searchFields={['indentNo', 'product', 'department', 'indenter']}
-                            dataLoading={pendingInitialLoading}
-                            isSearching={pendingSearching}
-                            pagination={true}
-                            pageSize={50}
-                            totalCount={pendingTotal}
-                            currentPage={pendingPage}
-                            onSearchChange={debouncedPendingSearch}
-                            onPageChange={(page) => {
-                                setPendingPage(page);
-                                fetchPendingData(page, pendingSearch, false);
-                            }}
-                            extraActions={
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={pendingItems} />
-                                    {selectedRows.size > 1 ? (
-                                        <Button 
-                                            onClick={() => setIsReviewOpen(true)} 
-                                            className="h-8 text-xs bg-green-600 hover:bg-green-700 flex items-center gap-2"
-                                            disabled={submitting}
-                                        >
-                                            <Send size={14} /> Submit ({selectedRows.size})
-                                        </Button>
-                                    ) : (
-                                        <Button 
-                                            onClick={handleSubmitBulkUpdates} 
-                                            disabled={selectedRows.size === 0 || submitting} 
-                                            className="h-8 text-xs flex items-center gap-2"
-                                        >
-                                            <Send size={14} /> Submit
-                                        </Button>
-                                    )}
+                    <div className="space-y-3">
+                        {/* Top bar: search + filters + submit */}
+                        <div className="flex flex-wrap items-center gap-2 justify-between">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="relative">
+                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                                    <Input
+                                        placeholder="Search indents..."
+                                        className="pl-8 h-8 text-xs w-[200px]"
+                                        onChange={(e) => debouncedPendingSearch(e.target.value)}
+                                    />
                                 </div>
-                            }
-                        />
+                                <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={pendingItems} />
+                            </div>
+                            <Button
+                                onClick={() => setIsReviewOpen(true)}
+                                disabled={selectedIndents.size === 0}
+                                className="h-8 text-xs bg-green-600 hover:bg-green-700 flex items-center gap-2"
+                            >
+                                <Send size={14} /> Submit {selectedIndents.size > 0 && `(${selectedIndents.size})`}
+                            </Button>
+                        </div>
+
+                        {pendingSearching && (
+                            <div className="w-full h-0.5 bg-primary/20 rounded-full overflow-hidden">
+                                <div className="h-full w-1/2 bg-primary animate-pulse rounded-full" />
+                            </div>
+                        )}
+
+                        {/* One row per indent */}
+                        {pendingInitialLoading ? (
+                            <div className="space-y-2">
+                                {[...Array(5)].map((_, i) => (
+                                    <div key={i} className="h-10 bg-muted animate-pulse rounded" />
+                                ))}
+                            </div>
+                        ) : groupedPendingData.length === 0 ? (
+                            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+                                No pending indents found
+                            </div>
+                        ) : (
+                            <div className="rounded-md border overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-4 w-4 rounded border-gray-300"
+                                                    checked={groupedPendingData.length > 0 && selectedIndents.size === groupedPendingData.length}
+                                                    onChange={(e) => handleSelectAllIndents(e.target.checked)}
+                                                />
+                                            </TableHead>
+                                            <TableHead>Indent No</TableHead>
+                                            <TableHead>Firm</TableHead>
+                                            <TableHead>Indenter</TableHead>
+                                            <TableHead>Department</TableHead>
+                                            <TableHead>Date</TableHead>
+                                            <TableHead>Products</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {groupedPendingData.map(group => (
+                                            <TableRow
+                                                key={group.indentNo}
+                                                className={selectedIndents.has(group.indentNo) ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                                            >
+                                                <TableCell>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-4 w-4 rounded border-gray-300"
+                                                        checked={selectedIndents.has(group.indentNo)}
+                                                        onChange={(e) => handleIndentSelect(group.indentNo, e.target.checked)}
+                                                    />
+                                                </TableCell>
+                                                <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
+                                                <TableCell>
+                                                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                                                        {group.items.length} {group.items.length === 1 ? 'product' : 'products'}
+                                                    </span>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        )}
+
+                        {/* Pagination */}
+                        {!pendingInitialLoading && pendingTotal > 0 && (
+                            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                                <span>{filteredTableData.length} of {pendingTotal} items</span>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" size="sm" className="h-7 text-xs px-3"
+                                        disabled={pendingPage === 1}
+                                        onClick={() => { const p = pendingPage - 1; setPendingPage(p); fetchPendingData(p, pendingSearch, false); }}
+                                    >Previous</Button>
+                                    <span>Page {pendingPage}</span>
+                                    <Button variant="outline" size="sm" className="h-7 text-xs px-3"
+                                        disabled={filteredTableData.length >= pendingTotal}
+                                        onClick={() => { const p = pendingPage + 1; setPendingPage(p); fetchPendingData(p, pendingSearch, false); }}
+                                    >Next</Button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </TabsContent>
                 <TabsContent value="history" className="w-full max-w-full">
-                    <DataTable
-                        data={filteredHistoryData}
-                        columns={historyColumns}
-                        searchFields={['indentNo', 'product', 'department', 'indenter']}
-                        dataLoading={historyInitialLoading}
-                        isSearching={historySearching}
-                        pagination={true}
-                        pageSize={50}
-                        totalCount={historyTotal}
-                        currentPage={historyPage}
-                        onSearchChange={debouncedHistorySearch}
-                        onPageChange={(page) => {
-                            setHistoryPage(page);
-                            fetchHistoryData(page, historySearch, false);
-                        }}
-                        extraActions={
-                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyItems} />
-                        }
-                    />
+                    <div className="space-y-3">
+                        <div className="flex flex-wrap items-center gap-2 justify-between">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="relative">
+                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                                    <Input
+                                        placeholder="Search history..."
+                                        className="pl-8 h-8 text-xs w-[200px]"
+                                        onChange={(e) => debouncedHistorySearch(e.target.value)}
+                                    />
+                                </div>
+                                <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyItems} />
+                            </div>
+                        </div>
+
+                        {historySearching && (
+                            <div className="w-full h-0.5 bg-primary/20 rounded-full overflow-hidden">
+                                <div className="h-full w-1/2 bg-primary animate-pulse rounded-full" />
+                            </div>
+                        )}
+
+                        {historyInitialLoading ? (
+                            <div className="space-y-2">
+                                {[...Array(5)].map((_, i) => (
+                                    <div key={i} className="h-10 bg-muted animate-pulse rounded" />
+                                ))}
+                            </div>
+                        ) : groupedHistoryData.length === 0 ? (
+                            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+                                No history found
+                            </div>
+                        ) : (
+                            <div className="rounded-md border overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Indent No</TableHead>
+                                            <TableHead>Firm</TableHead>
+                                            <TableHead>Indenter</TableHead>
+                                            <TableHead>Department</TableHead>
+                                            <TableHead>Date</TableHead>
+                                            <TableHead>Approval Date</TableHead>
+                                            <TableHead>Products</TableHead>
+                                            <TableHead></TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {groupedHistoryData.map(group => (
+                                            <TableRow key={group.indentNo}>
+                                                <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.approvedDate}</TableCell>
+                                                <TableCell>
+                                                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                                                        {group.items.length} {group.items.length === 1 ? 'product' : 'products'}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 text-xs px-2"
+                                                        onClick={() => setHistoryViewGroup(group)}
+                                                    >
+                                                        View
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        )}
+
+                        {!historyInitialLoading && historyTotal > 0 && (
+                            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                                <span>{filteredHistoryData.length} of {historyTotal} items</span>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" size="sm" className="h-7 text-xs px-3"
+                                        disabled={historyPage === 1}
+                                        onClick={() => { const p = historyPage - 1; setHistoryPage(p); fetchHistoryData(p, historySearch, false); }}
+                                    >Previous</Button>
+                                    <span>Page {historyPage}</span>
+                                    <Button variant="outline" size="sm" className="h-7 text-xs px-3"
+                                        disabled={filteredHistoryData.length >= historyTotal}
+                                        onClick={() => { const p = historyPage + 1; setHistoryPage(p); fetchHistoryData(p, historySearch, false); }}
+                                    >Next</Button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </TabsContent>
             </Tabs>
 
             <Dialog open={isReviewOpen} onOpenChange={setIsReviewOpen}>
-                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>Review Bulk Approval</DialogTitle>
+                        <DialogTitle>Review &amp; Approve Indents</DialogTitle>
                     </DialogHeader>
-                    
-                    <div className="py-4">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Indent No</TableHead>
-                                    <TableHead>Product</TableHead>
-                                    <TableHead className="text-right">Appr. Qty</TableHead>
-                                    <TableHead>Vendor Type</TableHead>
-                                    <TableHead>Planned Date</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {Array.from(selectedRows).map(indentNo => {
-                                    const indent = pendingItems.find(d => d.indentNo === indentNo);
-                                    const updates = bulkUpdates.get(indentNo);
-                                    if (!indent) return null;
-                                    return (
-                                        <TableRow key={indentNo}>
-                                            <TableCell className="font-medium text-xs sm:text-sm">{indentNo}</TableCell>
-                                            <TableCell className="text-xs sm:text-sm">{indent.product}</TableCell>
-                                            <TableCell className="text-right text-xs sm:text-sm">
-                                                {updates?.quantity ?? indent.quantity} {indent.uom}
-                                            </TableCell>
-                                            <TableCell className="text-xs sm:text-sm">
-                                                <Pill variant={updates?.vendorType === 'Reject' ? 'reject' : updates?.vendorType === 'Regular' ? 'primary' : 'secondary'}>
-                                                    {updates?.vendorType || 'Select'}
-                                                </Pill>
-                                            </TableCell>
-                                            <TableCell className="text-xs sm:text-sm">
-                                                {updates?.plannedDate ? formatDate(new Date(updates.plannedDate)) : 'N/A'}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })}
-                            </TableBody>
-                        </Table>
+
+                    <div className="space-y-8 py-2">
+                        {groupedPendingData
+                            .filter(group => selectedIndents.has(group.indentNo))
+                            .map(group => (
+                                <div key={group.indentNo} className="rounded-lg border overflow-hidden">
+
+                                    {/* ── Indent title bar ── */}
+                                    <div className="bg-primary px-4 py-2 flex items-center justify-between">
+                                        <span className="text-sm font-bold text-primary-foreground tracking-wide">{group.indentNo}</span>
+                                        {group.indentType && (
+                                            <span className="text-[11px] bg-primary-foreground/20 text-primary-foreground rounded-full px-2 py-0.5 font-medium">
+                                                {group.indentType}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* ── Indent details grid ── */}
+                                    <div className="bg-muted/30 px-4 py-3 border-b grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2">
+                                        {[
+                                            { label: 'Firm',             value: group.firm },
+                                            { label: 'Indenter',         value: group.indenter },
+                                            { label: 'Department',       value: group.department },
+                                            { label: 'Area of Use',      value: group.areaOfUse },
+                                            { label: 'Group Head',       value: group.groupHead },
+                                            { label: 'Approved By',      value: group.indentApprovedBy },
+                                            { label: 'Created Date',     value: group.date },
+                                            { label: 'Validity Date',    value: group.validityDate },
+                                        ].map(({ label, value }) =>
+                                            value ? (
+                                                <div key={label} className="flex flex-col">
+                                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+                                                    <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
+                                                </div>
+                                            ) : null
+                                        )}
+                                    </div>
+
+                                    {/* ── Products table ── */}
+                                    <div className="overflow-x-auto">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow className="bg-muted/20">
+                                                    <TableHead className="w-28 text-xs">Product Code</TableHead>
+                                                    <TableHead className="text-xs">Product</TableHead>
+                                                    <TableHead className="text-xs">Category</TableHead>
+                                                    <TableHead className="text-xs">Qty</TableHead>
+                                                    <TableHead className="text-xs">UOM</TableHead>
+                                                    <TableHead className="text-xs">Specifications</TableHead>
+                                                    <TableHead className="text-xs">Attachment</TableHead>
+                                                    <TableHead className="text-xs">Vendor Type</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {group.items.map(item => {
+                                                    const currentQty = bulkUpdates.get(item.id)?.quantity ?? item.quantity;
+                                                    const currentVendorType = bulkUpdates.get(item.id)?.vendorType || 'Select';
+                                                    return (
+                                                        <TableRow key={item.id}>
+                                                            <TableCell>
+                                                                {item.productCode
+                                                                    ? <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">{item.productCode}</span>
+                                                                    : <span className="text-muted-foreground text-xs">—</span>
+                                                                }
+                                                            </TableCell>
+                                                            <TableCell className="text-xs font-medium max-w-[160px]">{item.product}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground">{item.productCategory || '—'}</TableCell>
+                                                            <TableCell>
+                                                                <Input
+                                                                    type="number"
+                                                                    value={currentQty}
+                                                                    min={1}
+                                                                    max={item.quantity}
+                                                                    onChange={(e) => {
+                                                                        const raw = Number(e.target.value);
+                                                                        const clamped = Math.min(Math.max(raw || 1, 1), item.quantity);
+                                                                        handleBulkUpdate(item.id, 'quantity', clamped);
+                                                                    }}
+                                                                    className="w-20 text-xs h-8"
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell className="text-xs">{item.uom}</TableCell>
+                                                            <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
+                                                                {item.specifications || '—'}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs">
+                                                                {item.attachment
+                                                                    ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
+                                                                    : <span className="text-muted-foreground">—</span>
+                                                                }
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Select
+                                                                    value={currentVendorType}
+                                                                    onValueChange={(val) => handleBulkUpdate(item.id, 'vendorType', val)}
+                                                                >
+                                                                    <SelectTrigger className="w-32 h-8 text-xs">
+                                                                        <SelectValue placeholder="Select" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="Select">Select</SelectItem>
+                                                                        <SelectItem value="Regular">Regular</SelectItem>
+                                                                        <SelectItem value="Three Party">Three Party</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+
+                                </div>
+                            ))
+                        }
                     </div>
 
                     <DialogFooter className="gap-2">
-                        <Button variant="outline" onClick={() => setIsReviewOpen(false)}>
-                            Cancel
-                        </Button>
-                        <Button 
-                            onClick={handleSubmitBulkUpdates} 
-                            disabled={submitting}
-                            className="bg-green-600 hover:bg-green-700"
-                        >
+                        <Button variant="outline" onClick={() => setIsReviewOpen(false)}>Cancel</Button>
+                        <Button onClick={handleSubmitBulkUpdates} disabled={submitting} className="bg-green-600 hover:bg-green-700">
                             {submitting ? <Loader size={20} color="white" /> : 'Confirm & Approve All'}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* History detail dialog */}
+            <Dialog open={!!historyViewGroup} onOpenChange={(open) => !open && setHistoryViewGroup(null)}>
+                <DialogContent className="max-w-[90vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Indent {historyViewGroup?.indentNo}</DialogTitle>
+                    </DialogHeader>
+                    {historyViewGroup && (
+                        <div className="space-y-4">
+                            <div className="bg-muted/30 rounded-lg px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2">
+                                {[
+                                    { label: 'Firm', value: historyViewGroup.firm },
+                                    { label: 'Indenter', value: historyViewGroup.indenter },
+                                    { label: 'Department', value: historyViewGroup.department },
+                                    { label: 'Request Date', value: historyViewGroup.date },
+                                    { label: 'Approval Date', value: historyViewGroup.approvedDate },
+                                    { label: 'Delay', value: historyViewGroup.delay },
+                                ].map(({ label, value }) =>
+                                    value ? (
+                                        <div key={label} className="flex flex-col">
+                                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+                                            <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
+                                        </div>
+                                    ) : null
+                                )}
+                            </div>
+                            <div className="overflow-x-auto rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-muted/20">
+                                            <TableHead className="text-xs">Code</TableHead>
+                                            <TableHead className="text-xs">Product</TableHead>
+                                            <TableHead className="text-xs">Appr. Qty</TableHead>
+                                            <TableHead className="text-xs">UOM</TableHead>
+                                            <TableHead className="text-xs">Status</TableHead>
+                                            <TableHead className="text-xs">Specifications</TableHead>
+                                            <TableHead className="text-xs">Attachment</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {historyViewGroup.items.map((item, idx) => (
+                                            <TableRow key={idx}>
+                                                <TableCell>
+                                                    {item.productCode
+                                                        ? <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">{item.productCode}</span>
+                                                        : <span className="text-muted-foreground text-xs">—</span>
+                                                    }
+                                                </TableCell>
+                                                <TableCell className="text-xs font-medium">{item.product}</TableCell>
+                                                <TableCell className="text-xs">{item.approvedQuantity}</TableCell>
+                                                <TableCell className="text-xs">{item.uom}</TableCell>
+                                                <TableCell>
+                                                    <Pill variant={item.vendorType === 'Reject' ? 'reject' : item.vendorType === 'Regular' ? 'primary' : 'secondary'}>
+                                                        {item.vendorType}
+                                                    </Pill>
+                                                </TableCell>
+                                                <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
+                                                    {item.specifications || '—'}
+                                                </TableCell>
+                                                <TableCell className="text-xs">
+                                                    {item.attachment
+                                                        ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
+                                                        : <span className="text-muted-foreground">—</span>
+                                                    }
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>

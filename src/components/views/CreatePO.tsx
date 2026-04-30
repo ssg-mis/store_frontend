@@ -1,4 +1,4 @@
-import { ChevronsRightLeft, FilePlus2, Pencil, Save, Trash } from 'lucide-react';
+import { ChevronsRightLeft, FilePlus2, Pencil, Save, Trash, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -108,11 +108,16 @@ export default () => {
     const [isEditingDestination, setIsEditingDestination] = useState(false);
     const [destinationAddress, setDestinationAddress] = useState('');
     const [loading, setLoading] = useState(true);
+    // PO numbers whose items have been fully received — cannot be revised
+    const [receivedPoNumbers, setReceivedPoNumbers] = useState<Set<string>>(new Set());
+
 
     // Initialize destination address from details
     useEffect(() => {
         if (detailsData?.destinationAddress) {
-            setDestinationAddress(detailsData.destinationAddress);
+            setDestinationAddress(`Shri Shyam Oil Extractions Pvt. Ltd.\n${detailsData.destinationAddress}`);
+        } else if (detailsData) {
+            setDestinationAddress('Shri Shyam Oil Extractions Pvt. Ltd.');
         }
     }, [detailsData]);
 
@@ -177,6 +182,19 @@ export default () => {
 
                 const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
 
+                // Fetch indents that are fully received (actual_5 is set)
+                // Use status=ReceivePending complement: indents where actual_5 is NOT null
+                const receivedIndents = await fetchFromSupabasePaginated(
+                    'indent',
+                    '*',
+                    { column: 'createdAt', options: { ascending: false } },
+                    (q) => q.not('actual_5', 'is', null)
+                );
+                const receivedPoSet = new Set<string>(
+                    (receivedIndents || []).map((i: any) => i.po_number || i.poNumber).filter(Boolean)
+                );
+                setReceivedPoNumbers(receivedPoSet);
+
                 enrichAndSetData(allIndents || [], approvals || [], poData || [], masterData, vendorsMapped);
             } catch (error: any) {
                 console.error('Error fetching data from Supabase:', error);
@@ -192,6 +210,7 @@ export default () => {
     const schema = z.object({
         poNumber: z.string().nonempty(),
         poDate: z.coerce.date(),
+        indentName: z.string().optional().default(''),
         supplierName: z.string().nonempty(),
         supplierAddress: z.string().nonempty(),
         gstin: z.string().nonempty(),
@@ -204,6 +223,7 @@ export default () => {
             .array(
                 z.object({
                     indentNumber: z.string().nonempty(),
+                    id: z.number().optional(),
                     gst: z.coerce.number(),
                     discount: z.coerce.number().default(0).optional(),
                 })
@@ -221,6 +241,7 @@ export default () => {
         defaultValues: {
             poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null)),
             poDate: new Date(),
+            indentName: '',
             supplierName: '',
             supplierAddress: '',
             preparedBy: '',
@@ -244,6 +265,7 @@ export default () => {
 
     const indents = form.watch('indents');
     const vendor = form.watch('supplierName');
+    const indentName = form.watch('indentName');
     const poDate = form.watch('poDate');
     const poNumber = form.watch('poNumber');
 
@@ -282,6 +304,7 @@ export default () => {
             form.reset({
                 poNumber: '',
                 poDate: undefined,
+                indentName: '',
                 supplierName: '',
                 supplierAddress: '',
                 preparedBy: '',
@@ -299,6 +322,7 @@ export default () => {
             form.reset({
                 poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null)),
                 poDate: new Date(),
+                indentName: '',
                 supplierName: '',
                 supplierAddress: '',
                 preparedBy: '',
@@ -333,17 +357,42 @@ export default () => {
                 selectedVendor?.vendor_gstin || selectedVendor?.gstin || ''
             );
 
-            // Auto-fill indents for this supplier
-            form.setValue(
-                'indents',
-                items.map((i: any) => ({
+            // If a specific indent is selected, only show that one; otherwise show all for this vendor
+            const currentIndentName = form.getValues('indentName');
+            if (currentIndentName) {
+                const selectedIndents = indentSheetData.filter(
+                    (i: any) => (i.indentNumber || i.indent_number) === currentIndentName
+                );
+                form.setValue('indents', selectedIndents.map((i: any) => ({
                     indentNumber: i.indentNumber || i.indent_number,
+                    id: i.id,
                     gst: 18,
                     discount: 0,
-                }))
-            );
+                })));
+            } else {
+                form.setValue(
+                    'indents',
+                    items.map((i: any) => ({
+                        indentNumber: i.indentNumber || i.indent_number,
+                        id: i.id,
+                        gst: 18,
+                        discount: 0,
+                    }))
+                );
+            }
         }
     }, [vendor, indentSheetData, vendorsData]);
+
+    useEffect(() => {
+        if (indentName && mode === 'create') {
+            const selectedIndent = indentSheetData.find(
+                (i: any) => (i.indentNumber || i.indent_number) === indentName
+            );
+            if (selectedIndent) {
+                form.setValue('supplierName', selectedIndent.approvedVendorName || selectedIndent.approved_vendor_name || '');
+            }
+        }
+    }, [indentName, indentSheetData]);
 
     useEffect(() => {
         const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
@@ -397,7 +446,7 @@ export default () => {
     };
 
     const handleDestinationCancel = () => {
-        setDestinationAddress(detailsData?.destinationAddress || ''); // Updated to camelCase
+        setDestinationAddress(detailsData?.destinationAddress ? `Shri Shyam Oil Extractions Pvt. Ltd.\n${detailsData.destinationAddress}` : 'Shri Shyam Oil Extractions Pvt. Ltd.');
         setIsEditingDestination(false);
     };
 
@@ -450,7 +499,7 @@ export default () => {
 
             const grandTotal = calculateGrandTotal(
                 values.indents.map((indent) => {
-                    const value = enrichedFetchedIndents.find((i: any) => i.indentNumber === indent.indentNumber) ||
+                    const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
                         poMasterSheetData.find((p: any) => (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
                     return {
                         quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
@@ -490,7 +539,7 @@ export default () => {
                 enqDate: values.enquiryDate ? formatDate(values.enquiryDate) : '',
                 description: values.description,
                 items: values.indents.map((item) => {
-                    const indent = enrichedFetchedIndents.find((i: any) => i.indentNumber === item.indentNumber) ||
+                    const indent = enrichedFetchedIndents.find((i: any) => item.id ? i.id === item.id : i.indentNumber === item.indentNumber) ||
                         poMasterSheetData.find((p: any) => (p.internalCode || p.po_number || '') === (item.indentNumber || '') && (p.poNumber || p.po_number || '') === (values.poNumber || ''));
                     return {
                         internalCode: indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || '',
@@ -512,7 +561,7 @@ export default () => {
                 }),
                 total: calculateSubtotal(
                     values.indents.map((indent) => {
-                        const value = enrichedFetchedIndents.find((i: any) => i.indentNumber === indent.indentNumber) ||
+                        const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
                             poMasterSheetData.find((p: any) => (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
                         return {
                             quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
@@ -523,7 +572,7 @@ export default () => {
                 ),
                 gstAmount: calculateTotalGst(
                     values.indents.map((indent) => {
-                        const value = enrichedFetchedIndents.find((i: any) => i.indentNumber === indent.indentNumber) ||
+                        const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
                             poMasterSheetData.find((p: any) => (p.internalCode || p.po_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
                         return {
                             quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
@@ -584,7 +633,7 @@ export default () => {
 
             // Insert PO data into Supabase
             const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => {
-                const indent = enrichedFetchedIndents.find((i: any) => i.indentNumber === v.indentNumber) ||
+                const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : i.indentNumber === v.indentNumber) ||
                     poMasterSheetData.find((p: any) => (p.internalCode || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
 
                 // Validate and process dates
@@ -647,7 +696,7 @@ export default () => {
 
             // Update corresponding indent records to sync with Receive Items and Get Purchase stages
             const indentUpdates: any[] = values.indents.map((v) => {
-                const indent = enrichedFetchedIndents.find((i: any) => i.indentNumber === v.indentNumber);
+                const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : i.indentNumber === v.indentNumber);
                 return {
                     id: indent.id,
                     indentNumber: v.indentNumber,
@@ -777,7 +826,10 @@ export default () => {
                                                             </FormControl>
                                                             <SelectContent>
                                                                 {filterUniquePoNumbers(
-                                                                    poMasterSheetData
+                                                                    poMasterSheetData.filter((i: any) => {
+                                                                        const poNum = i.poNumber || i.po_number;
+                                                                        return !receivedPoNumbers.has(poNum);
+                                                                    })
                                                                 ).map((i: any, k) => {
                                                                     const poNumDisplay = i.poNumber || i.po_number;
                                                                     return (
@@ -827,7 +879,38 @@ export default () => {
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-3 gap-x-5">
+                                <div className="grid grid-cols-4 gap-x-5">
+                                    {mode === 'create' && (
+                                        <FormField
+                                            control={form.control}
+                                            name="indentName"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Indent Name</FormLabel>
+                                                    <FormControl>
+                                                        <Select onValueChange={field.onChange} value={field.value}>
+                                                            <FormControl>
+                                                                <SelectTrigger size="sm" className="w-full">
+                                                                    <SelectValue placeholder="Select indent" />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                {[...new Map(
+                                                                    indentSheetData
+                                                                        .filter((i: any) => i.indentNumber || i.indent_number)
+                                                                        .map((i: any) => [i.indentNumber || i.indent_number, i])
+                                                                ).values()].map((i: any, k: number) => (
+                                                                    <SelectItem key={k} value={i.indentNumber || i.indent_number}>
+                                                                        {i.indentNumber || i.indent_number}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </FormControl>
+                                                </FormItem>
+                                            )}
+                                        />
+                                    )}
                                     <FormField
                                         control={form.control}
                                         name="supplierName"
@@ -838,14 +921,15 @@ export default () => {
                                                         <Select
                                                             onValueChange={field.onChange}
                                                             value={field.value}
+                                                            disabled={!!indentName}
                                                         >
-                                                            <FormLabel>Supplier Name <span className="text-red-500">*</span></FormLabel>
+                                                            <FormLabel>Vendor Name <span className="text-red-500">*</span></FormLabel>
                                                             <FormControl>
                                                                 <SelectTrigger
                                                                     size="sm"
                                                                     className="w-full"
                                                                 >
-                                                                    <SelectValue placeholder="Select supplier" />
+                                                                    <SelectValue placeholder="Select vendor" />
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
@@ -869,12 +953,12 @@ export default () => {
                                                     </FormControl>
                                                 ) : (
                                                     <>
-                                                        <FormLabel>Supplier Name<span className="text-red-500">*</span></FormLabel>
+                                                        <FormLabel>Vendor Name<span className="text-red-500">*</span></FormLabel>
                                                         <FormControl>
                                                             <Input
                                                                 className="h-9"
                                                                 readOnly
-                                                                placeholder="Enter supplier name"
+                                                                placeholder="Enter vendor name"
                                                                 {...field}
                                                             />
                                                         </FormControl>
@@ -888,12 +972,12 @@ export default () => {
                                         name="supplierAddress"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Supplier Address<span className="text-red-500">*</span></FormLabel>
+                                                <FormLabel>Vendor Address<span className="text-red-500">*</span></FormLabel>
                                                 <FormControl>
                                                     <Input
-                                                        className="h-9"
-                                                        readOnly={mode === 'revise'}
-                                                        placeholder="Enter supplier address"
+                                                        className={cn("h-9", (mode === 'revise' || !!vendor) && "bg-muted cursor-not-allowed")}
+                                                        readOnly={mode === 'revise' || !!vendor}
+                                                        placeholder="Enter vendor address"
                                                         {...field}
                                                     />
                                                 </FormControl>
@@ -908,8 +992,8 @@ export default () => {
                                                 <FormLabel>GSTIN<span className="text-red-500">*</span></FormLabel>
                                                 <FormControl>
                                                     <Input
-                                                        className="h-9"
-                                                        readOnly={mode === 'revise'}
+                                                        className={cn("h-9", (mode === 'revise' || !!vendor) && "bg-muted cursor-not-allowed")}
+                                                        readOnly={mode === 'revise' || !!vendor}
                                                         placeholder="Enter GSTIN"
                                                         {...field}
                                                     />
@@ -957,51 +1041,52 @@ export default () => {
                                     <CardHeader className="bg-muted px-5 py-2">
                                         <CardTitle className="text-center flex items-center justify-between">
                                             Destination Address
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={isEditingDestination ? handleDestinationSave : handleDestinationEdit}
-                                                className="h-6 w-6 p-0 hover:bg-gray-200"
-                                            >
-                                                {isEditingDestination ? (
-                                                    <Save size={14} className="text-green-600" />
-                                                ) : (
-                                                    <Pencil size={14} className="text-gray-600" />
-                                                )}
-                                            </Button>
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="p-5 text-sm">
-                                        <p>Shri Shyam Oil Extractions Pvt. Ltd.</p>
-                                        {isEditingDestination ? (
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <Input
-                                                    value={destinationAddress}
-                                                    onChange={(e) => setDestinationAddress(e.target.value)}
-                                                    className="h-7 text-sm"
-                                                    placeholder="Enter destination address"
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter') {
-                                                            handleDestinationSave();
-                                                        } else if (e.key === 'Escape') {
-                                                            handleDestinationCancel();
-                                                        }
-                                                    }}
-                                                    autoFocus
-                                                />
+                                            {!isEditingDestination && (
                                                 <Button
                                                     type="button"
                                                     variant="ghost"
                                                     size="sm"
-                                                    onClick={handleDestinationCancel}
-                                                    className="h-6 w-6 p-0 hover:bg-red-100"
+                                                    onClick={handleDestinationEdit}
+                                                    className="h-6 w-6 p-0 hover:bg-gray-200"
                                                 >
-                                                    <Trash size={12} className="text-red-500" />
+                                                    <Pencil size={14} className="text-gray-600" />
                                                 </Button>
+                                            )}
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="p-5 text-sm">
+                                        {isEditingDestination ? (
+                                            <div className="flex flex-col gap-2">
+                                                <Textarea
+                                                    value={destinationAddress}
+                                                    onChange={(e) => setDestinationAddress(e.target.value)}
+                                                    className="min-h-[80px] text-sm"
+                                                    placeholder="Enter destination address"
+                                                    autoFocus
+                                                />
+                                                <div className="flex justify-end gap-2 mt-1">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={handleDestinationCancel}
+                                                        className="h-7 px-2 text-xs text-red-500 hover:bg-red-50 hover:text-red-600 border-red-200"
+                                                    >
+                                                        <X size={14} className="mr-1" /> Cancel
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="default"
+                                                        size="sm"
+                                                        onClick={handleDestinationSave}
+                                                        className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700 text-white"
+                                                    >
+                                                        <Save size={14} className="mr-1" /> Save
+                                                    </Button>
+                                                </div>
                                             </div>
                                         ) : (
-                                            <p>{destinationAddress}</p>
+                                            <p className="whitespace-pre-wrap">{destinationAddress}</p>
                                         )}
                                     </CardContent>
                                 </Card>

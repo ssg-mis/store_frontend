@@ -1,7 +1,7 @@
-import { Database, Plus } from 'lucide-react';
+import { Database, Plus, Check, X, Edit2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
-import { fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, fetchFirms, postToFirm, fetchAreaOfUse, postAreaOfUse } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -22,6 +22,8 @@ import type { ColumnDef } from '@tanstack/react-table';
 import DataTable from '../element/DataTable';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Checkbox } from '../ui/checkbox';
+import { Pill } from '../ui/pill';
 
 /* ───── types ───── */
 interface MasterRow {
@@ -35,9 +37,16 @@ interface MasterRow {
     department: string | null;
     group_head: string | null;
     itemName: string | null;
+    uom: string | null;
     firm_name: string | null;
     firmName?: string | null;
+    contact_person?: string | null;
+    mobile?: string | null;
+    pan_number?: string | null;
+    state?: string | null;
+    pin_code?: string | null;
     createdAt: string | null;
+    isActive?: boolean;
 }
 
 interface MasterForm {
@@ -49,7 +58,14 @@ interface MasterForm {
     department: string;
     group_head: string;
     item_name: string;
+    uom: string;
     firm_name: string;
+    contact_person: string;
+    mobile: string;
+    pan_number: string;
+    state: string;
+    pin_code: string;
+    isActive: string;
 }
 
 const emptyForm: MasterForm = {
@@ -61,7 +77,14 @@ const emptyForm: MasterForm = {
     department: '',
     group_head: '',
     item_name: '',
+    uom: '',
     firm_name: '',
+    contact_person: '',
+    mobile: '',
+    pan_number: '',
+    state: '',
+    pin_code: '',
+    isActive: 'true',
 };
 
 /* ───── field helper ───── */
@@ -128,49 +151,7 @@ function TruncCell({ value, width = 140 }: { value: string | null; width?: numbe
     );
 }
 
-/* ───── columns ───── */
-const columns: ColumnDef<MasterRow>[] = [
-    {
-        accessorKey: 'vendor_name',
-        header: 'Vendor Name',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
-    },
-    {
-        accessorKey: 'vendor_gstin',
-        header: 'GSTIN',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string | null} width={130} />,
-    },
-    {
-        accessorKey: 'vendor_email',
-        header: 'Email',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string | null} width={160} />,
-    },
-    {
-        accessorKey: 'payment_term',
-        header: 'Payment Term',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string | null} width={110} />,
-    },
-    {
-        accessorKey: 'department',
-        header: 'Department',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string | null} width={120} />,
-    },
-    {
-        accessorKey: 'group_head',
-        header: 'Group Head',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string | null} width={120} />,
-    },
-    {
-        accessorKey: 'itemName',
-        header: 'Item Name',
-        cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
-    },
-    {
-        accessorKey: 'firm_name',
-        header: 'Firm Name',
-        cell: ({ row }) => <TruncCell value={row.original.firm_name || row.original.firmName} width={160} />,
-    },
-];
+
 
 /* ───── main component ───── */
 export default function MasterData() {
@@ -181,6 +162,21 @@ export default function MasterData() {
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
     const [activeTab, setActiveTab] = useState<'item' | 'vendor'>('item');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'config'>('inventory');
+    const [editingId, setEditingId] = useState<number | null>(null);
+    const [editForm, setEditForm] = useState<Partial<MasterRow>>({});
+
+    const [uoms, setUoms] = useState<{ uom_id: number, uom_name: string }[]>([]);
+    const [isAddingUOM, setIsAddingUOM] = useState(false);
+    const [newUOMName, setNewUOMName] = useState('');
+    const [addingUOM, setAddingUOM] = useState(false);
+    const [firms, setFirms] = useState<{ firm_id: number, firm_name: string }[]>([]);
+    const [isAddingFirm, setIsAddingFirm] = useState(false);
+    const [newFirmName, setNewFirmName] = useState('');
+    const [addingFirm, setAddingFirm] = useState(false);
+    const [areasOfUse, setAreasOfUse] = useState<{ area_of_use_id: number, area_of_use_name: string }[]>([]);
+    const [newAreaOfUseName, setNewAreaOfUseName] = useState('');
+    const [addingAreaOfUse, setAddingAreaOfUse] = useState(false);
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
 
@@ -223,11 +219,306 @@ export default function MasterData() {
             });
     }, [tableData, vendorToFirmMap]);
 
-    const filteredData = useMemo(() => {
-        return vendorFilter === 'All'
-            ? nonEmptyData
-            : nonEmptyData.filter(r => r.vendor_name === vendorFilter);
+    const inventoryData = useMemo(() =>
+        nonEmptyData.filter(r => r.itemName && r.itemName !== 'null'),
+    [nonEmptyData]);
+
+    const vendorData = useMemo(() => {
+        const vendors = nonEmptyData.filter(r => r.vendor_name && r.vendor_name !== 'null');
+        return vendorFilter === 'All' ? vendors : vendors.filter(r => r.vendor_name === vendorFilter);
     }, [nonEmptyData, vendorFilter]);
+
+    const handleEditChange = (key: keyof MasterRow, value: any) => {
+        setEditForm(prev => ({ ...prev, [key]: value }));
+    };
+
+    const handleSaveEdit = async (id: number) => {
+        setSubmitting(true);
+        try {
+            const updateData = { ...editForm };
+            // Ensure we don't send extra fields that might cause issues
+            delete (updateData as any).id;
+            delete (updateData as any).createdAt;
+
+            const result = await postToSheet([{ id, ...updateData }], 'update', 'MASTER');
+            if (result.success) {
+                toast.success('Row updated successfully');
+                setEditingId(null);
+                fetchData();
+            } else {
+                throw new Error('Failed to update row');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Error updating row');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const editCol: ColumnDef<MasterRow> = {
+        id: 'select',
+        header: 'Edit',
+        cell: ({ row }) => (
+            <Checkbox
+                checked={editingId === row.original.id}
+                onCheckedChange={(checked) => {
+                    if (checked) {
+                        setEditingId(row.original.id);
+                        setEditForm(row.original);
+                    } else {
+                        setEditingId(null);
+                        setEditForm({});
+                    }
+                }}
+            />
+        ),
+    };
+
+    const actionsCol: ColumnDef<MasterRow> = {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => {
+            if (editingId === row.original.id) {
+                return (
+                    <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600" onClick={() => handleSaveEdit(row.original.id)} disabled={submitting}>
+                            <Check className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600" onClick={() => setEditingId(null)}>
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </div>
+                );
+            }
+            return (
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => {
+                    setEditingId(row.original.id);
+                    setEditForm(row.original);
+                }}>
+                    <Edit2 className="h-4 w-4" />
+                </Button>
+            );
+        },
+    };
+
+    const inventoryColumns = useMemo<ColumnDef<MasterRow>[]>(() => [
+        editCol,
+        {
+            accessorKey: 'department',
+            header: 'Department',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.department || ''} onChange={(e) => handleEditChange('department', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={120} />;
+            },
+        },
+        {
+            accessorKey: 'group_head',
+            header: 'Department Head',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.group_head || ''} onChange={(e) => handleEditChange('group_head', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={120} />;
+            },
+        },
+        {
+            accessorKey: 'itemName',
+            header: 'Item Name',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.itemName || ''} onChange={(e) => handleEditChange('itemName', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={160} />;
+            },
+        },
+        {
+            accessorKey: 'uom',
+            header: 'UOM',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return (
+                        <Select
+                            value={editForm.uom || ''}
+                            onValueChange={(val) => handleEditChange('uom', val)}
+                        >
+                            <SelectTrigger className="h-8 text-xs w-[100px]">
+                                <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {uoms.map((u) => (
+                                    <SelectItem key={u.uom_id} value={u.uom_name}>
+                                        {u.uom_name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    );
+                }
+                return <TruncCell value={val} width={80} />;
+            },
+        },
+        {
+            accessorKey: 'isActive',
+            header: 'Status',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as boolean;
+                if (editingId === row.original.id) {
+                    return (
+                        <Select
+                            value={String(editForm.isActive)}
+                            onValueChange={(val) => handleEditChange('isActive', val === 'true')}
+                        >
+                            <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="true">Active</SelectItem>
+                                <SelectItem value="false">Inactive</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    );
+                }
+                return (
+                    <Pill variant={val ? 'secondary' : 'reject'}>
+                        {val ? 'Active' : 'Inactive'}
+                    </Pill>
+                );
+            },
+        },
+        actionsCol,
+    ], [editingId, editForm, submitting, uoms]);
+
+    const vendorColumns = useMemo<ColumnDef<MasterRow>[]>(() => [
+        editCol,
+        {
+            accessorKey: 'vendor_name',
+            header: 'Vendor Name',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.vendor_name || ''} onChange={(e) => handleEditChange('vendor_name', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={160} />;
+            },
+        },
+        {
+            accessorKey: 'firm_name',
+            header: 'Firm Name',
+            cell: ({ row }) => {
+                const val = row.original.firm_name || row.original.firmName || '';
+                if (editingId === row.original.id) {
+                    return (
+                        <Select
+                            value={editForm.firm_name || ''}
+                            onValueChange={(val) => handleEditChange('firm_name', val)}
+                        >
+                            <SelectTrigger className="h-8 text-xs w-[160px]">
+                                <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {firms.map((f) => (
+                                    <SelectItem key={f.firm_id} value={f.firm_name}>
+                                        {f.firm_name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    );
+                }
+                return <TruncCell value={val} width={160} />;
+            },
+        },
+        {
+            accessorKey: 'vendor_gstin',
+            header: 'GSTIN',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.vendor_gstin || ''} onChange={(e) => handleEditChange('vendor_gstin', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={130} />;
+            },
+        },
+        {
+            accessorKey: 'pan_number',
+            header: 'PAN',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.pan_number || ''} onChange={(e) => handleEditChange('pan_number', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={120} />;
+            },
+        },
+        {
+            accessorKey: 'contact_person',
+            header: 'Contact',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.contact_person || ''} onChange={(e) => handleEditChange('contact_person', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={140} />;
+            },
+        },
+        {
+            accessorKey: 'mobile',
+            header: 'Mobile',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.mobile || ''} onChange={(e) => handleEditChange('mobile', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={120} />;
+            },
+        },
+        {
+            accessorKey: 'vendor_email',
+            header: 'Email',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as string;
+                if (editingId === row.original.id) {
+                    return <Input value={editForm.vendor_email || ''} onChange={(e) => handleEditChange('vendor_email', e.target.value)} className="h-8 text-xs" />;
+                }
+                return <TruncCell value={val} width={160} />;
+            },
+        },
+        {
+            accessorKey: 'isActive',
+            header: 'Status',
+            cell: ({ row, getValue }) => {
+                const val = getValue() as boolean;
+                if (editingId === row.original.id) {
+                    return (
+                        <Select
+                            value={String(editForm.isActive)}
+                            onValueChange={(val) => handleEditChange('isActive', val === 'true')}
+                        >
+                            <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="true">Active</SelectItem>
+                                <SelectItem value="false">Inactive</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    );
+                }
+                return (
+                    <Pill variant={val ? 'secondary' : 'reject'}>
+                        {val ? 'Active' : 'Inactive'}
+                    </Pill>
+                );
+            },
+        },
+        actionsCol,
+    ], [editingId, editForm, submitting, firms]);
 
     /* fetch */
     async function fetchData() {
@@ -253,8 +544,26 @@ export default function MasterData() {
         }
     }
 
+    async function loadUOMs() {
+        const data = await fetchUOMs();
+        setUoms(data || []);
+    }
+
+    async function loadFirms() {
+        const data = await fetchFirms();
+        setFirms(data || []);
+    }
+
+    async function loadAreasOfUse() {
+        const data = await fetchAreaOfUse();
+        setAreasOfUse(data || []);
+    }
+
     useEffect(() => {
         fetchData();
+        loadUOMs();
+        loadFirms();
+        loadAreasOfUse();
     }, []);
 
     /* reset form when sheet closes */
@@ -281,6 +590,7 @@ export default function MasterData() {
                 group_head: form.group_head.trim() || null,
                 groupHead: form.group_head.trim() || null,
                 itemName: form.item_name.trim() || null,
+                uom: form.uom || null,
                 firm_name: form.firm_name.trim() || null,
             }], 'insert', 'MASTER');
 
@@ -306,6 +616,12 @@ export default function MasterData() {
                 vendor_email: form.vendor_email.trim() || null,
                 payment_term: form.payment_term.trim() || null,
                 firm_name: form.firm_name.trim() || null,
+                contact_person: form.contact_person.trim() || null,
+                mobile: form.mobile.trim() || null,
+                pan_number: form.pan_number.trim() || null,
+                state: form.state.trim() || null,
+                pin_code: form.pin_code.trim() || null,
+                isActive: form.isActive === 'true',
                 department: null,
                 group_head: null,
                 groupHead: null,
@@ -323,6 +639,67 @@ export default function MasterData() {
         }
     }
 
+    async function handleAddUOM() {
+        if (!newUOMName.trim()) return;
+        setAddingUOM(true);
+        try {
+            const result = await postToUOM(newUOMName.trim());
+            if (result.success) {
+                toast.success('UOM added successfully');
+                setNewUOMName('');
+                setIsAddingUOM(false);
+                loadUOMs();
+                setForm(prev => ({ ...prev, uom: result.data.uom_name }));
+            } else {
+                toast.error(result.error || 'Failed to add UOM');
+            }
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to add UOM');
+        } finally {
+            setAddingUOM(false);
+        }
+    }
+
+    async function handleAddAreaOfUseEntry() {
+        if (!newAreaOfUseName.trim()) return;
+        setAddingAreaOfUse(true);
+        try {
+            const result = await postAreaOfUse(newAreaOfUseName.trim());
+            if (result.success) {
+                toast.success('Area of use added');
+                setNewAreaOfUseName('');
+                loadAreasOfUse();
+            } else {
+                toast.error(result.error || 'Failed to add area of use');
+            }
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to add area of use');
+        } finally {
+            setAddingAreaOfUse(false);
+        }
+    }
+
+    async function handleAddFirm() {
+        if (!newFirmName.trim()) return;
+        setAddingFirm(true);
+        try {
+            const result = await postToFirm(newFirmName.trim());
+            if (result.success) {
+                toast.success('Firm added successfully');
+                setNewFirmName('');
+                setIsAddingFirm(false);
+                loadFirms();
+                setForm(prev => ({ ...prev, firm_name: result.data.firm_name }));
+            } else {
+                toast.error(result.error || 'Failed to add firm');
+            }
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to add firm');
+        } finally {
+            setAddingFirm(false);
+        }
+    }
+
 
     return (
         <div className="space-y-6 w-full overflow-x-hidden">
@@ -333,51 +710,123 @@ export default function MasterData() {
                 <Database size={50} className="text-primary" />
             </Heading>
 
-            {/* ── Table & Toolbar ── */}
-            <div className="w-full max-w-full overflow-x-auto">
-                <DataTable
-                    data={filteredData}
-                    columns={columns}
-                    searchFields={['vendor_name', 'department', 'group_head', 'itemName', 'vendor_gstin', 'vendor_email', 'payment_term', 'firm_name']}
-                    dataLoading={dataLoading}
-                    pagination={true}
-                    extraActions={
-                        <div className="flex gap-2">
-                            <Select value={vendorFilter} onValueChange={setVendorFilter}>
-                                <SelectTrigger className="w-full sm:min-w-[200px] h-9">
-                                    <SelectValue placeholder="All Vendors" />
-                                </SelectTrigger>
-                                <SelectContent className="max-h-[300px]">
-                                    <SelectItem value="All">All Vendors</SelectItem>
-                                    {uniqueVendors.map(vendor => (
-                                        <SelectItem key={vendor} value={vendor}>{vendor}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <Button
-                                className="h-9 shrink-0"
-                                onClick={() => {
-                                    setActiveTab('item');
-                                    setSheetOpen(true);
-                                }}
-                            >
-                                <Plus className="mr-2 h-4 w-4" />
-                                Add Item Info
-                            </Button>
-                            <Button
-                                className="h-9 shrink-0"
-                                onClick={() => {
-                                    setActiveTab('vendor');
-                                    setSheetOpen(true);
-                                }}
-                            >
-                                <Plus className="mr-2 h-4 w-4" />
-                                Add Vendor Info
-                            </Button>
+            {/* ── Page Tabs ── */}
+            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor' | 'config')}>
+                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-3 h-auto gap-1">
+                    <TabsTrigger value="inventory">Inventory Info</TabsTrigger>
+                    <TabsTrigger value="vendor">Vendor Info</TabsTrigger>
+                    <TabsTrigger value="config">Area of Use & UOM</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="inventory">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={inventoryData}
+                            columns={inventoryColumns}
+                            searchFields={['department', 'group_head', 'itemName', 'uom']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button
+                                    className="h-9 shrink-0"
+                                    onClick={() => { setActiveTab('item'); setSheetOpen(true); }}
+                                >
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Inventory
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="vendor">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={vendorData}
+                            columns={vendorColumns}
+                            searchFields={['vendor_name', 'vendor_gstin', 'vendor_email', 'payment_term', 'firm_name', 'contact_person', 'mobile', 'pan_number', 'state', 'pin_code']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <div className="flex items-center gap-2 w-full sm:w-auto">
+                                    <Select value={vendorFilter} onValueChange={setVendorFilter}>
+                                        <SelectTrigger className="w-full sm:w-[180px] h-9">
+                                            <SelectValue placeholder="All Vendors" />
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-[300px]">
+                                            <SelectItem value="All">All Vendors</SelectItem>
+                                            {uniqueVendors.map(vendor => (
+                                                <SelectItem key={vendor} value={vendor}>{vendor}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Button
+                                        className="h-9 shrink-0 whitespace-nowrap"
+                                        onClick={() => { setActiveTab('vendor'); setSheetOpen(true); }}
+                                    >
+                                        <Plus className="mr-2 h-4 w-4" />
+                                        Add Vendor Info
+                                    </Button>
+                                </div>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="config">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* UOM */}
+                        <div className="border rounded-lg p-4 space-y-3">
+                            <h3 className="text-sm font-semibold">Unit of Measure (UOM)</h3>
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="New UOM..."
+                                    value={newUOMName}
+                                    onChange={(e) => setNewUOMName(e.target.value)}
+                                    className="h-9"
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUOM(); } }}
+                                />
+                                <Button size="sm" onClick={handleAddUOM} disabled={addingUOM} className="h-9 shrink-0">
+                                    {addingUOM ? <Loader size={14} color="white" /> : <><Plus className="h-4 w-4 mr-1" />Add</>}
+                                </Button>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto space-y-1">
+                                {uoms.length === 0 && <p className="text-sm text-muted-foreground">No UOMs added yet.</p>}
+                                {uoms.map((u) => (
+                                    <div key={u.uom_id} className="flex items-center justify-between px-3 py-1.5 rounded-md bg-muted/40 text-sm">
+                                        {u.uom_name}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    }
-                />
-            </div>
+
+                        {/* Area of Use */}
+                        <div className="border rounded-lg p-4 space-y-3">
+                            <h3 className="text-sm font-semibold">Area of Use</h3>
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="New area of use..."
+                                    value={newAreaOfUseName}
+                                    onChange={(e) => setNewAreaOfUseName(e.target.value)}
+                                    className="h-9"
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAreaOfUseEntry(); } }}
+                                />
+                                <Button size="sm" onClick={handleAddAreaOfUseEntry} disabled={addingAreaOfUse} className="h-9 shrink-0">
+                                    {addingAreaOfUse ? <Loader size={14} color="white" /> : <><Plus className="h-4 w-4 mr-1" />Add</>}
+                                </Button>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto space-y-1">
+                                {areasOfUse.length === 0 && <p className="text-sm text-muted-foreground">No areas added yet.</p>}
+                                {areasOfUse.map((a) => (
+                                    <div key={a.area_of_use_id} className="flex items-center justify-between px-3 py-1.5 rounded-md bg-muted/40 text-sm">
+                                        {a.area_of_use_name}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </TabsContent>
+            </Tabs>
 
             {/* ── Side Sheet Form ── */}
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -387,7 +836,7 @@ export default function MasterData() {
                 >
                     <SheetHeader className="sticky top-0 bg-background z-10 pb-3 border-b mb-6">
                         <SheetTitle>
-                            {activeTab === 'item' ? 'Add Item Info' : 'Add Vendor Info'}
+                            {activeTab === 'item' ? 'Add Inventory' : 'Add Vendor Info'}
                         </SheetTitle>
                         <SheetDescription>
                             {activeTab === 'item'
@@ -406,6 +855,57 @@ export default function MasterData() {
                                     onChange={setField('item_name')}
                                     required
                                 />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">UOM</Label>
+                                    <div className="flex gap-2 items-end">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={form.uom}
+                                                onValueChange={setField('uom')}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder="Select UOM" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {uoms.map((u) => (
+                                                        <SelectItem key={u.uom_id} value={u.uom_name}>
+                                                            {u.uom_name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-10 w-10 shrink-0"
+                                            onClick={() => setIsAddingUOM(!isAddingUOM)}
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    {isAddingUOM && (
+                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
+                                            <Input
+                                                placeholder="New UOM name..."
+                                                value={newUOMName}
+                                                onChange={(e) => setNewUOMName(e.target.value)}
+                                                className="h-9"
+                                                autoFocus
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={handleAddUOM}
+                                                disabled={addingUOM}
+                                                className="h-9 shrink-0"
+                                            >
+                                                {addingUOM ? <Loader size={14} color="white" /> : 'Add'}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
                                 <Field
                                     label="Department"
                                     id="department"
@@ -413,11 +913,62 @@ export default function MasterData() {
                                     onChange={setField('department')}
                                 />
                                 <Field
-                                    label="Group Head"
+                                    label="Department Head"
                                     id="group_head"
                                     value={form.group_head}
                                     onChange={setField('group_head')}
                                 />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Firm Name</Label>
+                                    <div className="flex gap-2 items-end">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={form.firm_name}
+                                                onValueChange={setField('firm_name')}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder="Select Firm" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {firms.map((f) => (
+                                                        <SelectItem key={f.firm_id} value={f.firm_name}>
+                                                            {f.firm_name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-10 w-10 shrink-0"
+                                            onClick={() => setIsAddingFirm(!isAddingFirm)}
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    {isAddingFirm && (
+                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
+                                            <Input
+                                                placeholder="New firm name..."
+                                                value={newFirmName}
+                                                onChange={(e) => setNewFirmName(e.target.value)}
+                                                className="h-9"
+                                                autoFocus
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={handleAddFirm}
+                                                disabled={addingFirm}
+                                                className="h-9 shrink-0"
+                                            >
+                                                {addingFirm ? <Loader size={14} color="white" /> : 'Add'}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="pt-4 flex gap-2">
                                     <Button
                                         type="submit"
@@ -427,7 +978,7 @@ export default function MasterData() {
                                         {submitting && (
                                             <Loader size={16} color="white" className="mr-2" />
                                         )}
-                                        {submitting ? 'Saving Item…' : 'Save Item Data'}
+                                        {submitting ? 'Saving Inventory…' : 'Save Inventory Data'}
                                     </Button>
                                 </div>
                             </form>
@@ -463,13 +1014,57 @@ export default function MasterData() {
                                     onChange={setField('payment_term')}
                                     placeholder="e.g. Net 30"
                                 />
-                                <Field
-                                    label="Firm Name"
-                                    id="firm_name"
-                                    value={form.firm_name}
-                                    onChange={setField('firm_name')}
-                                    placeholder="e.g. Shri Shyam Oil Extractions"
-                                />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Firm Name</Label>
+                                    <div className="flex gap-2 items-end">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={form.firm_name}
+                                                onValueChange={setField('firm_name')}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder="Select Firm" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {firms.map((f) => (
+                                                        <SelectItem key={f.firm_id} value={f.firm_name}>
+                                                            {f.firm_name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-10 w-10 shrink-0"
+                                            onClick={() => setIsAddingFirm(!isAddingFirm)}
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    {isAddingFirm && (
+                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
+                                            <Input
+                                                placeholder="New firm name..."
+                                                value={newFirmName}
+                                                onChange={(e) => setNewFirmName(e.target.value)}
+                                                className="h-9"
+                                                autoFocus
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={handleAddFirm}
+                                                disabled={addingFirm}
+                                                className="h-9 shrink-0"
+                                            >
+                                                {addingFirm ? <Loader size={14} color="white" /> : 'Add'}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
                                 <Field
                                     label="Vendor Address"
                                     id="vendor_address"
@@ -477,6 +1072,57 @@ export default function MasterData() {
                                     onChange={setField('vendor_address')}
                                     textarea
                                 />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Field
+                                        label="Contact Person"
+                                        id="contact_person"
+                                        value={form.contact_person}
+                                        onChange={setField('contact_person')}
+                                    />
+                                    <Field
+                                        label="Mobile"
+                                        id="mobile"
+                                        type="number"
+                                        value={form.mobile}
+                                        onChange={setField('mobile')}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Field
+                                        label="PAN Number"
+                                        id="pan_number"
+                                        value={form.pan_number}
+                                        onChange={setField('pan_number')}
+                                    />
+                                    <Field
+                                        label="State"
+                                        id="state"
+                                        value={form.state}
+                                        onChange={setField('state')}
+                                    />
+                                </div>
+                                <Field
+                                    label="PIN Code"
+                                    id="pin_code"
+                                    type="number"
+                                    value={form.pin_code}
+                                    onChange={setField('pin_code')}
+                                />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Is Active</Label>
+                                    <Select
+                                        value={form.isActive}
+                                        onValueChange={setField('isActive')}
+                                    >
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Select status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="true">True</SelectItem>
+                                            <SelectItem value="false">False</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                                 <div className="pt-4 flex gap-2">
                                     <Button
                                         type="submit"

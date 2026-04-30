@@ -64,8 +64,8 @@ export default () => {
                 );
             },
         },
-        { accessorKey: 'groupHead', header: 'Group Head' },
         { accessorKey: 'uom', header: 'UOM' },
+        { accessorKey: 'groupHead', header: 'Department Head' },
         {
             accessorKey: 'rate',
             header: 'Rate',

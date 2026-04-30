@@ -872,58 +872,34 @@ export default () => {
                                     <span className="font-medium">{selectedIndent.indentNo}</span>
                                 </DialogDescription>
                             </DialogHeader>
-                            <div className="bg-muted p-4 rounded-md grid gap-3">
-                                <h3 className="text-lg font-bold">Request Details</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 bg-muted rounded-md gap-3 ">
-                                    <div className="space-y-1">
-                                        <p className="font-medium">Indenter</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.indenter}
-                                        </p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-nowrap">Department</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.department}
-                                        </p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-nowrap">Area of Use</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.areaOfUse}
-                                        </p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-nowrap">Date</p>
-                                        <p className="text-sm font-light">{selectedIndent.date}</p>
-                                    </div>
+                            <div className="rounded-lg border overflow-hidden">
+                                <div className="bg-primary px-4 py-2 flex items-center justify-between">
+                                    <span className="text-sm font-bold text-primary-foreground tracking-wide">{selectedIndent.indentNo}</span>
+                                    {selectedIndent.indentType && (
+                                        <span className="text-[11px] bg-primary-foreground/20 text-primary-foreground rounded-full px-2 py-0.5 font-medium">
+                                            {selectedIndent.indentType}
+                                        </span>
+                                    )}
                                 </div>
-                            </div>
-                            <div className="bg-muted p-4 rounded-md grid gap-3">
-                                <h3 className="text-lg font-bold">Item Details</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 bg-muted rounded-md gap-3 ">
-                                    <div className="space-y-1">
-                                        <p className="font-medium">Item Name</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.product}
-                                        </p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-nowrap">Quantity</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.quantity}
-                                        </p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-nowrap">UOM</p>
-                                        <p className="text-sm font-light">{selectedIndent.uom}</p>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <p className="font-medium text-nowrap">Specifications</p>
-                                        <p className="text-sm font-light">
-                                            {selectedIndent.specifications}
-                                        </p>
-                                    </div>
+                                <div className="bg-muted/30 px-4 py-3 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
+                                    {[
+                                        { label: 'Indenter',      value: selectedIndent.indenter },
+                                        { label: 'Department',    value: selectedIndent.department },
+                                        { label: 'Area of Use',   value: selectedIndent.areaOfUse },
+                                        { label: 'Date',          value: selectedIndent.date },
+                                        { label: 'Item',          value: selectedIndent.product },
+                                        { label: 'Quantity',      value: String(selectedIndent.quantity) },
+                                        { label: 'UOM',           value: selectedIndent.uom },
+                                        { label: 'Validity Date', value: selectedIndent.validityDate },
+                                        { label: 'Specifications',value: selectedIndent.specifications },
+                                    ].map(({ label, value }) =>
+                                        value ? (
+                                            <div key={label} className="flex flex-col">
+                                                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+                                                <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
+                                            </div>
+                                        ) : null
+                                    )}
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">

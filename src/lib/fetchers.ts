@@ -7,6 +7,22 @@ import { dataStore, getNextId } from './dummyData';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
+async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
+    const stored = localStorage.getItem('auth');
+    let token = '';
+    if (stored) {
+        try {
+            const parsed = JSON.parse(stored);
+            if (parsed.token) token = parsed.token;
+        } catch (e) {}
+    }
+    const headers = new Headers(init?.headers);
+    if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+    return fetch(input, { ...init, headers, cache: 'no-store' });
+}
+
 // Helper to convert snake_case keys to camelCase
 export function toCamelCase(obj: any): any {
     // Safety guard for null/undefined
@@ -70,7 +86,7 @@ export async function uploadFile(
     formData.append('file', file);
 
     try {
-        const response = await fetch(`${API_BASE_URL}/upload`, {
+        const response = await apiFetch(`${API_BASE_URL}/upload`, {
             method: 'POST',
             body: formData,
         });
@@ -90,25 +106,56 @@ export async function uploadFile(
 
 export async function fetchIndentMasterData() {
     try {
-        const response = await fetch(`${API_BASE_URL}/masters`);
+        const response = await apiFetch(`${API_BASE_URL}/masters`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
-        const camelData = toCamelCase(data);
 
-        const departments = [...new Set(camelData.map((d: any) => d.department))].filter(Boolean) as string[];
-        const groupHeads = [...new Set(camelData.map((d: any) => d.groupHead))].filter(Boolean) as string[];
-        const firms = [...new Set(camelData.map((d: any) => d.firmName))].filter(Boolean) as string[];
+        // Use raw data (before toCamelCase) so group_head and isActive are not mangled
+        // by the duplicate group_head/groupHead columns overwriting each other
+        const firms = [...new Set(data.map((d: any) => d.firm_name || d.firmName))].filter(Boolean) as string[];
 
         const groupHeadItems: Record<string, string[]> = {};
-        groupHeads.forEach(gh => {
-            groupHeadItems[gh] = [...new Set(camelData.filter((d: any) => d.groupHead === gh).map((d: any) => d.itemName))].filter(Boolean) as string[];
+        const uomLookup: Record<string, Record<string, string>> = {};
+
+        // Filter inactive rows using raw isActive boolean
+        const activeData = data.filter((d: any) => d.isActive !== false);
+
+        // Derive departments only from active records
+        const departments = [...new Set(activeData.map((d: any) => d.department))].filter(Boolean) as string[];
+        const allGroupHeads = [...new Set(activeData.map((d: any) => d.group_head || d.groupHead))].filter(Boolean) as string[];
+
+        // Build bidirectional department <-> group_head lookup maps
+        const departmentToGroupHead: Record<string, string> = {};
+        const groupHeadToDepartment: Record<string, string> = {};
+        activeData.forEach((d: any) => {
+            const dep = d.department;
+            const gh = d.group_head || d.groupHead;
+            if (dep && gh) {
+                departmentToGroupHead[dep] = gh;
+                groupHeadToDepartment[gh] = dep;
+            }
+        });
+
+        allGroupHeads.forEach((gh: string) => {
+            const itemsInGh = activeData.filter((d: any) => (d.group_head || d.groupHead) === gh);
+            groupHeadItems[gh] = [...new Set(itemsInGh.map((d: any) => d.itemName))].filter(Boolean) as string[];
+
+            uomLookup[gh] = {};
+            itemsInGh.forEach((d: any) => {
+                if (d.itemName && d.uom) {
+                    uomLookup[gh][d.itemName] = d.uom;
+                }
+            });
         });
 
         return {
             departments,
-            createGroupHeads: groupHeads,
+            createGroupHeads: allGroupHeads,
             groupHeadItems,
-            firms
+            uomLookup,
+            firms,
+            departmentToGroupHead,
+            groupHeadToDepartment,
         };
     } catch (error) {
         console.error('Error fetching indent master data:', error);
@@ -153,6 +200,7 @@ export async function fetchFromSupabasePaginated(
         'vendor_rate_update': '/vendor-rate-updates',
         'three_party_approvals': '/three-party-approvals',
         'three_party_approval': '/three-party-approvals',
+        'uom': '/uom',
     };
 
     const endpoint = endpointMap[tableName] || `/${tableName.replace(/_/g, '-')}`;
@@ -169,7 +217,7 @@ export async function fetchFromSupabasePaginated(
     const url = `${API_BASE_URL}${endpoint}${queryString ? `?${queryString}` : ''}`;
 
     try {
-        const response = await fetch(url, { signal: options.abortSignal });
+        const response = await apiFetch(url, { signal: options.abortSignal });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         let data = await response.json();
 
@@ -482,7 +530,7 @@ export async function postToSheet(
         console.log(`[postToSheet] Calling ${method} ${url} for ${sheet}`, row);
 
         try {
-            const response = await fetch(url, {
+            const response = await apiFetch(url, {
                 method: method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(row) // Send as-is (camelCase)
@@ -510,7 +558,7 @@ export async function postToMasterSheet(data: any[]) {
 }
 export async function approveIndent(id: string | number, data: any) {
     try {
-        const response = await fetch(`${API_BASE_URL}/indents/${id}/approve`, {
+        const response = await apiFetch(`${API_BASE_URL}/indents/${id}/approve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -520,5 +568,132 @@ export async function approveIndent(id: string | number, data: any) {
     } catch (error) {
         console.error(`Error approving indent ${id}:`, error);
         return { success: false, error };
+    }
+}
+
+export async function fetchUOMs() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/uom`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching UOMs:', error);
+        return [];
+    }
+}
+
+export async function postToUOM(uomName: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/uom`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uom_name: uomName })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create UOM');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error creating UOM:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchFirms() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/firms`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching firms:', error);
+        return [];
+    }
+}
+
+export async function postToFirm(firmName: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/firms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ firm_name: firmName })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create firm');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error creating firm:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchAreaOfUse() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/area-of-use`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json() as { area_of_use_id: number; area_of_use_name: string }[];
+    } catch (error) {
+        console.error('Error fetching area of use:', error);
+        return [];
+    }
+}
+
+export async function postAreaOfUse(name: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/area-of-use`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ area_of_use_name: name })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create area of use');
+        }
+        return { success: true, data: await response.json() as { area_of_use_id: number; area_of_use_name: string } };
+    } catch (error: any) {
+        console.error('Error creating area of use:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchProductCategories() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-categories`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json() as { product_category_id: number; product_category_name: string }[];
+    } catch (error) {
+        console.error('Error fetching product categories:', error);
+        return [];
+    }
+}
+
+export async function postProductCategory(name: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-categories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_category_name: name })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create product category');
+        }
+        return { success: true, data: await response.json() as { product_category_id: number; product_category_name: string } };
+    } catch (error: any) {
+        console.error('Error creating product category:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchUsers() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json() as { id: number; name: string; username: string }[];
+    } catch (error) {
+        console.error('Error fetching users:', error);
+        return [];
     }
 }

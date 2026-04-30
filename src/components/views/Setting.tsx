@@ -12,6 +12,7 @@ import {
     DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Button } from '../ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useAuth } from '@/context/AuthContext';
 import {
     Dialog,
@@ -38,6 +39,7 @@ interface UsersTableData {
     username: string;
     name: string;
     password: string;
+    role: string;
     permissions: string[];
 }
 
@@ -69,7 +71,7 @@ export default () => {
                 (res as UserPermissions[]).map((user) => {
                     const permissionKeys = Object.keys(user).filter(
                         (key): key is keyof UserPermissions =>
-                            !['username', 'password', 'name', 'rowIndex'].includes(key) &&
+                            !['username', 'password', 'name', 'rowIndex', 'role'].includes(key) &&
                             (user as any)[key] === true
                     );
 
@@ -78,6 +80,7 @@ export default () => {
                         username: user.username,
                         name: user.name,
                         password: user.password,
+                        role: user.role || 'USER',
                         permissions: permissionKeys,
                     };
                 })
@@ -93,6 +96,15 @@ export default () => {
     const columns: ColumnDef<UsersTableData>[] = [
         { accessorKey: 'username', header: 'Username' },
         { accessorKey: 'name', header: 'Name' },
+        {
+            accessorKey: 'role',
+            header: 'Role',
+            cell: ({ row }) => (
+                <Pill className={row.original.role === 'ADMIN' ? 'bg-primary/10 text-primary' : ''}>
+                    {row.original.role}
+                </Pill>
+            ),
+        },
         {
             accessorKey: 'permissions',
             header: 'Permissions',
@@ -173,6 +185,7 @@ export default () => {
         name: z.string().nonempty(),
         username: z.string().nonempty(),
         password: z.string().nonempty(),
+        role: z.string().default('USER'),
         permissions: z.array(z.string()),
     });
 
@@ -184,6 +197,7 @@ export default () => {
                 username: selectedUser.username,
                 name: selectedUser.name,
                 password: selectedUser.password,
+                role: selectedUser.role || 'USER',
                 permissions: selectedUser.permissions,
             });
             return;
@@ -192,6 +206,7 @@ export default () => {
             username: '',
             name: '',
             password: '',
+            role: 'USER',
             permissions: [],
         });
     }, [selectedUser]);
@@ -211,6 +226,7 @@ export default () => {
                     username: value.username,
                     name: value.name,
                     password: value.password,
+                    role: value.role,
                 };
 
                 allPermissionKeys.forEach((perm) => {
@@ -231,6 +247,7 @@ export default () => {
                 username: value.username,
                 name: value.name,
                 password: value.password,
+                role: value.role,
             };
 
             allPermissionKeys.forEach((perm) => {
@@ -347,6 +364,26 @@ export default () => {
                                                     </Button>
                                                 </div>
                                             </FormControl>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="role"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Role</FormLabel>
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select role" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="USER">USER</SelectItem>
+                                                    <SelectItem value="ADMIN">ADMIN</SelectItem>
+                                                </SelectContent>
+                                            </Select>
                                         </FormItem>
                                     )}
                                 />
