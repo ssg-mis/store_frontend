@@ -138,13 +138,11 @@ export async function fetchIndentMasterData() {
 
         allGroupHeads.forEach((gh: string) => {
             const itemsInGh = activeData.filter((d: any) => (d.group_head || d.groupHead) === gh);
-            groupHeadItems[gh] = [...new Set(itemsInGh.map((d: any) => d.itemName))].filter(Boolean) as string[];
+            groupHeadItems[gh] = [...new Set(itemsInGh.map((d: any) => d.itemName).filter(Boolean))] as string[];
 
             uomLookup[gh] = {};
             itemsInGh.forEach((d: any) => {
-                if (d.itemName && d.uom) {
-                    uomLookup[gh][d.itemName] = d.uom;
-                }
+                if (d.itemName && d.uom) uomLookup[gh][d.itemName] = d.uom;
             });
         });
 

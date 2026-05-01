@@ -113,8 +113,9 @@ export type ReceivedSheet = {
 };
 
 export type InventorySheet = {
-    groupHead: string;
+    inventoryId: number | null;
     itemName: string;
+    groupHead: string;
     uom: string;
     maxLevel: number;
     opening: number;
@@ -122,7 +123,7 @@ export type InventorySheet = {
     indented: number;
     approved: number;
     purchaseQuantity: number;
-    outQuantity: number;
+    storeOut: number;
     current: number;
     totalPrice: number;
     colorCode: string;

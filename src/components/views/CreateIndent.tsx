@@ -15,11 +15,11 @@ import {
     SelectItem,
 } from '@/components/ui/select';
 import { ClipLoader as Loader } from 'react-spinners';
-import { ClipboardList, Trash, Search, Plus } from 'lucide-react';
+import { ClipboardList, Trash, Search } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
-import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchAreaOfUse, postAreaOfUse, fetchUOMs, fetchProductCategories, postProductCategory, fetchUsers } from '@/lib/fetchers';
+import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchUsers } from '@/lib/fetchers';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
 import { useEffect, useState } from 'react';
@@ -31,7 +31,7 @@ export default () => {
     const { user } = useAuth();
     const isAdmin = (user as any)?.role === 'ADMIN';
 
-    const { indentSheet: sheet, updateIndentSheet } = useSheets();
+    const { indentSheet: sheet, updateIndentSheet, inventorySheet, updateInventorySheet } = useSheets();
     const [indentSheet, setIndentSheet] = useState<IndentSheet[]>([]);
     const [master, setMaster] = useState<any>(null);
     const [users, setUsers] = useState<{ id: number; name: string; username: string }[]>([]);
@@ -39,14 +39,8 @@ export default () => {
     const [searchTermGroupHead, setSearchTermGroupHead] = useState('');
     const [searchTermProductName, setSearchTermProductName] = useState('');
     const [uoms, setUoms] = useState<{ uom_id: number; uom_name: string }[]>([]);
-    const [areasOfUse, setAreasOfUse] = useState<{ area_of_use_id: number; area_of_use_name: string }[]>([]);
     const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string }[]>([]);
-    const [newProductCategory, setNewProductCategory] = useState('');
-    const [addingCategoryIndex, setAddingCategoryIndex] = useState<number | null>(null);
-    const [savingCategory, setSavingCategory] = useState(false);
-    const [newAreaOfUse, setNewAreaOfUse] = useState('');
-    const [addingAreaIndex, setAddingAreaIndex] = useState<number | null>(null);
-    const [savingArea, setSavingArea] = useState(false);
+    const [stockError, setStockError] = useState<string>('');
 
     const refreshMaster = async () => {
         const data = await fetchIndentMasterData();
@@ -59,20 +53,21 @@ export default () => {
 
     useEffect(() => {
         fetchIndentMasterData().then(setMaster);
-        fetchAreaOfUse().then(setAreasOfUse);
         fetchUOMs().then(setUoms);
         fetchProductCategories().then(setProductCategories);
+        updateInventorySheet(true); // silent refresh so stock check uses latest data
+    }, []);
+
+    useEffect(() => {
         if (isAdmin) {
             fetchUsers().then(setUsers);
-        } else if ((user as any)?.name) {
-            form.setValue('indenterName', (user as any).name);
         }
-    }, []);
+    }, [isAdmin]);
 
     const schema = z.object({
         firm: z.string().nonempty('Select a firm'),
         indenterName: z.string().nonempty(),
-        indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return'], { required_error: 'Select a status' }),
+        indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'], { required_error: 'Select a status' }),
         validityDate: z.string().optional(),
         products: z
             .array(
@@ -95,7 +90,7 @@ export default () => {
         resolver: zodResolver(schema),
         defaultValues: {
             firm: '',
-            indenterName: '',
+            indenterName: isAdmin ? '' : ((user as any)?.name || ''),
             indentType: '' as any,
             validityDate: '',
             products: [
@@ -120,6 +115,31 @@ export default () => {
         control: form.control,
         name: 'products',
     });
+
+    // Helper: get current stock for a product
+    function getStock(productName: string, groupHead: string): number {
+        if (!productName) return 0;
+        const item = inventorySheet.find(
+            i =>
+                i.itemName?.toLowerCase().trim() === productName.toLowerCase().trim() &&
+                (!groupHead || i.groupHead?.toLowerCase().trim() === groupHead.toLowerCase().trim())
+        );
+        return Number(item?.current || 0);
+    }
+
+    // Auto-set indent type based on stock availability
+    useEffect(() => {
+        setStockError('');
+        const filled = products.filter(p => p.productName);
+        if (filled.length === 0) return;
+
+        const allInStock = filled.every(p => {
+            const stock = getStock(p.productName, p.createGroupHead);
+            return stock >= Number(p.quantity || 0);
+        });
+
+        form.setValue('indentType', allInStock ? 'Store Out' : 'Purchase');
+    }, [products, inventorySheet]);
 
     // Sync Department, Department Head, Area of Use from product[0] to all subsequent products
     useEffect(() => {
@@ -191,47 +211,29 @@ export default () => {
 
 
 
-    async function handleAddProductCategory() {
-        if (!newProductCategory.trim()) return;
-        setSavingCategory(true);
-        try {
-            const result = await postProductCategory(newProductCategory.trim());
-            if (result.success) {
-                setProductCategories(prev => [...prev, result.data!]);
-                setNewProductCategory('');
-                setAddingCategoryIndex(null);
-                toast.success('Product category added');
-            } else {
-                toast.error(result.error ?? 'Failed to add product category');
-            }
-        } catch {
-            toast.error('Failed to add product category');
-        } finally {
-            setSavingCategory(false);
-        }
-    }
-
-    async function handleAddAreaOfUse() {
-        if (!newAreaOfUse.trim()) return;
-        setSavingArea(true);
-        try {
-            const result = await postAreaOfUse(newAreaOfUse.trim());
-            if (result.success) {
-                setAreasOfUse(prev => [...prev, result.data!]);
-                setNewAreaOfUse('');
-                setAddingAreaIndex(null);
-                toast.success('Area of use added');
-            } else {
-                toast.error(result.error ?? 'Failed to add area of use');
-            }
-        } catch {
-            toast.error('Failed to add area of use');
-        } finally {
-            setSavingArea(false);
-        }
-    }
 
     async function onSubmit(data: z.infer<typeof schema>) {
+        // Validate stock for store-out type indents
+        const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType);
+        if (isStoreOutType) {
+            const shortProducts = data.products
+                .filter(p => p.productName)
+                .filter(p => {
+                    const stock = getStock(p.productName, p.createGroupHead);
+                    return stock < Number(p.quantity || 0);
+                });
+
+            if (shortProducts.length > 0) {
+                const messages = shortProducts.map(p => {
+                    const stock = getStock(p.productName, p.createGroupHead);
+                    return `${p.productName}: need ${p.quantity}, available ${stock}`;
+                });
+                setStockError(`Insufficient stock for ${data.indentType} — ${messages.join(' | ')}`);
+                return;
+            }
+        }
+
+        setStockError('');
         try {
             const formatDate = (date: Date) => {
                 const d = String(date.getDate()).padStart(2, '0');
@@ -267,7 +269,7 @@ export default () => {
                     uom: product.uom,
                     specifications: product.specifications || '',
                     indentType: data.indentType,
-                    validityDate: (data.indentType === 'Store Out' || data.indentType === 'Store Out Return') ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
+                    validityDate: (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType)) ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
                     planned: plannedStr, // Store current date in same format as requested
                 };
 
@@ -296,8 +298,8 @@ export default () => {
 
             form.reset({
                 firm: '',
-                indenterName: '',
-                    indentType: '' as any,
+                indenterName: isAdmin ? '' : ((user as any)?.name || ''),
+                indentType: '' as any,
                 validityDate: '',
                 products: [
                     {
@@ -411,6 +413,8 @@ export default () => {
                                             <SelectItem value="Purchase">Purchase</SelectItem>
                                             <SelectItem value="Store Out">Store Out</SelectItem>
                                             <SelectItem value="Store Out Return">Store Out Return</SelectItem>
+                                            <SelectItem value="Loan Out">Loan Out</SelectItem>
+                                            <SelectItem value="Loan Out Return">Loan Out Return</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </FormItem>
@@ -587,47 +591,9 @@ export default () => {
                                                             <span className="text-destructive">*</span>
                                                         </FormLabel>
                                                         {index === 0 ? (
-                                                            <>
-                                                                <div className="flex gap-2 items-center">
-                                                                    <Select onValueChange={field.onChange} value={field.value}>
-                                                                        <FormControl>
-                                                                            <SelectTrigger className="w-full">
-                                                                                <SelectValue placeholder="Select area of use" />
-                                                                            </SelectTrigger>
-                                                                        </FormControl>
-                                                                        <SelectContent>
-                                                                            {areasOfUse.map((a) => (
-                                                                                <SelectItem key={a.area_of_use_id} value={a.area_of_use_name}>
-                                                                                    {a.area_of_use_name}
-                                                                                </SelectItem>
-                                                                            ))}
-                                                                        </SelectContent>
-                                                                    </Select>
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="icon"
-                                                                        className="h-10 w-10 shrink-0"
-                                                                        onClick={() => setAddingAreaIndex(addingAreaIndex === index ? null : index)}
-                                                                    >
-                                                                        <Plus className="h-4 w-4" />
-                                                                    </Button>
-                                                                </div>
-                                                                {addingAreaIndex === index && (
-                                                                    <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                                                        <Input
-                                                                            placeholder="New area of use..."
-                                                                            value={newAreaOfUse}
-                                                                            onChange={(e) => setNewAreaOfUse(e.target.value)}
-                                                                            className="h-9"
-                                                                            autoFocus
-                                                                        />
-                                                                        <Button type="button" size="sm" onClick={handleAddAreaOfUse} disabled={savingArea} className="h-9 shrink-0">
-                                                                            {savingArea ? <Loader size={14} color="white" /> : 'Add'}
-                                                                        </Button>
-                                                                    </div>
-                                                                )}
-                                                            </>
+                                                            <FormControl>
+                                                                <Input placeholder="Enter area of use" {...field} />
+                                                            </FormControl>
                                                         ) : (
                                                             <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground cursor-not-allowed">
                                                                 {products[0]?.areaOfUse || '—'}
@@ -638,8 +604,42 @@ export default () => {
                                             />
                                             <FormField
                                                 control={form.control}
-                                                name={`products.${index}.productName`}
+                                                name={`products.${index}.productCategory`}
                                                 render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Product Category</FormLabel>
+                                                        <Select
+                                                            onValueChange={field.onChange}
+                                                            value={field.value}
+                                                        >
+                                                            <FormControl>
+                                                                <SelectTrigger className="w-full">
+                                                                    <SelectValue placeholder="Select category" />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                {productCategories.map((c) => (
+                                                                    <SelectItem
+                                                                        key={c.product_category_id}
+                                                                        value={c.product_category_name}
+                                                                    >
+                                                                        {c.product_category_name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`products.${index}.productName`}
+                                                render={({ field }) => {
+                                                    const stock = getStock(field.value, createGroupHead);
+                                                    const qty = Number(products[index]?.quantity || 0);
+                                                    const hasProduct = !!field.value;
+                                                    const stockOk = hasProduct && stock >= qty;
+                                                    return (
                                                     <FormItem>
                                                         <FormLabel>
                                                             Product Name
@@ -703,72 +703,14 @@ export default () => {
                                                                 </div>
                                                             </SelectContent>
                                                         </Select>
-                                                    </FormItem>
-                                                )}
-                                            />
-                                            <FormField
-                                                control={form.control}
-                                                name={`products.${index}.productCategory`}
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Product Category</FormLabel>
-                                                        <div className="flex gap-2 items-center">
-                                                            <Select
-                                                                onValueChange={field.onChange}
-                                                                value={field.value}
-                                                            >
-                                                                <FormControl>
-                                                                    <SelectTrigger className="w-full">
-                                                                        <SelectValue placeholder="Select category" />
-                                                                    </SelectTrigger>
-                                                                </FormControl>
-                                                                <SelectContent>
-                                                                    {productCategories.map((c) => (
-                                                                        <SelectItem
-                                                                            key={c.product_category_id}
-                                                                            value={c.product_category_name}
-                                                                        >
-                                                                            {c.product_category_name}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="icon"
-                                                                className="h-10 w-10 shrink-0"
-                                                                onClick={() =>
-                                                                    setAddingCategoryIndex(
-                                                                        addingCategoryIndex === index ? null : index
-                                                                    )
-                                                                }
-                                                            >
-                                                                <Plus className="h-4 w-4" />
-                                                            </Button>
-                                                        </div>
-                                                        {addingCategoryIndex === index && (
-                                                            <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                                                <Input
-                                                                    placeholder="New category..."
-                                                                    value={newProductCategory}
-                                                                    onChange={(e) => setNewProductCategory(e.target.value)}
-                                                                    className="h-9"
-                                                                    autoFocus
-                                                                />
-                                                                <Button
-                                                                    type="button"
-                                                                    size="sm"
-                                                                    onClick={handleAddProductCategory}
-                                                                    disabled={savingCategory}
-                                                                    className="h-9 shrink-0"
-                                                                >
-                                                                    {savingCategory ? <Loader size={14} color="white" /> : 'Add'}
-                                                                </Button>
-                                                            </div>
+                                                        {hasProduct && (
+                                                            <p className={`text-xs mt-1 ${stockOk ? 'text-green-600' : 'text-destructive'}`}>
+                                                                Current stock: {stock} {products[index]?.uom || ''}{!stockOk && qty > 0 ? ` — need ${qty}, short by ${qty - stock}` : ''}
+                                                            </p>
                                                         )}
                                                     </FormItem>
-                                                )}
+                                                    );
+                                                }}
                                             />
                                             <FormField
                                                 control={form.control}
@@ -865,7 +807,7 @@ export default () => {
                         })}
                     </div>
 
-                    <div>
+                    <div className="space-y-2">
                         <Button
                             className="w-full"
                             type="submit"
@@ -876,6 +818,11 @@ export default () => {
                             )}
                             Create Indent
                         </Button>
+                        {stockError && (
+                            <p className="text-sm text-destructive font-medium text-center">
+                                {stockError}
+                            </p>
+                        )}
                     </div>
                 </form>
             </Form>

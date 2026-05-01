@@ -1077,53 +1077,57 @@ const ReceiveItems = () => {
                                                 )}
                                             />
 
-                                            <FormField
-                                                control={form.control}
-                                                name="billNo"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel className="text-xs font-semibold">Bill Number</FormLabel>
-                                                        <FormControl>
-                                                            <Input placeholder="Invoice#" className="h-10 text-sm shadow-sm" {...field} />
-                                                        </FormControl>
-                                                    </FormItem>
-                                                )}
-                                            />
+                                            {form.watch('billStatus') !== 'Not Received' && (
+                                                <>
+                                                    <FormField
+                                                        control={form.control}
+                                                        name="billNo"
+                                                        render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel className="text-xs font-semibold">Challan Number</FormLabel>
+                                                                <FormControl>
+                                                                    <Input placeholder="Challan#" className="h-10 text-sm shadow-sm" {...field} />
+                                                                </FormControl>
+                                                            </FormItem>
+                                                        )}
+                                                    />
 
-                                            <FormField
-                                                control={form.control}
-                                                name="billAmount"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel className="text-xs font-semibold">Bill Amount</FormLabel>
-                                                        <FormControl>
-                                                            <Input type="number" className="h-10 text-sm shadow-sm" {...field} />
-                                                        </FormControl>
-                                                    </FormItem>
-                                                )}
-                                            />
+                                                    <FormField
+                                                        control={form.control}
+                                                        name="billAmount"
+                                                        render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel className="text-xs font-semibold">Bill Amount</FormLabel>
+                                                                <FormControl>
+                                                                    <Input type="number" className="h-10 text-sm shadow-sm" {...field} />
+                                                                </FormControl>
+                                                            </FormItem>
+                                                        )}
+                                                    />
 
-                                            <FormField
-                                                control={form.control}
-                                                name="typeOfBill"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel className="text-xs font-semibold">Type of Bill</FormLabel>
-                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                            <FormControl>
-                                                                <SelectTrigger className="h-10 text-sm shadow-sm">
-                                                                    <SelectValue placeholder="Type" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                <SelectItem value="Regular">Regular</SelectItem>
-                                                                <SelectItem value="Cash">Cash</SelectItem>
-                                                                <SelectItem value="Urgent">Urgent</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </FormItem>
-                                                )}
-                                            />
+                                                    <FormField
+                                                        control={form.control}
+                                                        name="typeOfBill"
+                                                        render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel className="text-xs font-semibold">Type of Bill</FormLabel>
+                                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                                    <FormControl>
+                                                                        <SelectTrigger className="h-10 text-sm shadow-sm">
+                                                                            <SelectValue placeholder="Type" />
+                                                                        </SelectTrigger>
+                                                                    </FormControl>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="Regular">Regular</SelectItem>
+                                                                        <SelectItem value="Cash">Cash</SelectItem>
+                                                                        <SelectItem value="Urgent">Urgent</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                </>
+                                            )}
 
                                             <FormField
                                                 control={form.control}
@@ -1152,7 +1156,7 @@ const ReceiveItems = () => {
                                                 name="leadTime"
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel className="text-xs font-semibold">Lead Time to Lift Material</FormLabel>
+                                                        <FormLabel className="text-xs font-semibold">Actual time to receive material</FormLabel>
                                                         <FormControl>
                                                             <Input placeholder="e.g. 5 Days" className="h-10 text-sm shadow-sm" {...field} />
                                                         </FormControl>

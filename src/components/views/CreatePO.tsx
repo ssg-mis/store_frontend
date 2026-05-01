@@ -226,6 +226,7 @@ export default () => {
                     id: z.number().optional(),
                     gst: z.coerce.number(),
                     discount: z.coerce.number().default(0).optional(),
+                    discountAmount: z.coerce.number().default(0).optional(),
                 })
             ),
         terms: z.array(z.string().nonempty()).max(10),
@@ -368,6 +369,7 @@ export default () => {
                     id: i.id,
                     gst: 18,
                     discount: 0,
+                    discountAmount: 0,
                 })));
             } else {
                 form.setValue(
@@ -422,6 +424,7 @@ export default () => {
                         indentNumber: poItem.internalCode || poItem.internal_code || poItem.indent_number || '',
                         gst: poItem.gstPercent || poItem.gst_percent || 0,
                         discount: poItem.discountPercent || poItem.discount_percent || 0,
+                        discountAmount: 0,
                     }))
             );
 
@@ -1129,7 +1132,7 @@ export default () => {
                                             <TableHead>Rate</TableHead>
                                             <TableHead>GST (%)</TableHead>
                                             <TableHead>Discount (%)</TableHead>
-                                            <TableHead>Amount</TableHead>
+                                            <TableHead>Discount Amt</TableHead>
                                             <TableHead></TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -1171,6 +1174,7 @@ export default () => {
                                                                         <Input
                                                                             type="number"
                                                                             className="rounded-sm h-9 w-20 p-0 text-center"
+                                                                            onFocus={(e) => e.target.select()}
                                                                             {...indentField}
                                                                         />
                                                                     </FormControl>
@@ -1182,31 +1186,56 @@ export default () => {
                                                     <TableCell>
                                                         <FormField
                                                             control={form.control}
-                                                            name={`indents.${index}.discount`} // Assuming productName is in your schema
-                                                            render={({
-                                                                field: indentField,
-                                                            }) => (
-                                                                <FormItem className="flex justify-center items-center">
-                                                                    <FormControl>
-                                                                        <Input
-                                                                            type="number"
-                                                                            className="rounded-sm h-9 max-w-15 p-0 text-center"
-                                                                            max="100"
-                                                                            {...indentField}
-                                                                        />
-                                                                    </FormControl>{' '}
-                                                                    %
-                                                                </FormItem>
-                                                            )}
+                                                            name={`indents.${index}.discount`}
+                                                            render={({ field: indentField }) => {
+                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0);
+                                                                return (
+                                                                    <FormItem className="flex justify-center items-center">
+                                                                        <FormControl>
+                                                                            <Input
+                                                                                type="number"
+                                                                                className="rounded-sm h-9 max-w-15 p-0 text-center"
+                                                                                max="100"
+                                                                                value={indentField.value}
+                                                                                onFocus={(e) => e.target.select()}
+                                                                                onChange={(e) => {
+                                                                                    const pct = Number(e.target.value) || 0;
+                                                                                    indentField.onChange(pct);
+                                                                                    form.setValue(`indents.${index}.discountAmount` as any, parseFloat(((baseAmt * pct) / 100).toFixed(2)));
+                                                                                }}
+                                                                            />
+                                                                        </FormControl>{' '}%
+                                                                    </FormItem>
+                                                                );
+                                                            }}
                                                         />
                                                     </TableCell>
                                                     <TableCell>
-                                                        {calculateTotal(
-                                                            indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
-                                                            value.gst,
-                                                            value.discount || 0,
-                                                            indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0
-                                                        )}
+                                                        <FormField
+                                                            control={form.control}
+                                                            name={`indents.${index}.discountAmount`}
+                                                            render={({ field: indentField }) => {
+                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0);
+                                                                return (
+                                                                    <FormItem className="flex justify-center items-center">
+                                                                        <FormControl>
+                                                                            <Input
+                                                                                type="number"
+                                                                                className="rounded-sm h-9 w-24 p-0 text-center"
+                                                                                value={indentField.value}
+                                                                                onFocus={(e) => e.target.select()}
+                                                                                onChange={(e) => {
+                                                                                    const amt = Number(e.target.value) || 0;
+                                                                                    indentField.onChange(amt);
+                                                                                    const pct = baseAmt > 0 ? parseFloat(((amt / baseAmt) * 100).toFixed(4)) : 0;
+                                                                                    form.setValue(`indents.${index}.discount` as any, pct);
+                                                                                }}
+                                                                            />
+                                                                        </FormControl>
+                                                                    </FormItem>
+                                                                );
+                                                            }}
+                                                        />
                                                     </TableCell>
                                                     <TableCell>
                                                         <Button
