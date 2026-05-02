@@ -85,6 +85,8 @@ interface HistoryData {
     requestDate: string;
     approvalDate: string;
     comparisonSheet?: string;
+    rate?: number;
+    vendorName?: string;
 }
 
 interface PendingGroup {
@@ -432,9 +434,9 @@ export default () => {
             quantity: row.quantity,
             uom: row.uom,
             vendorType: row.vendorType,
-            rate: row.rate,
+            rate: row.rate1 || row.rate,
             product: row.product,
-            vendorName: row.vendorName,
+            vendorName: row.vendorName1 || row.vendorName,
         });
     };
 
@@ -739,7 +741,7 @@ export default () => {
             cell: ({ getValue }) => {
                 const val = getValue() as string;
                 return (
-                    <Pill variant={val === 'Three Party' ? 'secondary' : 'outline'}>
+                    <Pill variant={val === 'Three Party' ? 'secondary' : 'default'}>
                         {val}
                     </Pill>
                 );
@@ -918,7 +920,7 @@ export default () => {
 
     useEffect(() => {
         if (selectedHistory) {
-            historyUpdateForm.reset({ rate: selectedHistory.rate })
+            historyUpdateForm.reset({ rate: selectedHistory.rate1 || selectedHistory.rate || 0 })
         }
     }, [selectedHistory])
 
@@ -945,7 +947,7 @@ export default () => {
             toast.success(`Updated rate for ${selectedHistory?.indentNo}`);
             setSelectedHistory(null);
             setIsReviewOpen(false);
-            historyUpdateForm.reset({ rate: undefined });
+            historyUpdateForm.reset({ rate: 0 });
 
             await fetchData();
         } catch (error: any) {

@@ -201,6 +201,8 @@ export type MasterDataRow = {
     pan_number?: string | null;
     state?: string | null;
     pin_code?: string | null;
+    itemCategoryId?: number | null;
+    inventoryStatus?: string | null;
     isActive?: boolean;
 };
 

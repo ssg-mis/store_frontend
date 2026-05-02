@@ -46,7 +46,8 @@ interface MasterRow {
     pin_code?: string | null;
     createdAt: string | null;
     isActive?: boolean;
-    itemCategory?: string | null;
+    itemCategory?: string | any | null;
+    itemCategoryId?: number | string | null;
     inventoryStatus?: string | null;
 }
 interface MasterForm {
@@ -311,7 +312,7 @@ export default function MasterData() {
             state: row.state || '',
             pin_code: row.pin_code || '',
             isActive: row.isActive !== false ? 'true' : 'false',
-            itemCategoryId: row.itemCategoryId?.toString() || '',
+            itemCategoryId: (row.itemCategoryId as any)?.toString() || '',
             inventory_status: row.inventoryStatus || 'Show',
         });
         setEditIsAddingUOM(false);
@@ -413,7 +414,7 @@ export default function MasterData() {
             header: 'Category',
             cell: ({ row }) => {
                 const val = row.original.itemCategory;
-                const name = typeof val === 'object' ? val?.product_category_name : val;
+                const name = (val && typeof val === 'object') ? (val as any).product_category_name : val;
                 return <TruncCell value={name || ''} width={100} />;
             },
         },
@@ -423,7 +424,7 @@ export default function MasterData() {
             cell: ({ getValue }) => {
                 const val = (getValue() as string) || 'Show';
                 return (
-                    <Pill variant={val === 'Show' ? 'secondary' : 'outline'}>
+                    <Pill variant={val === 'Show' ? 'secondary' : 'default'}>
                         {val}
                     </Pill>
                 );
