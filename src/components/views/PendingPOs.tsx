@@ -45,7 +45,7 @@ export default () => {
 
         try {
             const data: any = await fetchFromSupabasePaginated('indent', '*',
-                { column: 'planned_4', options: { ascending: false } },
+                { column: 'planned_4', options: { ascending: true } },
                 undefined, undefined,
                 { page: pageValue, limit: 50, search: searchQuery, status: 'PendingPO', abortSignal: controller.signal }
             );

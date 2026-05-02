@@ -11,8 +11,8 @@ import Dashboard from './components/views/Dashboard';
 import App from './App';
 import ApproveIndent from '@/components/views/ApproveIndent';
 import { SheetsProvider } from './context/SheetsContext';
-import VendorUpdate from './components/views/VendorUpdate';
-import RateApproval from './components/views/RateApproval';
+import VendorRateUpdate from './components/views/VendorRateUpdate';
+import ThreePartyApproval from './components/views/ThreePartyApproval';
 import ReceiveItems from './components/views/ReceiveItems';
 import StoreOutApproval from './components/views/StoreOutApproval';
 import TrainnigVideo from './components/views/TrainingVideo';
@@ -45,7 +45,7 @@ import type { UserPermissions } from './types/sheets';
 import Loading from './components/views/Loading';
 import Setting from './components/views/Setting';
 import CreatePO from './components/views/CreatePO';
-import PendingIndents from './components/views/PendingIndents';
+import PendingPOs from './components/views/PendingPOs';
 import Order from './components/views/Order';
 import Inventory from './components/views/Inventory';
 import POMaster from './components/views/POMaster';
@@ -187,7 +187,7 @@ const routes: RouteAttributes[] = [
         gateKey: 'updateVendorView',
         name: 'Vendor Rate Update',
         icon: <UserCheck size={20} />,
-        element: <VendorUpdate />,
+        element: <VendorRateUpdate />,
         notifications: (data) =>
             data.approvedIndents.filter(
                 (sheet) => !(sheet.hasRateUpdate || sheet.hasThreeParty)
@@ -198,10 +198,21 @@ const routes: RouteAttributes[] = [
         gateKey: 'threePartyApprovalView',
         name: 'Three Party Approval',
         icon: <Users size={20} />,
-        element: <RateApproval />,
+        element: <ThreePartyApproval />,
         notifications: (data) => {
-            const approvedIds = new Set(data.threePartyApprovals.map((r: any) => r.indentNumber || r.indent_number || ''));
-            return data.rateUpdates.filter((r: any) => !approvedIds.has(r.indentNumber || r.indent_number || '')).length;
+            const approvedIds = new Set(data.threePartyApprovals.map((r: any) => String(r.indentId || r.indent_id || '').trim()));
+            
+            // Only count rate updates for Three Party indents that haven't been approved yet
+            // Group by indentNumber to match the view's grouping
+            const pendingIndents = new Set();
+            data.rateUpdates.forEach((r: any) => {
+                const indentId = String(r.indentId || r.indent_id || '').trim();
+                const indentNum = String(r.indentNumber || r.indent_number || '').trim();
+                if (!approvedIds.has(indentId)) {
+                    pendingIndents.add(indentNum);
+                }
+            });
+            return pendingIndents.size;
         },
     },
     {
@@ -209,9 +220,16 @@ const routes: RouteAttributes[] = [
         gateKey: 'pendingIndentsView',
         name: 'Pending POs',
         icon: <ListTodo size={20} />,
-        element: <PendingIndents />,
-        notifications: (data) =>
-            data.indents.filter((sheet) => (sheet.planned4 && sheet.planned4 !== '') && (!sheet.actual4 || sheet.actual4 === '')).length,
+        element: <PendingPOs />,
+        notifications: (data) => {
+            const pendingIndents = new Set();
+            data.indents.forEach((sheet: any) => {
+                if ((sheet.planned4 && sheet.planned4 !== '') && (!sheet.actual4 || sheet.actual4 === '')) {
+                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
+                }
+            });
+            return pendingIndents.size;
+        },
     },
     {
         path: 'create-po',
@@ -244,12 +262,25 @@ const routes: RouteAttributes[] = [
         icon: <Truck size={20} />,
         element: <ReceiveItems />,
         notifications: (data) => {
-            return data.poMasters.filter((po: any) => {
-                const indentNum = String(po.indentNumber || po.indent_number || po.internalCode || po.internal_code || '').trim();
-                const totalReceived = data.received
-                    .filter((r: any) => String(r.indentNumber || r.indent_number || '').trim() === indentNum)
-                    .reduce((sum, r: any) => sum + (Number(r.receivedQuantity || r.received_quantity) || 0), 0);
-                const poQty = Number(po.quantity) || 0;
+            const receivedMap = new Map();
+            data.received.forEach((r: any) => {
+                const key = String(r.indentId || r.indent_id || '').trim();
+                receivedMap.set(key, (receivedMap.get(key) || 0) + (Number(r.receivedQuantity || r.received_quantity) || 0));
+            });
+
+            const poMap = new Map();
+            data.poMasters.forEach((po: any) => {
+                const key = String(po.indentId || po.indent_id || '').trim();
+                poMap.set(key, Number(po.quantity) || 0);
+            });
+
+            return data.indents.filter((indent: any) => {
+                if (indent.indentType !== 'Purchase') return false;
+                if (!poMap.has(String(indent.id))) return false; // Only count if PO exists
+
+                const poQty = poMap.get(String(indent.id));
+                const totalReceived = receivedMap.get(String(indent.id)) || 0;
+                
                 return (poQty - totalReceived) > 0;
             }).length;
         },
@@ -263,7 +294,7 @@ const routes: RouteAttributes[] = [
         notifications: (data) =>
             data.indents.filter(
                 (sheet) =>
-                    sheet.indentType === 'Store Out' &&
+                    // Match StoreOutPending logic: actual_6 is null
                     (!sheet.actual6 || sheet.actual6 === '')
             ).length,
     },

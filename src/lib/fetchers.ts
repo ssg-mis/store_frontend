@@ -20,7 +20,14 @@ async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
     if (token) {
         headers.set('Authorization', `Bearer ${token}`);
     }
-    return fetch(input, { ...init, headers, cache: 'no-store' });
+    const response = await fetch(input, { ...init, headers, cache: 'no-store' });
+    
+    if (response.status === 401) {
+        localStorage.removeItem('auth');
+        window.location.href = '/login';
+    }
+    
+    return response;
 }
 
 // Helper to convert snake_case keys to camelCase
@@ -117,8 +124,8 @@ export async function fetchIndentMasterData() {
         const groupHeadItems: Record<string, string[]> = {};
         const uomLookup: Record<string, Record<string, string>> = {};
 
-        // Filter inactive rows using raw isActive boolean
-        const activeData = data.filter((d: any) => d.isActive !== false);
+        // Filter inactive or hidden rows using raw fields
+        const activeData = data.filter((d: any) => d.isActive !== false && d.inventoryStatus !== 'Hide');
 
         // Derive departments only from active records
         const departments = [...new Set(activeData.map((d: any) => d.department))].filter(Boolean) as string[];
@@ -146,6 +153,14 @@ export async function fetchIndentMasterData() {
             });
         });
 
+        const itemToCategory: Record<string, string> = {};
+        activeData.forEach((d: any) => {
+            if (d.itemName) {
+                const catName = d.itemCategory?.product_category_name || d.itemCategory;
+                if (catName) itemToCategory[d.itemName] = catName;
+            }
+        });
+
         return {
             departments,
             createGroupHeads: allGroupHeads,
@@ -154,6 +169,7 @@ export async function fetchIndentMasterData() {
             firms,
             departmentToGroupHead,
             groupHeadToDepartment,
+            itemToCategory,
         };
     } catch (error) {
         console.error('Error fetching indent master data:', error);
@@ -382,17 +398,17 @@ export async function fetchSheet(
     | InventorySheet[]
 > {
     if (sheetName === 'INDENT') {
-        const data = await fetchFromSupabasePaginated('indent');
+        const data = await fetchFromSupabasePaginated('indent', '*', undefined, undefined, undefined, { limit: 5000 });
         return toCamelCase(data) as IndentSheet[];
     }
 
     if (sheetName === 'PO MASTER') {
-        const data = await fetchFromSupabasePaginated('po_master');
+        const data = await fetchFromSupabasePaginated('po_master', '*', undefined, undefined, undefined, { limit: 5000 });
         return toCamelCase(data) as PoMasterSheet[];
     }
 
     if (sheetName === 'RECEIVED') {
-        const data = await fetchFromSupabasePaginated('received');
+        const data = await fetchFromSupabasePaginated('received', '*', undefined, undefined, undefined, { limit: 5000 });
         return toCamelCase(data) as ReceivedSheet[];
     }
 
@@ -407,17 +423,17 @@ export async function fetchSheet(
     }
 
     if (sheetName === 'VENDOR_RATE_UPDATE') {
-        const data = await fetchFromSupabasePaginated('vendor_rate_update');
+        const data = await fetchFromSupabasePaginated('vendor_rate_update', '*', undefined, undefined, undefined, { limit: 5000 });
         return toCamelCase(data);
     }
 
     if (sheetName === 'THREE_PARTY_APPROVAL') {
-        const data = await fetchFromSupabasePaginated('three_party_approval');
+        const data = await fetchFromSupabasePaginated('three_party_approval', '*', undefined, undefined, undefined, { limit: 5000 });
         return toCamelCase(data);
     }
 
     if (sheetName === 'APPROVED_INDENT') {
-        const data = await fetchFromSupabasePaginated('approved_indent');
+        const data = await fetchFromSupabasePaginated('approved_indent', '*', undefined, undefined, undefined, { limit: 5000 });
         return toCamelCase(data);
     }
 

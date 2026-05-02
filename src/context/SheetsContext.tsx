@@ -105,6 +105,7 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         updateApprovedIndentSheet();
         updateReceivedSheet();
         updatePoMasterSheet();
+        updateInventorySheet(true); // Ensure stock counts refresh
     }
 
     function updateAll() {

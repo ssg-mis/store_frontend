@@ -1,4 +1,4 @@
-import { ChevronsRightLeft, FilePlus2, Pencil, Save, Trash, X } from 'lucide-react';
+import { ChevronsRightLeft, FilePlus2, Pencil, Save, Send, Trash, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -9,9 +9,10 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
-import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePaginated } from '@/lib/fetchers';
-import { useEffect, useState } from 'react';
+import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers } from '@/lib/fetchers';
+import { useEffect, useMemo, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
+import { useAuth } from '@/context/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import {
     calculateGrandTotal,
@@ -98,11 +99,16 @@ function filterUniquePoNumbers(data: any[]): any[] {
 
 export default () => {
     const { updateIndentSheet, updatePoMasterSheet, updateRelatedSheets } = useSheets();
+    const { user } = useAuth();
+    const isAdmin = (user as any)?.role === 'ADMIN';
+
     const [indentSheetData, setIndentSheetData] = useState<any[]>([]);
     const [approvalsData, setApprovalsData] = useState<any[]>([]);
     const [poMasterSheetData, setPoMasterSheetData] = useState<any[]>([]);
     const [detailsData, setDetailsData] = useState<any>(null);
     const [vendorsData, setVendorsData] = useState<any[]>([]);
+    const [inventoryData, setInventoryData] = useState<any[]>([]);
+    const [users, setUsers] = useState<any[]>([]);
     const [readOnly, setReadOnly] = useState(-1);
     const [mode, setMode] = useState<'create' | 'revise'>('create');
     const [isEditingDestination, setIsEditingDestination] = useState(false);
@@ -110,20 +116,16 @@ export default () => {
     const [loading, setLoading] = useState(true);
     // PO numbers whose items have been fully received — cannot be revised
     const [receivedPoNumbers, setReceivedPoNumbers] = useState<Set<string>>(new Set());
+ 
 
-
-    // Initialize destination address from details
-    useEffect(() => {
-        if (detailsData?.destinationAddress) {
-            setDestinationAddress(`Shri Shyam Oil Extractions Pvt. Ltd.\n${detailsData.destinationAddress}`);
-        } else if (detailsData) {
-            setDestinationAddress('Shri Shyam Oil Extractions Pvt. Ltd.');
-        }
-    }, [detailsData]);
 
     const enrichAndSetData = (allIndents: any[], approvals: any[], poData: any[], masterData: any, vendors: any[]) => {
         const enrichedIndents = (allIndents || []).map((indent: any) => {
+            // Match by indent_id (FK) first — unique per product row.
+            // Fall back to indentNumber only if indent_id is missing.
             const approval = (approvals || []).find((a: any) =>
+                (a.indent_id || a.indentId) === indent.id
+            ) || (approvals || []).find((a: any) =>
                 (a.indentNumber || a.indent_number) === (indent.indentNumber || indent.indent_number)
             );
 
@@ -171,7 +173,6 @@ export default () => {
                 );
 
                 const masterData = await fetchSheet('MASTER') as any;
-
                 const vendorsRaw = await fetchVendors();
                 const vendorsMapped = vendorsRaw.map(v => ({
                     vendor_name: v.vendorName,
@@ -179,6 +180,9 @@ export default () => {
                     vendor_gstin: v.gstin,
                     vendor_email: v.email
                 }));
+
+                const inventory = await fetchSheet('INVENTORY') as any[];
+                setInventoryData(inventory || []);
 
                 const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
 
@@ -207,6 +211,12 @@ export default () => {
         fetchData();
     }, []);
 
+    useEffect(() => {
+        if (isAdmin) {
+            fetchUsers().then(setUsers);
+        }
+    }, [isAdmin]);
+
     const schema = z.object({
         poNumber: z.string().nonempty(),
         poDate: z.coerce.date(),
@@ -224,6 +234,7 @@ export default () => {
                 z.object({
                     indentNumber: z.string().nonempty(),
                     id: z.number().optional(),
+                    quantity: z.coerce.number().min(0.001, 'Quantity must be greater than 0'),
                     gst: z.coerce.number(),
                     discount: z.coerce.number().default(0).optional(),
                     discountAmount: z.coerce.number().default(0).optional(),
@@ -233,6 +244,7 @@ export default () => {
         preparedBy: z.string().nonempty(),
         approvedBy: z.string().nonempty(),
         transportationType: z.string().nonempty('Select transportation type'),
+        leadTime: z.string().optional().default(''),
     });
 
 
@@ -245,7 +257,7 @@ export default () => {
             indentName: '',
             supplierName: '',
             supplierAddress: '',
-            preparedBy: '',
+            preparedBy: (user as any)?.name || '',
             approvedBy: '',
             gstin: '',
             quotationNumber: '',
@@ -255,6 +267,7 @@ export default () => {
             indents: [],
             terms: detailsData?.defaultTerms || [], // Updated to camelCase
             transportationType: 'F-FOR',
+            leadTime: '',
         },
     });
 
@@ -269,6 +282,48 @@ export default () => {
     const indentName = form.watch('indentName');
     const poDate = form.watch('poDate');
     const poNumber = form.watch('poNumber');
+
+    const displayFirm = useMemo(() => {
+        let firmName = "Shri Shyam Oil Extractions Pvt Ltd"; // Default
+
+        if (mode === 'create') {
+            if (indents && indents.length > 0) {
+                const indent = indentSheetData.find(i => (i.indentNumber || i.indent_number) === indents[0].indentNumber);
+                if (indent?.firm) {
+                    firmName = indent.firm;
+                }
+            } else if (indentName) {
+                const indent = indentSheetData.find(i => (i.indentNumber || i.indent_number) === indentName);
+                if (indent?.firm) {
+                    firmName = indent.firm;
+                }
+            }
+        } else if (mode === 'revise') {
+            const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber);
+            if (po) {
+                if (po.firm) {
+                    firmName = po.firm;
+                } else {
+                    const indentNo = po.internalCode || po.internal_code || po.indent_number;
+                    const indent = indentSheetData.find(i => (i.indentNumber || i.indent_number) === indentNo);
+                    if (indent?.firm) {
+                        firmName = indent.firm;
+                    }
+                }
+            }
+        }
+        return firmName;
+    }, [mode, indents, indentSheetData, poNumber, poMasterSheetData, indentName]);
+
+
+    // Initialize destination address from details
+    useEffect(() => {
+        if (detailsData?.destinationAddress) {
+            setDestinationAddress(`${displayFirm}\n${detailsData.destinationAddress}`);
+        } else if (detailsData) {
+            setDestinationAddress(displayFirm);
+        }
+    }, [detailsData, displayFirm]);
 
     const termsArray = useFieldArray({
         control: form.control,
@@ -308,7 +363,7 @@ export default () => {
                 indentName: '',
                 supplierName: '',
                 supplierAddress: '',
-                preparedBy: '',
+                preparedBy: (user as any)?.name || '',
                 approvedBy: '',
                 gstin: '',
                 quotationNumber: '',
@@ -318,6 +373,7 @@ export default () => {
                 indents: [],
                 terms: [],
                 transportationType: 'F-FOR',
+                leadTime: '',
             });
         } else {
             form.reset({
@@ -326,7 +382,7 @@ export default () => {
                 indentName: '',
                 supplierName: '',
                 supplierAddress: '',
-                preparedBy: '',
+                preparedBy: (user as any)?.name || '',
                 approvedBy: '',
                 gstin: '',
                 quotationNumber: '',
@@ -334,8 +390,9 @@ export default () => {
                 ourEnqNo: '',
                 enquiryDate: undefined,
                 indents: [],
-                terms: detailsData?.defaultTerms || [], // Updated to camelCase
+                terms: detailsData?.defaultTerms || [],
                 transportationType: 'F-FOR',
+                leadTime: '',
             });
         }
     }, [mode, poMasterSheetData, detailsData]);
@@ -367,6 +424,7 @@ export default () => {
                 form.setValue('indents', selectedIndents.map((i: any) => ({
                     indentNumber: i.indentNumber || i.indent_number,
                     id: i.id,
+                    quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
                     gst: 18,
                     discount: 0,
                     discountAmount: 0,
@@ -377,6 +435,7 @@ export default () => {
                     items.map((i: any) => ({
                         indentNumber: i.indentNumber || i.indent_number,
                         id: i.id,
+                        quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
                         gst: 18,
                         discount: 0,
                     }))
@@ -422,6 +481,7 @@ export default () => {
                     .filter((p: any) => (p.poNumber || p.po_number) === (po.poNumber || po.po_number))
                     .map((poItem: any) => ({
                         indentNumber: poItem.internalCode || poItem.internal_code || poItem.indent_number || '',
+                        quantity: poItem.quantity || 0,
                         gst: poItem.gstPercent || poItem.gst_percent || 0,
                         discount: poItem.discountPercent || poItem.discount_percent || 0,
                         discountAmount: 0,
@@ -465,6 +525,35 @@ export default () => {
     };
 
     async function onSubmit(values: FormData) {
+        // Stock Validation
+        const stockErrors: string[] = [];
+        values.indents.forEach((itemRow) => {
+            const indent = indentSheetData.find(i => i.indentNumber === itemRow.indentNumber);
+            const itemName = indent?.productName || indent?.product_name || '';
+            const groupHead = indent?.createGroupHead || indent?.create_group_head || '';
+            
+            const inventoryItem = inventoryData.find(
+                i => i.itemName?.toLowerCase().trim() === itemName.toLowerCase().trim() &&
+                     (!groupHead || i.groupHead?.toLowerCase().trim() === groupHead.toLowerCase().trim())
+            );
+            const stock = Number(inventoryItem?.current || 0);
+            const indentType = indent?.indentType || '';
+            const isPurchase = indentType.toLowerCase().includes('purchase');
+
+            if (!isPurchase && itemRow.quantity > stock) {
+                let errorMsg = `Insufficient stocks for ${itemName} (Available: ${stock})`;
+                if (indentType.toLowerCase().includes('store out')) {
+                    errorMsg += `. Please change Indent Type to "Purchase" instead of "${indentType}".`;
+                }
+                stockErrors.push(errorMsg);
+            }
+        });
+
+        if (stockErrors.length > 0) {
+            stockErrors.forEach(err => toast.error(err));
+            return;
+        }
+
         try {
             const poNumber =
                 mode === 'create'
@@ -491,6 +580,8 @@ export default () => {
             // Enrich the fetched indents with approval data (same logic as enrichAndSetData)
             const enrichedFetchedIndents = allIndentsForPO.map((indent: any) => {
                 const approval = (approvals || []).find((a: any) =>
+                    (a.indent_id || a.indentId) === indent.id
+                ) || (approvals || []).find((a: any) =>
                     (a.indentNumber || a.indent_number) === (indent.indentNumber || indent.indent_number)
                 );
                 return {
@@ -505,7 +596,7 @@ export default () => {
                     const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
                         poMasterSheetData.find((p: any) => (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
                     return {
-                        quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                        quantity: indent.quantity,
                         rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
                         discountPercent: indent?.discount || 0,
                         gstPercent: indent.gst,
@@ -524,7 +615,7 @@ export default () => {
 
             const pdfProps: POPdfProps = {
                 companyLogo: logoBase64,
-                companyName: detailsData?.companyName || '', // Updated to camelCase
+                companyName: displayFirm,
                 companyPhone: detailsData?.companyPhone || '', // Updated to camelCase
                 companyGstin: detailsData?.companyGstin || '', // Updated to camelCase
                 companyPan: detailsData?.companyPan || '', // Updated to camelCase
@@ -590,25 +681,13 @@ export default () => {
                 preparedBy: values.preparedBy,
                 approvedBy: values.approvedBy,
                 transportationType: values.transportationType,
-                firm: values.indents.length > 0 
-                    ? indentSheetData.find(i => i.indentNumber === values.indents[0].indentNumber)?.firm || 'N/A'
-                    : 'N/A',
+                firm: displayFirm,
             };
 
             const blob = await pdf(<POPdf {...pdfProps} />).toBlob();
             const file = new File([blob], `PO-${poNumber}.pdf`, {
                 type: 'application/pdf',
             });
-
-            // Auto-download the PDF
-            const blobUrl = URL.createObjectURL(blob);
-            const downloadLink = document.createElement('a');
-            downloadLink.href = blobUrl;
-            downloadLink.download = `PO-${poNumber.replace(/\//g, '-')}.pdf`;
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
 
             const email = vendorsData.find((v: any) => v.vendor_name?.trim().toLowerCase() === values.supplierName?.trim().toLowerCase())?.vendor_email; // Fixed logic to use correct column names and robust matching
 
@@ -657,14 +736,14 @@ export default () => {
                     internalCode: v.indentNumber,
                     product: indent?.productName || indent?.product_name || indent?.product || '',
                     description: values.description,
-                    quantity: indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0,
+                    quantity: v.quantity,
                     unit: indent?.uom || indent?.unit || '',
                     rate: indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
                     amount: calculateTotal(
                         indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
                         v.gst,
                         v.discount || 0,
-                        indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0
+                        v.quantity
                     ),
                     totalPOAmount: grandTotal,
                     pdf: url,
@@ -744,7 +823,7 @@ export default () => {
     }
 
     return (
-        <div className="grid place-items-center w-full bg-gradient-to-br from-blue-100 via-purple-50 to-blue-50 rounder-md">
+        <div className="grid place-items-center w-full overflow-x-hidden bg-gradient-to-br from-blue-100 via-purple-50 to-blue-50 rounder-md">
             <div className="flex justify-between items-center w-full p-5">
                 <div className="flex gap-2 items-center">
                     <FilePlus2 size={50} className="text-primary" />
@@ -782,7 +861,7 @@ export default () => {
                                     className="w-20 h-20 object-contain"
                                 />
                                 <div className="text-center">
-                                    <h1 className="text-2xl font-bold">Shri Shyam Oil Extractions Pvt Ltd</h1>
+                                    <h1 className="text-2xl font-bold">{displayFirm}</h1>
                                     <div>
                                         <p className="text-sm">Banari, Janjgir Champa-495668, Chhattisgarh</p>
                                         <p className="text-sm">Phone No: +919993023243</p>
@@ -1118,53 +1197,88 @@ export default () => {
 
                             <hr />
 
-                            <div className="mx-4 grid overflow-hidden">
-                                <Table containerClassName="overflow-visible">
+                            <div className="mx-4 overflow-x-auto">
+                                <Table containerClassName="min-w-max">
                                     <TableHeader>
-                                        <TableRow>
-                                            <TableHead>S/N</TableHead>
-                                            <TableHead>Internal Code</TableHead>
-                                            <TableHead>Firm</TableHead>
-                                            <TableHead>Product</TableHead>
-                                            <TableHead>Description</TableHead>
-                                            <TableHead>Qty</TableHead>
-                                            <TableHead>Unit</TableHead>
-                                            <TableHead>Rate</TableHead>
-                                            <TableHead>GST (%)</TableHead>
-                                            <TableHead>Discount (%)</TableHead>
-                                            <TableHead>Discount Amt</TableHead>
-                                            <TableHead></TableHead>
+                                        <TableRow className="text-xs">
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">S/N</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Internal Code</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Firm</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Product</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Description</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Qty</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Unit</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Rate</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">GST (%)</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Disc (%)</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Disc Amt</TableHead>
+                                            <TableHead className="px-2 py-1"></TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {itemsArray.fields.map((field, index) => {
                                             const value = indents[index];
                                             const indent = indentSheetData.find(
-                                                (i: any) => (i.indentNumber || i.indent_number) === value.indentNumber
+                                                (i: any) => value.id ? i.id === value.id : (i.indentNumber || i.indent_number) === value.indentNumber
                                             ) || poMasterSheetData.find(
                                                 (p: any) => (p.internalCode || p.internal_code || p.indent_number) === value.indentNumber && (p.poNumber || p.po_number) === poNumber
                                             );
                                             return (
-                                                <TableRow key={field.id}>
-                                                    <TableCell>{index + 1}</TableCell>
-                                                    <TableCell>{indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code}</TableCell>
-                                                    <TableCell>{indent?.firm || 'N/A'}</TableCell>
-                                                    <TableCell>{indent?.productName || indent?.product_name || indent?.product}</TableCell>
-                                                    <TableCell>
+                                                <TableRow key={field.id} className="text-xs">
+                                                    <TableCell className="px-2 py-1">{index + 1}</TableCell>
+                                                    <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code}</TableCell>
+                                                    <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.firm || 'N/A'}</TableCell>
+                                                    <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.productName || indent?.product_name || indent?.product}</TableCell>
+                                                    <TableCell className="px-2 py-1 max-w-[160px] truncate">
                                                         {indent?.specifications || indent?.description || (
-                                                            <span className="text-muted-foreground">
-                                                                No Description
-                                                            </span>
+                                                            <span className="text-muted-foreground">—</span>
                                                         )}
                                                     </TableCell>
-                                                    <TableCell>
-                                                        {indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity}
+                                                    <TableCell className="px-2 py-1">
+                                                        <FormField
+                                                            control={form.control}
+                                                            name={`indents.${index}.quantity`}
+                                                            render={({ field: indentField }) => {
+                                                                const inventoryItem = inventoryData.find(
+                                                                    i => i.itemName?.toLowerCase().trim() === (indent?.productName || indent?.product_name || '').toLowerCase().trim() &&
+                                                                         (!indent?.createGroupHead || i.groupHead?.toLowerCase().trim() === (indent?.createGroupHead || '').toLowerCase().trim())
+                                                                );
+                                                                const stock = Number(inventoryItem?.current || 0);
+                                                                const indentType = indent?.indentType || '';
+                                                                const isPurchase = indentType.toLowerCase().includes('purchase');
+                                                                const isInsufficient = !isPurchase && Number(indentField.value) > stock;
+
+                                                                return (
+                                                                    <FormItem className="space-y-0">
+                                                                        <FormControl>
+                                                                            <Input
+                                                                                type="number"
+                                                                                className={cn(
+                                                                                    "rounded-sm h-7 w-20 p-0 text-center text-xs",
+                                                                                    isInsufficient && "border-red-500 focus-visible:ring-red-500"
+                                                                                )}
+                                                                                onFocus={(e) => e.target.select()}
+                                                                                {...indentField}
+                                                                            />
+                                                                        </FormControl>
+                                                                        {isInsufficient && (
+                                                                            <p className="text-[10px] text-red-500 mt-0.5 leading-tight">
+                                                                                Insufficient stocks for "{indent?.productName || indent?.product_name}".
+                                                                                {indentType.toLowerCase().includes('store out') && (
+                                                                                    <span> Please change Indent Type to "Purchase".</span>
+                                                                                )}
+                                                                            </p>
+                                                                        )}
+                                                                    </FormItem>
+                                                                );
+                                                            }}
+                                                        />
                                                     </TableCell>
-                                                    <TableCell>{indent?.uom || indent?.unit}</TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="px-2 py-1">{indent?.uom || indent?.unit}</TableCell>
+                                                    <TableCell className="px-2 py-1">
                                                         {indent?.approvedRate || indent?.approved_rate || indent?.rate}
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="px-2 py-1">
                                                         <FormField
                                                             control={form.control}
                                                             name={`indents.${index}.gst`}
@@ -1173,7 +1287,7 @@ export default () => {
                                                                     <FormControl>
                                                                         <Input
                                                                             type="number"
-                                                                            className="rounded-sm h-9 w-20 p-0 text-center"
+                                                                            className="rounded-sm h-7 w-14 p-0 text-center text-xs"
                                                                             onFocus={(e) => e.target.select()}
                                                                             {...indentField}
                                                                         />
@@ -1183,18 +1297,18 @@ export default () => {
                                                             )}
                                                         />
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="px-2 py-1">
                                                         <FormField
                                                             control={form.control}
                                                             name={`indents.${index}.discount`}
                                                             render={({ field: indentField }) => {
-                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0);
+                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (Number(form.getValues(`indents.${index}.quantity`)) || 0);
                                                                 return (
                                                                     <FormItem className="flex justify-center items-center">
                                                                         <FormControl>
                                                                             <Input
                                                                                 type="number"
-                                                                                className="rounded-sm h-9 max-w-15 p-0 text-center"
+                                                                                className="rounded-sm h-7 w-14 p-0 text-center text-xs"
                                                                                 max="100"
                                                                                 value={indentField.value}
                                                                                 onFocus={(e) => e.target.select()}
@@ -1210,18 +1324,18 @@ export default () => {
                                                             }}
                                                         />
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="px-2 py-1">
                                                         <FormField
                                                             control={form.control}
                                                             name={`indents.${index}.discountAmount`}
                                                             render={({ field: indentField }) => {
-                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0);
+                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (Number(form.getValues(`indents.${index}.quantity`)) || 0);
                                                                 return (
                                                                     <FormItem className="flex justify-center items-center">
                                                                         <FormControl>
                                                                             <Input
                                                                                 type="number"
-                                                                                className="rounded-sm h-9 w-24 p-0 text-center"
+                                                                                className="rounded-sm h-7 w-20 p-0 text-center text-xs"
                                                                                 value={indentField.value}
                                                                                 onFocus={(e) => e.target.select()}
                                                                                 onChange={(e) => {
@@ -1237,17 +1351,18 @@ export default () => {
                                                             }}
                                                         />
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="px-2 py-1">
                                                         <Button
                                                             type="button"
                                                             variant="ghost"
+                                                            size="sm"
                                                             onClick={(e) => {
                                                                 e.preventDefault();
                                                                 itemsArray.remove(index);
                                                             }}
                                                         >
                                                             <Trash
-                                                                size={20}
+                                                                size={16}
                                                                 className="text-red-300"
                                                             />
                                                         </Button>
@@ -1270,7 +1385,7 @@ export default () => {
                                                             (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                                                            quantity: indentRow.quantity,
                                                             rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
                                                             discountPercent: indentRow?.discount || 0,
                                                         };
@@ -1290,7 +1405,7 @@ export default () => {
                                                             (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                                                            quantity: indentRow.quantity,
                                                             rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
                                                             discountPercent: indentRow?.discount || 0,
                                                             gstPercent: indentRow.gst,
@@ -1311,7 +1426,7 @@ export default () => {
                                                             (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
-                                                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
+                                                            quantity: indentRow.quantity,
                                                             rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
                                                             discountPercent: indentRow?.discount || 0,
                                                             gstPercent: indentRow.gst,
@@ -1421,16 +1536,16 @@ export default () => {
 
                             <hr />
 
-                            <div className="text-center flex justify-between gap-5 px-7 items-center">
+                            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 px-4">
                                 <FormField
                                     control={form.control}
                                     name="transportationType"
                                     render={({ field }) => (
-                                        <FormItem className="flex flex-col justify-center items-center w-full">
-                                            <FormLabel>Transportation Type<span className="text-red-500">*</span></FormLabel>
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel className="text-xs">Transportation Type<span className="text-red-500">*</span></FormLabel>
                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
-                                                    <SelectTrigger className="h-9 w-full text-center">
+                                                    <SelectTrigger className="h-8 text-xs">
                                                         <SelectValue placeholder="Select type" />
                                                     </SelectTrigger>
                                                 </FormControl>
@@ -1444,16 +1559,41 @@ export default () => {
                                 />
                                 <FormField
                                     control={form.control}
+                                    name="leadTime"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel className="text-xs">Lead Time to Receive</FormLabel>
+                                            <FormControl>
+                                                <Input className="h-8 text-xs" placeholder="e.g. 7 days" {...field} />
+                                            </FormControl>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
                                     name="preparedBy"
                                     render={({ field }) => (
-                                        <FormItem className="flex flex-col justify-center items-center w-full">
-                                            <FormLabel>Prepared By<span className="text-red-500">*</span></FormLabel>
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel className="text-xs">Prepared By<span className="text-red-500">*</span></FormLabel>
                                             <FormControl>
-                                                <Input
-                                                    className="h-9 w-full text-center"
-                                                    placeholder="Purchase Order Prepared By"
-                                                    {...field}
-                                                />
+                                                {isAdmin ? (
+                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                        <FormControl>
+                                                            <SelectTrigger className="h-8 text-xs">
+                                                                <SelectValue placeholder="Select user" />
+                                                            </SelectTrigger>
+                                                        </FormControl>
+                                                        <SelectContent>
+                                                            {users.map((u) => (
+                                                                <SelectItem key={u.id} value={u.name}>
+                                                                    {u.name}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                ) : (
+                                                    <Input className="h-8 text-xs text-center" placeholder="Prepared by" {...field} disabled />
+                                                )}
                                             </FormControl>
                                         </FormItem>
                                     )}
@@ -1462,34 +1602,32 @@ export default () => {
                                     control={form.control}
                                     name="approvedBy"
                                     render={({ field }) => (
-                                        <FormItem className="flex flex-col justify-center items-center w-full">
-                                            <FormLabel>Approved By<span className="text-red-500">*</span></FormLabel>
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel className="text-xs">Approved By<span className="text-red-500">*</span></FormLabel>
                                             <FormControl>
-                                                <Input
-                                                    className="h-9 w-full text-center"
-                                                    placeholder="Purchase Order Approved By"
-                                                    {...field}
-                                                />
+                                                <Input className="h-8 text-xs text-center" placeholder="Approved by" {...field} />
                                             </FormControl>
                                         </FormItem>
                                     )}
                                 />
-                                <div className="text-center w-full">
-                                    <p className="font-semibold text-[11px] leading-tight">For Shri Shyam Oil Extractions Pvt. Ltd.</p>
+                                <div className="flex flex-col justify-end items-center pb-1">
+                                    <p className="text-[11px] font-semibold text-center leading-tight">For {displayFirm}</p>
                                 </div>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 p-3 w-full max-w-6xl bg-background m-5 shadow-md rounded-md">
-                            <Button type="reset" variant="outline" onClick={() => form.reset()}>
+                            <Button type="reset" variant="outline" className="h-10 gap-2" onClick={() => form.reset()}>
+                                <X size={16} />
                                 Reset
                             </Button>
 
-                            <Button type="submit" disabled={form.formState.isSubmitting}>
-                                {form.formState.isSubmitting && (
-                                    <Loader size={20} color="white" aria-label="Loading Spinner" />
-                                )}
-                                Save And Send PO
+                            <Button type="submit" disabled={form.formState.isSubmitting} className="h-10 gap-2 bg-primary hover:bg-primary/90">
+                                {form.formState.isSubmitting
+                                    ? <Loader size={16} color="white" aria-label="Loading Spinner" />
+                                    : <Send size={16} />
+                                }
+                                {form.formState.isSubmitting ? 'Saving...' : 'Save & Send PO'}
                             </Button>
                         </div>
                     </form>

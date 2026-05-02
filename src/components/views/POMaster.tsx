@@ -1,4 +1,4 @@
-import { ListTodo, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { ListTodo, Search, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatDate, debounce } from '@/lib/utils';
@@ -62,7 +62,7 @@ export default () => {
         try {
             const data: any = await fetchFromSupabasePaginated(
                 'po_master', '*',
-                { column: 'createdAt', options: { ascending: false } },
+                { column: 'createdAt', options: { ascending: true } },
                 undefined, undefined,
                 { page: pageValue, limit: 50, search: searchQuery, abortSignal: controller.signal }
             );
@@ -190,6 +190,7 @@ export default () => {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-8"></TableHead>
+                                    <TableHead className="w-20">PDF</TableHead>
                                     <TableHead>PO Number</TableHead>
                                     <TableHead>Party Name</TableHead>
                                     <TableHead>Date</TableHead>
@@ -197,7 +198,6 @@ export default () => {
                                     <TableHead>Approved By</TableHead>
                                     <TableHead>Total PO Amount</TableHead>
                                     <TableHead>Indents</TableHead>
-                                    <TableHead>PDF</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -215,6 +215,23 @@ export default () => {
                                                         ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                                         : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                                                 </TableCell>
+                                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                                    {group.pdf ? (
+                                                        <Button
+                                                            asChild
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                                                        >
+                                                            <a href={group.pdf} target="_blank" rel="noopener noreferrer">
+                                                                <FileText size={13} />
+                                                                View
+                                                            </a>
+                                                        </Button>
+                                                    ) : (
+                                                        <span className="text-muted-foreground text-xs">—</span>
+                                                    )}
+                                                </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.poNumber}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.timestamp}</TableCell>
@@ -225,16 +242,6 @@ export default () => {
                                                     <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                                                         {group.items.length} {group.items.length === 1 ? 'indent' : 'indents'}
                                                     </span>
-                                                </TableCell>
-                                                <TableCell onClick={(e) => e.stopPropagation()}>
-                                                    {group.pdf ? (
-                                                        <a href={group.pdf} target="_blank" rel="noopener noreferrer"
-                                                            className="text-blue-600 hover:text-blue-800 underline text-xs">
-                                                            View PDF
-                                                        </a>
-                                                    ) : (
-                                                        <span className="text-gray-400 text-xs">No PDF</span>
-                                                    )}
                                                 </TableCell>
                                             </TableRow>
                                             {isExpanded && group.items.map((item, idx) => (

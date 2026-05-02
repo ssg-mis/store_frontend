@@ -1,8 +1,8 @@
-import type { ColumnDef, Row } from '@tanstack/react-table';
+import type { ColumnDef } from '@tanstack/react-table';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import DataTable from '../element/DataTable';
 import { z } from 'zod';
-import { useForm, type FieldErrors } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DownloadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
@@ -14,7 +14,6 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
     DialogClose,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
@@ -23,7 +22,7 @@ import { PuffLoader as Loader } from 'react-spinners';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
-import { Truck, SquarePen, Check, X, Search } from 'lucide-react';
+import { Truck, Search } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Tabs, TabsContent } from '../ui/tabs';
 import { useAuth } from '@/context/AuthContext';
@@ -33,6 +32,7 @@ import { useSheets } from '@/context/SheetsContext';
 import { Pill } from '../ui/pill';
 
 interface RecieveItemsData {
+    id: number;
     poDate: string;
     poNumber: string;
     vendor: string;
@@ -54,6 +54,7 @@ interface RecieveItemsData {
 
 interface HistoryData {
     indentNumber: string;
+    productCode: string;
     firm: string;
     poNumber: string;
     vendor: string;
@@ -88,10 +89,9 @@ const ReceiveItems = () => {
     const [matchingIndents, setMatchingIndents] = useState<RecieveItemsData[]>([]);
     const [openDialog, setOpenDialog] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [editingCell, setEditingCell] = useState<{ rowId: string; field: 'product' | 'orderQuantity' | 'uom' } | null>(null);
-    const [editCellValue, setEditCellValue] = useState<string | number>('');
-    const [masterItems, setMasterItems] = useState<string[]>([]);
-    const [productSearch, setProductSearch] = useState('');
+    const [historyViewGroup, setHistoryViewGroup] = useState<{
+        poNumber: string; vendor: string; receivedDate: string; billStatus: string; items: HistoryData[];
+    } | null>(null);
 
     // Filter states (kept for FilterBar options)
     const [pendingFilters, setPendingFilters] = useState({
@@ -130,7 +130,7 @@ const ReceiveItems = () => {
 
         try {
             const indentData: any = await fetchFromSupabasePaginated('indent', '*',
-                { column: 'planned_5', options: { ascending: false } },
+                { column: 'planned_5', options: { ascending: true } },
                 undefined, undefined,
                 { page: pageValue, limit: 50, search: searchQuery, status: 'ReceivePending', abortSignal: controller.signal }
             );
@@ -142,6 +142,7 @@ const ReceiveItems = () => {
                     const po = indent.poMasters?.[0] || {};
                     const poQty = Number(po.quantity) || 0;
                     return {
+                        id: indent.id,
                         indentNumber: indent.indentNumber || '',
                         poNumber: po.poNumber || '',
                         uom: po.unit || indent.uom || '',
@@ -187,7 +188,7 @@ const ReceiveItems = () => {
 
         try {
             const data: any = await fetchFromSupabasePaginated('received', '*',
-                { column: 'createdAt', options: { ascending: false } },
+                { column: 'createdAt', options: { ascending: true } },
                 undefined, undefined,
                 { page: pageValue, limit: 100, search: searchQuery, abortSignal: controller.signal }
             );
@@ -199,6 +200,7 @@ const ReceiveItems = () => {
                     const indentNum = receivedRecord.indentNumber || receivedRecord.indent_number || '';
                     return {
                         indentNumber: indentNum,
+                        productCode: receivedRecord.indent?.productCode || '',
                         poNumber: receivedRecord.poNumber || receivedRecord.po_number || '',
                         vendor: receivedRecord.vendor || '',
                         product: receivedRecord.product || '',
@@ -261,38 +263,6 @@ const ReceiveItems = () => {
         [fetchHistoryData]
     );
 
-    // Fetch master items for product dropdown
-    useEffect(() => {
-        const fetchMasterItems = async () => {
-            try {
-                const data = await fetchFromSupabasePaginated(
-                    'master',
-                    'item_name',
-                    { column: 'item_name', options: { ascending: true } }
-                );
-                const items = data
-                    .map((d: any) => d.item_name)
-                    .filter(Boolean);
-                setMasterItems([...new Set(items)] as string[]);
-            } catch (error) {
-                console.error('Error fetching master items:', error);
-            }
-        };
-        fetchMasterItems();
-    }, []);
-
-    // Per-cell inline edit handlers for history tab
-    const handleStartCellEdit = (rowId: string, field: 'product' | 'orderQuantity' | 'uom', currentValue: string | number | null | undefined) => {
-        setEditingCell({ rowId, field });
-        setEditCellValue(currentValue ?? '');
-        setProductSearch('');
-    };
-
-    const handleCancelCellEdit = () => {
-        setEditingCell(null);
-        setEditCellValue('');
-        setProductSearch('');
-    };
 
     // Helper to get unique filter options
     const getFilterOptions = (data: any[], key: string) => {
@@ -355,46 +325,6 @@ const ReceiveItems = () => {
         </div>
     );
 
-    const handleSaveCellEdit = async () => {
-        if (!editingCell) return;
-        try {
-            const updatePayload: any = {};
-            const localUpdate: any = {};
-
-            if (editingCell.field === 'product') {
-                updatePayload.product_name = editCellValue;
-                localUpdate.product = editCellValue;
-            } else if (editingCell.field === 'orderQuantity') {
-                updatePayload.approved_quantity = Number(editCellValue) || 0;
-                localUpdate.orderQuantity = Number(editCellValue) || 0;
-            } else if (editingCell.field === 'uom') {
-                updatePayload.uom = editCellValue;
-                localUpdate.uom = editCellValue;
-            }
-
-            // Update in backend using API
-            const result = await postToSheet([{ indentNumber: editingCell.rowId, ...updatePayload }], 'update', 'INDENT');
-            if (!result.success) throw new Error('API update failed');
-
-            toast.success(`Updated ${editingCell.field} for ${editingCell.rowId}`);
-
-            // Update local state
-            setHistoryData(prev =>
-                prev.map(item =>
-                    item.indentNumber === editingCell.rowId
-                        ? { ...item, ...localUpdate }
-                        : item
-                )
-            );
-
-            setEditingCell(null);
-            setEditCellValue('');
-            setProductSearch('');
-        } catch (error: any) {
-            console.error('Error saving edit:', error);
-            toast.error('Failed to save: ' + error.message);
-        }
-    };
 
     const handleDownload = (data: (RecieveItemsData | HistoryData)[]) => {
         if (!data || data.length === 0) {
@@ -420,267 +350,148 @@ const ReceiveItems = () => {
         }
     };
 
-    const columns: ColumnDef<RecieveItemsData>[] = [
-        ...(user.receiveItemView
-            ? [
-                {
-                    header: 'Action',
-                    cell: ({ row }: { row: Row<RecieveItemsData> }) => {
-                        const indent = row.original;
+    const groupedHistoryData = useMemo(() => {
+        const groups = new Map<string, HistoryData[]>();
+        filteredHistoryData.forEach(item => {
+            const key = item.poNumber || item.indentNumber;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(item);
+        });
+        return Array.from(groups.entries()).map(([, items]) => {
+            const first = items[0];
+            return { poNumber: first.poNumber, vendor: first.vendor, receivedDate: first.receivedDate, billStatus: first.billStatus, items };
+        });
+    }, [filteredHistoryData]);
 
-                        return (
-                            <DialogTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                        setSelectedIndent(indent);
-                                    }}
-                                >
-                                    Store In
-                                </Button>
-                            </DialogTrigger>
-                        );
-                    },
-                },
-            ]
-            : []),
+    const historyColumns: ColumnDef<any>[] = [
         {
-            accessorKey: 'poDate',
-            header: 'PO Date',
-            accessorFn: (x) => formatDate(new Date(x.poDate)),
+            header: 'Action',
+            cell: ({ row }) => (
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setHistoryViewGroup(row.original)}>
+                    View
+                </Button>
+            ),
         },
         { accessorKey: 'poNumber', header: 'PO Number' },
+        { accessorKey: 'vendor', header: 'Vendor' },
+        { accessorKey: 'receivedDate', header: 'Date' },
         {
-            accessorKey: 'vendor',
-            header: 'Vendor',
-            cell: ({ row }) => (
-                <div className="whitespace-normal break-words min-w-[150px] max-w-[250px]">
-                    {row.original.vendor}
-                </div>
-            ),
-        },
-        { accessorKey: 'indentNumber', header: 'Indent No.' },
-        {
-            accessorKey: 'firm',
-            header: 'Firm',
-            cell: ({ getValue }) => (
-                <div className="whitespace-normal break-words min-w-[120px]">
-                    {getValue() as string}
-                </div>
-            ),
-        },
-        {
-            accessorKey: 'product',
-            header: 'Product',
-            cell: ({ row }) => (
-                <div className="whitespace-normal break-words min-w-[200px] max-w-[300px]">
-                    {row.original.product}
-                </div>
-            ),
-        },
-        { accessorKey: 'uom', header: 'UOM' },
-        { accessorKey: 'quantity', header: 'Purchase Qty' },
-        { accessorKey: 'receivedQty', header: 'Received Qty' },
-        { accessorKey: 'remainingQty', header: 'Remaining Qty' },
-        {
-            accessorKey: 'poCopy',
-            header: 'PO Copy',
+            header: 'Items',
             cell: ({ row }) => {
-                const poCopy = row.original.poCopy;
-                return poCopy ? (
-                    <a href={poCopy} target="_blank" className="text-blue-600 hover:underline">
-                        PDF
-                    </a>
-                ) : (
-                    <></>
-                );
-            },
-        },
-    ];
-
-    const historyColumns: ColumnDef<HistoryData>[] = [
-        {
-            accessorKey: 'receivedDate',
-            header: 'Date',
-        },
-        { accessorKey: 'poNumber', header: 'PO Number' },
-        { accessorKey: 'indentNumber', header: 'Indent No.' },
-        {
-            accessorKey: 'vendor',
-            header: 'Vendor',
-            cell: ({ row }) => (
-                <div className="whitespace-normal break-words min-w-[150px] max-w-[250px]">
-                    {row.original.vendor}
-                </div>
-            ),
-        },
-        {
-            accessorKey: 'product',
-            header: 'Product',
-            cell: ({ row }: { row: Row<HistoryData> }) => {
-                const item = row.original;
-                const isCellEditing = editingCell?.rowId === item.indentNumber && editingCell?.field === 'product';
-
-                if (isCellEditing) {
-                    const filteredItems = masterItems.filter(p =>
-                        p.toLowerCase().includes(productSearch.toLowerCase())
-                    );
-                    return (
-                        <div className="flex items-center gap-1">
-                            <Select
-                                value={editCellValue as string}
-                                onValueChange={(value) => setEditCellValue(value)}
-                            >
-                                <SelectTrigger className="w-[180px] text-xs sm:text-sm">
-                                    <SelectValue placeholder="Select Product" />
-                                </SelectTrigger>
-                                <SelectContent className="w-[300px] sm:w-[400px]">
-                                    <div className="sticky top-0 z-10 bg-popover p-2 border-b">
-                                        <div className="flex items-center bg-muted rounded-md px-3 py-1">
-                                            <Search className="h-4 w-4 shrink-0 opacity-50" />
-                                            <input
-                                                placeholder="Search product..."
-                                                value={productSearch}
-                                                onChange={(e) => setProductSearch(e.target.value)}
-                                                onKeyDown={(e) => e.stopPropagation()}
-                                                className="flex h-9 w-full bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground ml-2"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="max-h-[300px] overflow-y-auto p-1">
-                                        {filteredItems.map((p, i) => (
-                                            <SelectItem key={i} value={p} className="cursor-pointer">
-                                                {p}
-                                            </SelectItem>
-                                        ))}
-                                    </div>
-                                </SelectContent>
-                            </Select>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:bg-green-50" onClick={handleSaveCellEdit}>
-                                <Check className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:bg-red-50" onClick={handleCancelCellEdit}>
-                                <X className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                    );
-                }
-
+                const count = row.original.items.length;
                 return (
-                    <div className="flex items-center gap-1 whitespace-normal break-words min-w-[200px] max-w-[300px]">
-                        <span>{item.product}</span>
-                        <button
-                            className="ml-1 text-black hover:text-gray-700 shrink-0"
-                            onClick={() => handleStartCellEdit(item.indentNumber, 'product', item.product)}
-                        >
-                            <SquarePen className="h-3.5 w-3.5" />
-                        </button>
-                    </div>
-                );
-            },
-        },
-        { accessorKey: 'uom', header: 'UOM' },
-        { accessorKey: 'receivedQuantity', header: 'Received Qty' },
-        { accessorKey: 'damagedQuantity', header: 'Damaged Qty' },
-        { accessorKey: 'billNumber', header: 'Bill No.' },
-        { accessorKey: 'billAmount', header: 'Bill Amount' },
-        {
-            accessorKey: 'photoOfProduct',
-            header: 'Item Photo',
-            cell: ({ row }) => {
-                const photo = row.original.photoOfProduct;
-                return photo ? (
-                    <a href={photo} target="_blank" className="text-blue-600 hover:underline">
-                        View Item
-                    </a>
-                ) : (
-                    <>-</>
+                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                        {count} {count === 1 ? 'item' : 'items'}
+                    </span>
                 );
             },
         },
         {
-            accessorKey: 'photoOfBill',
-            header: 'Bill Photo',
-            cell: ({ row }) => {
-                const photo = row.original.photoOfBill;
-                return photo ? (
-                    <a href={photo} target="_blank" className="text-blue-600 hover:underline">
-                        View Bill
-                    </a>
-                ) : (
-                    <>-</>
-                );
-            },
+            accessorKey: 'billStatus',
+            header: 'Bill Status',
+            cell: ({ row }) => (
+                <Pill variant={row.original.billStatus === 'Received' ? 'primary' : 'secondary'}>
+                    {row.original.billStatus || '—'}
+                </Pill>
+            ),
         },
     ];
 
-    // Updated Schema
+    // Updated Schema — items are managed in local state, not in the form
     const schema = z.object({
-        items: z.array(
-            z.object({
-                indentNumber: z.string(),
-                quantity: z.coerce.number().min(0, 'Quantity must be 0 or more'),
-                damagedQuantity: z.coerce.number().min(0, 'Cannot be negative').default(0),
-            }).refine(item => item.damagedQuantity <= item.quantity, {
-                message: 'Damaged qty cannot exceed received qty',
-                path: ['damagedQuantity'],
-            })
-        ),
-        billStatus: z.string().min(1, 'Bill status is required'),
-        billNo: z.string().optional(),
-        billAmount: z.coerce.number().min(0).optional(),
+        billStatus: z.string().min(1, 'Required'),
+        billNo: z.string().min(1, 'Required'),
+        billAmount: z.coerce.number().optional(),
         typeOfBill: z.string().optional(),
-        paymentType: z.string().optional(),
+        paymentType: z.string().min(1, 'Required'),
         discountAmount: z.coerce.number().min(0).optional(),
         advanceAmount: z.coerce.number().min(0).optional(),
-        leadTime: z.string().optional(),
-        photoOfItem: z.instanceof(File).optional(),
-        photoOfBill: z.instanceof(File).optional(),
+        leadTime: z.string().min(1, 'Required'),
+        photoOfItem: z.instanceof(File, { message: 'Required' }),
+        photoOfBill: z.instanceof(File, { message: 'Required' }),
+    }).superRefine((data, ctx) => {
+        if (data.billStatus === 'Received') {
+            if (!data.billAmount || data.billAmount <= 0) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Required', path: ['billAmount'] });
+            }
+            if (!data.typeOfBill) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Required', path: ['typeOfBill'] });
+            }
+        }
     });
+
+    // Local state for item quantities — avoids RHF dynamic array registration issues
+    const [itemRows, setItemRows] = useState<Array<{ indentId: number; indentNumber: string; quantity: number; damagedQuantity: number; error?: string }>>([]);
+
+    const updateItemRow = (indentId: number, field: 'quantity' | 'damagedQuantity', value: number) => {
+        setItemRows(prev => prev.map((row) => {
+            if (row.indentId !== indentId) return row;
+            const updated = { ...row, [field]: value };
+            const qty = field === 'quantity' ? value : updated.quantity;
+            const dmg = field === 'damagedQuantity' ? value : updated.damagedQuantity;
+            updated.error = dmg > qty ? 'Damaged qty cannot exceed received qty' : undefined;
+            return updated;
+        }));
+    };
+
 
     // Updated Form
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
-            items: [],
             billStatus: 'Received',
             billNo: '',
-            billAmount: 0,
-            typeOfBill: 'Regular',
-            paymentType: 'Credit',
+            billAmount: undefined,
+            typeOfBill: '',
+            paymentType: '',
             discountAmount: 0,
             advanceAmount: 0,
             leadTime: '',
-            photoOfItem: undefined,
-            photoOfBill: undefined,
+            photoOfItem: undefined as unknown as File,
+            photoOfBill: undefined as unknown as File,
         },
     });
 
     // Updated useEffect for matching indents
     useEffect(() => {
-        if (selectedIndent) {
+        if (selectedIndent && openDialog) {
+            // Only initialize if we haven't already for this PO, or if poNumber changed
             const matching = tableData.filter(
                 (item) => item.poNumber === selectedIndent.poNumber
             );
+            
             setMatchingIndents(matching);
-
-            // Initialize items array in form with REMAINING quantity
-            const initialItems = matching.map((indent) => ({
-                indentNumber: indent.indentNumber,
-                quantity: indent.remainingQty || 0,
-                damagedQuantity: 0,
-            }));
-            form.setValue('items', initialItems);
+            
+            // Only set itemRows if they are empty or for a different PO to avoid resets while typing
+            setItemRows(prev => {
+                const firstRow = prev[0];
+                const isSamePO = firstRow && matching.some(m => m.poNumber === selectedIndent.poNumber);
+                if (isSamePO && prev.length === matching.length) return prev;
+                
+                return matching.map(indent => ({
+                    indentId: indent.id,
+                    indentNumber: indent.indentNumber,
+                    quantity: indent.remainingQty || 0,
+                    damagedQuantity: 0,
+                }));
+            });
         } else if (!openDialog) {
             setMatchingIndents([]);
+            setItemRows([]);
             form.reset();
         }
     }, [selectedIndent, openDialog, tableData]);
 
     // Updated onSubmit
     async function onSubmit(values: z.infer<typeof schema>) {
-        const itemsToReceive = values.items.filter(item => item.quantity > 0);
-        
+        // Validate item rows (managed in local state, not form)
+        const hasError = itemRows.some(r => r.error);
+        if (hasError) {
+            toast.error('Fix quantity errors before submitting');
+            return;
+        }
+        const itemsToReceive = itemRows.filter(item => item.quantity > 0);
+
         if (itemsToReceive.length === 0) {
             toast.error('Please enter quantity for at least one item');
             return;
@@ -688,7 +499,7 @@ const ReceiveItems = () => {
 
         try {
             setLoading(true);
-            
+
             // Photo uploads
             let itemPhotoUrl = '';
             if (values.photoOfItem) {
@@ -702,16 +513,18 @@ const ReceiveItems = () => {
 
             const nowIso = new Date().toISOString();
 
-            // Insert received items into backend
+            // Insert received items — use index-based lookup so each product maps correctly
             const receivedRows = itemsToReceive.map((item) => {
-                const originalItem = matchingIndents.find(i => i.indentNumber === item.indentNumber);
+                const originalItem = matchingIndents.find(i => i.id === item.indentId)
+                    ?? matchingIndents[itemRows.indexOf(item)];
                 const goodQuantity = item.quantity - (item.damagedQuantity || 0);
 
                 return {
-                    indent_number: item.indentNumber,
+                    indent_id: item.indentId,
                     poNumber: selectedIndent?.poNumber || '',
                     vendor: selectedIndent?.vendor || '',
                     product: originalItem?.product || '',
+                    uom: originalItem?.uom || '',
                     receivedQuantity: goodQuantity,
                     damagedQuantity: item.damagedQuantity || 0,
                     photoOfProduct: itemPhotoUrl,
@@ -724,7 +537,7 @@ const ReceiveItems = () => {
                     advanceAmount: values.advanceAmount,
                     leadTimeToLiftMaterial: values.leadTime,
                     photoOfBill: billPhotoUrl,
-                    planned: nowIso, // marks this record as "submitted" — used to filter pending vs history
+                    planned: nowIso,
                 };
             });
 
@@ -751,7 +564,7 @@ const ReceiveItems = () => {
         }
     }
 
-    function onError(e: FieldErrors<z.infer<typeof schema>>) {
+    function onError(e: any) {
         console.log(e);
         toast.error('Please fill all required fields');
     }
@@ -888,18 +701,9 @@ const ReceiveItems = () => {
 
                     <TabsContent value="history">
                         <DataTable
-                            data={historyData}
+                            data={groupedHistoryData}
                             columns={historyColumns}
-                            searchFields={[
-                                'indentNumber',
-                                'poNumber',
-                                'poDate',
-                                'vendor',
-                                'receiveStatus',
-                                'product',
-                                'receivedDate',
-                                'billNumber'
-                            ]}
+                            searchFields={['poNumber', 'vendor']}
                             dataLoading={historyInitialLoading}
                             isSearching={historySearching}
                             totalCount={historyTotal}
@@ -992,57 +796,44 @@ const ReceiveItems = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
-                                                {matchingIndents.map((indent, index) => (
-                                                    <tr key={indent.indentNumber} className="hover:bg-muted/30 transition-colors">
-                                                        <td className="px-4 py-3 font-mono text-xs">{indent.indentNumber}</td>
-                                                        <td className="px-4 py-3 text-xs text-muted-foreground">{indent.productCode || '-'}</td>
-                                                        <td className="px-4 py-3 max-w-[200px] truncate">{indent.product}</td>
-                                                        <td className="px-4 py-3 text-center text-xs">{indent.uom}</td>
-                                                        <td className="px-4 py-3 text-center font-medium text-blue-600">{indent.remainingQty}</td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            <FormField
-                                                                control={form.control}
-                                                                name={`items.${index}.quantity`}
-                                                                render={({ field }) => (
-                                                                    <FormItem>
-                                                                        <FormControl>
-                                                                            <Input
-                                                                                type="number"
-                                                                                className="h-8 text-right font-semibold"
-                                                                                max={indent.remainingQty}
-                                                                                {...field}
-                                                                            />
-                                                                        </FormControl>
-                                                                    </FormItem>
-                                                                )}
-                                                            />
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            <FormField
-                                                                control={form.control}
-                                                                name={`items.${index}.damagedQuantity`}
-                                                                render={({ field, fieldState }) => (
-                                                                    <FormItem>
-                                                                        <FormControl>
-                                                                            <Input
-                                                                                type="number"
-                                                                                className={`h-8 text-right ${fieldState.error ? 'border-red-500' : ''}`}
-                                                                                min={0}
-                                                                                {...field}
-                                                                            />
-                                                                        </FormControl>
-                                                                        {fieldState.error && (
-                                                                            <p className="text-xs text-red-500 text-right">{fieldState.error.message}</p>
-                                                                        )}
-                                                                    </FormItem>
-                                                                )}
-                                                            />
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right font-semibold text-green-700">
-                                                            {Math.max(0, (Number(form.watch(`items.${index}.quantity`)) || 0) - (Number(form.watch(`items.${index}.damagedQuantity`)) || 0))}
-                                                        </td>
-                                                    </tr>
-                                                ))}
+                                                {matchingIndents.map((indent, index) => {
+                                                    const row = itemRows.find(r => r.indentId === indent.id) || { quantity: 0, damagedQuantity: 0, error: undefined as string | undefined };
+                                                    return (
+                                                        <tr key={indent.id} className="hover:bg-muted/30 transition-colors">
+
+                                                            <td className="px-4 py-3 font-mono text-xs">{indent.indentNumber}</td>
+                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{indent.productCode || '-'}</td>
+                                                            <td className="px-4 py-3 max-w-[200px] truncate">{indent.product}</td>
+                                                            <td className="px-4 py-3 text-center text-xs">{indent.uom}</td>
+                                                            <td className="px-4 py-3 text-center font-medium text-blue-600">{indent.remainingQty}</td>
+                                                            <td className="px-4 py-3 text-right">
+                                                                <Input
+                                                                    type="number"
+                                                                    className="h-8 text-right font-semibold"
+                                                                    max={indent.remainingQty}
+                                                                    min={0}
+                                                                    value={row.quantity}
+                                                                    onChange={e => updateItemRow(indent.id, 'quantity', Number(e.target.value) || 0)}
+
+                                                                />
+                                                            </td>
+                                                            <td className="px-4 py-3 text-right">
+                                                                <Input
+                                                                    type="number"
+                                                                    className={`h-8 text-right ${row.error ? 'border-red-500' : ''}`}
+                                                                    min={0}
+                                                                    value={row.damagedQuantity}
+                                                                    onChange={e => updateItemRow(indent.id, 'damagedQuantity', Number(e.target.value) || 0)}
+
+                                                                />
+                                                                {row.error && <p className="text-xs text-red-500 text-right mt-0.5">{row.error}</p>}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-right font-semibold text-green-700">
+                                                                {Math.max(0, row.quantity - row.damagedQuantity)}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -1056,13 +847,14 @@ const ReceiveItems = () => {
                                         </h4>
                                         
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+                                            {/* Bill Status — always shown */}
                                             <FormField
                                                 control={form.control}
                                                 name="billStatus"
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel className="text-xs font-semibold">Bill Status</FormLabel>
-                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <FormLabel className="text-xs font-semibold">Bill Status <span className="text-red-500">*</span></FormLabel>
+                                                        <Select onValueChange={field.onChange} value={field.value}>
                                                             <FormControl>
                                                                 <SelectTrigger className="h-10 text-sm shadow-sm">
                                                                     <SelectValue placeholder="Select status" />
@@ -1077,29 +869,37 @@ const ReceiveItems = () => {
                                                 )}
                                             />
 
-                                            {form.watch('billStatus') !== 'Not Received' && (
-                                                <>
-                                                    <FormField
-                                                        control={form.control}
-                                                        name="billNo"
-                                                        render={({ field }) => (
-                                                            <FormItem>
-                                                                <FormLabel className="text-xs font-semibold">Challan Number</FormLabel>
-                                                                <FormControl>
-                                                                    <Input placeholder="Challan#" className="h-10 text-sm shadow-sm" {...field} />
-                                                                </FormControl>
-                                                            </FormItem>
-                                                        )}
-                                                    />
+                                            {/* Challan / Bill Number — always shown, label depends on status */}
+                                            <FormField
+                                                control={form.control}
+                                                name="billNo"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs font-semibold">
+                                                            {form.watch('billStatus') === 'Received' ? 'Bill Number' : 'Challan Number'}
+                                                            {' '}<span className="text-red-500">*</span>
+                                                        </FormLabel>
+                                                        <FormControl>
+                                                            <Input
+                                                                className="h-10 text-sm shadow-sm"
+                                                                {...field}
+                                                            />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
 
+                                            {/* Bill Amount + Type of Bill — only when Received */}
+                                            {form.watch('billStatus') === 'Received' && (
+                                                <>
                                                     <FormField
                                                         control={form.control}
                                                         name="billAmount"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel className="text-xs font-semibold">Bill Amount</FormLabel>
+                                                                <FormLabel className="text-xs font-semibold">Bill Amount <span className="text-red-500">*</span></FormLabel>
                                                                 <FormControl>
-                                                                    <Input type="number" className="h-10 text-sm shadow-sm" {...field} />
+                                                                    <Input type="number" step="0.01" className="h-10 text-sm shadow-sm" {...field} />
                                                                 </FormControl>
                                                             </FormItem>
                                                         )}
@@ -1110,11 +910,11 @@ const ReceiveItems = () => {
                                                         name="typeOfBill"
                                                         render={({ field }) => (
                                                             <FormItem>
-                                                                <FormLabel className="text-xs font-semibold">Type of Bill</FormLabel>
-                                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                                <FormLabel className="text-xs font-semibold">Type of Bill <span className="text-red-500">*</span></FormLabel>
+                                                                <Select onValueChange={field.onChange} value={field.value}>
                                                                     <FormControl>
                                                                         <SelectTrigger className="h-10 text-sm shadow-sm">
-                                                                            <SelectValue placeholder="Type" />
+                                                                            <SelectValue placeholder="Select type" />
                                                                         </SelectTrigger>
                                                                     </FormControl>
                                                                     <SelectContent>
@@ -1129,16 +929,17 @@ const ReceiveItems = () => {
                                                 </>
                                             )}
 
+                                            {/* Payment Type — always shown */}
                                             <FormField
                                                 control={form.control}
                                                 name="paymentType"
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel className="text-xs font-semibold">Payment Type</FormLabel>
-                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <FormLabel className="text-xs font-semibold">Payment Type <span className="text-red-500">*</span></FormLabel>
+                                                        <Select onValueChange={field.onChange} value={field.value}>
                                                             <FormControl>
                                                                 <SelectTrigger className="h-10 text-sm shadow-sm">
-                                                                    <SelectValue placeholder="Type" />
+                                                                    <SelectValue placeholder="Select type" />
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
@@ -1151,12 +952,13 @@ const ReceiveItems = () => {
                                                 )}
                                             />
 
+                                            {/* Lead Time — always shown */}
                                             <FormField
                                                 control={form.control}
                                                 name="leadTime"
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel className="text-xs font-semibold">Actual time to receive material</FormLabel>
+                                                        <FormLabel className="text-xs font-semibold">Actual time to receive material <span className="text-red-500">*</span></FormLabel>
                                                         <FormControl>
                                                             <Input placeholder="e.g. 5 Days" className="h-10 text-sm shadow-sm" {...field} />
                                                         </FormControl>
@@ -1164,6 +966,7 @@ const ReceiveItems = () => {
                                                 )}
                                             />
 
+                                            {/* Discount & Advance — always shown, optional */}
                                             <FormField
                                                 control={form.control}
                                                 name="discountAmount"
@@ -1205,7 +1008,7 @@ const ReceiveItems = () => {
                                             name="photoOfItem"
                                             render={({ field }) => (
                                                 <FormItem>
-                                                    <FormLabel className="text-xs">Photo of Received Items</FormLabel>
+                                                    <FormLabel className="text-xs">Photo of Received Items <span className="text-red-500">*</span></FormLabel>
                                                     <FormControl>
                                                         <Input
                                                             type="file"
@@ -1222,7 +1025,7 @@ const ReceiveItems = () => {
                                             name="photoOfBill"
                                             render={({ field }) => (
                                                 <FormItem>
-                                                    <FormLabel className="text-xs">Photo of Invoice / Bill</FormLabel>
+                                                    <FormLabel className="text-xs">Photo of Invoice / Bill <span className="text-red-500">*</span></FormLabel>
                                                     <FormControl>
                                                         <Input
                                                             type="file"
@@ -1257,6 +1060,92 @@ const ReceiveItems = () => {
                         </Form>
                     </DialogContent>
                 )}
+            </Dialog>
+
+            {/* History detail dialog */}
+            <Dialog open={!!historyViewGroup} onOpenChange={(open) => !open && setHistoryViewGroup(null)}>
+                <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Received Items — {historyViewGroup?.poNumber}</DialogTitle>
+                    </DialogHeader>
+
+                    <div className="space-y-6 py-2">
+                        {(() => {
+                            const first = historyViewGroup?.items[0];
+                            return (
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-muted/30 p-4 rounded-lg">
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">PO Number</p>
+                                        <p className="text-sm font-medium">{historyViewGroup?.poNumber}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Vendor</p>
+                                        <p className="text-sm font-medium">{historyViewGroup?.vendor}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Date</p>
+                                        <p className="text-sm font-medium">{historyViewGroup?.receivedDate}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Bill Status</p>
+                                        <Pill variant={historyViewGroup?.billStatus === 'Received' ? 'primary' : 'secondary'}>
+                                            {historyViewGroup?.billStatus || '—'}
+                                        </Pill>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Bill / Challan No.</p>
+                                        <p className="text-sm font-medium">{first?.billNumber || '—'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Bill Amount</p>
+                                        <p className="text-sm font-medium">{first?.billAmount ? `₹${first.billAmount.toLocaleString()}` : '—'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Item Photo</p>
+                                        {first?.photoOfProduct
+                                            ? <a href={first.photoOfProduct} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline font-medium">View</a>
+                                            : <p className="text-sm text-muted-foreground">—</p>}
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Bill Photo</p>
+                                        {first?.photoOfBill
+                                            ? <a href={first.photoOfBill} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline font-medium">View</a>
+                                            : <p className="text-sm text-muted-foreground">—</p>}
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
+                        <div className="rounded-md border overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">Product Code</TableHead>
+                                        <TableHead className="text-xs">Product</TableHead>
+                                        <TableHead className="text-xs">UOM</TableHead>
+                                        <TableHead className="text-xs text-right">Received Qty</TableHead>
+                                        <TableHead className="text-xs text-right">Damaged Qty</TableHead>
+                                        <TableHead className="text-xs text-right">Good Qty</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {historyViewGroup?.items.slice().sort((a, b) => (a.product || '').localeCompare(b.product || '')).map((item, i) => (
+                                        <TableRow key={i}>
+                                            <TableCell className="text-xs font-mono">{item.productCode || '—'}</TableCell>
+                                            <TableCell className="text-xs font-medium max-w-[200px]">{item.product}</TableCell>
+                                            <TableCell className="text-xs">{item.uom}</TableCell>
+                                            <TableCell className="text-xs text-right">{item.receivedQuantity}</TableCell>
+                                            <TableCell className="text-xs text-right">{item.damagedQuantity}</TableCell>
+                                            <TableCell className="text-xs text-right font-semibold text-green-700">
+                                                {Math.max(0, item.receivedQuantity - item.damagedQuantity)}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </div>
+                </DialogContent>
             </Dialog>
         </div>
     );

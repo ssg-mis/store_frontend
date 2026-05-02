@@ -114,55 +114,11 @@ export default () => {
     const pendingAbortRef = useRef<AbortController | null>(null);
     const historyAbortRef = useRef<AbortController | null>(null);
 
-    const [editingRow, setEditingRow] = useState<string | null>(null);
-    const [editValues, setEditValues] = useState<{
-        quantity?: number;
-        requestedQuantity?: number;
-        indentNo?: string;
-        department?: string;
-        product?: string;
-    }>({});
-
-    const [editingField, setEditingField] = useState<"quantity" | "requestedQuantity" | null>(null);
 
 
 
-    const handleSaveEdit = async (row: HistoryData) => {
-        try {
-            setLoading(true);
-            const updateData = {
-                indentNumber: row.indentNo,
-                issuedQuantity: editValues.quantity,
-                quantity: editValues.requestedQuantity
-            };
 
-            // Note: In a real Prisma setup, we might need the numeric ID.
-            // But since our controllers use indent_number for lookup in some cases or 
-            // we should ensure the backend handles this. 
-            // Our current updateIndent controller uses `where: { id: parseInt(id) }`.
-            // I should update the controller to support indentNumber if needed, 
-            // or fetch the ID first.
 
-            // For now, I'll assume we need to update by indentNumber which is unique.
-            const result = await postToSheet([updateData], 'update', 'INDENT');
-
-            if (result.success) {
-                toast.success(`Updated ${row.indentNo}`);
-                setEditingRow(null);
-                setEditValues({});
-                fetchData();
-                updateIndentSheet();
-                updateRelatedSheets();
-            } else {
-                toast.error('Failed to update');
-            }
-        } catch (error) {
-            console.error('Update error:', error);
-            toast.error("An error occurred during update");
-        } finally {
-            setLoading(false);
-        }
-    };
 
 
 
@@ -180,7 +136,7 @@ export default () => {
 
         try {
             const data: any = await fetchFromSupabasePaginated('indent', '*',
-                { column: 'createdAt', options: { ascending: false } },
+                { column: 'createdAt', options: { ascending: true } },
                 undefined, undefined,
                 { 
                     page: pageValue, 
@@ -238,7 +194,7 @@ export default () => {
 
         try {
             const data: any = await fetchFromSupabasePaginated('indent', '*',
-                { column: 'createdAt', options: { ascending: false } },
+                { column: 'createdAt', options: { ascending: true } },
                 undefined, undefined,
                 { 
                     page: pageValue, 
@@ -427,7 +383,7 @@ export default () => {
             <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
                 <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
-                        <span className="font-semibold text-muted-foreground mr-1">Item:</span>
+                        <span className="font-semibold text-muted-foreground mr-1">Product:</span>
                         <SelectValue placeholder="All" />
                     </div>
                 </SelectTrigger>
@@ -453,7 +409,7 @@ export default () => {
                         return (
                             <div className="flex justify-center">
                                 <Button
-                                    variant="default"
+                                    variant="outline"
                                     disabled={rejecting}
                                     onClick={() => {
                                         setSelectedIndent(indent);
@@ -467,7 +423,7 @@ export default () => {
                                             aria-label="Loading Spinner"
                                         />
                                     )}
-                                    Done
+                                    Update
                                 </Button>
                             </div>
                         );
@@ -479,9 +435,9 @@ export default () => {
         { accessorKey: 'firm', header: 'Firm' },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
-        { accessorKey: 'product', header: 'Item' },
+        { accessorKey: 'product', header: 'Product' },
+        { accessorKey: 'quantity', header: 'Quantity' },
         { accessorKey: 'date', header: 'Date' },
-        { accessorKey: 'validityDate', header: 'Validity Date' },
         { accessorKey: 'specifications', header: 'Specifications' },
         {
             accessorKey: 'attachment',
@@ -501,118 +457,23 @@ export default () => {
 
 
     const historyColumns: ColumnDef<HistoryData>[] = [
-        {
-            header: "Edit",
-            id: "edit",
-            cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                return isEditing ? (
-                    <div className="flex gap-1">
-                        <Button
-                            size="sm"
-                            onClick={() => handleSaveEdit(row.original)}
-                            className="flex items-center gap-1"
-                        >
-                            <SaveOutlined /> Save
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                                setEditingRow(null);
-                                setEditValues({});
-                            }}
-                            className="flex items-center gap-1"
-                        >
-                            Cancel
-                        </Button>
-                    </div>
-                ) : (
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                            setEditingRow(row.original.indentNo);
-                            setEditValues({
-                                quantity: row.original.quantity,
-                                requestedQuantity: row.original.requestedQuantity,
-                                indentNo: row.original.indentNo,
-                                department: row.original.department,
-                                product: row.original.product,
-                            });
-                            setEditingField("quantity"); // Default focus on quantity
-                        }}
-                    >
-                        <EditOutlined /> Edit
-                    </Button>
 
-                );
-            },
-        },
 
         { accessorKey: "indentNo", header: "Indent No." },
         { accessorKey: "firm", header: "Firm" },
         { accessorKey: "indenter", header: "Indenter" },
         { accessorKey: "department", header: "Department" },
-        { accessorKey: "product", header: "Item" },
+        { accessorKey: "product", header: "Product" },
         { accessorKey: "uom", header: "UOM" },
 
         // 👇 Issued Quantity editable banaya
 
 
-        // 2. Update the input cells to use a more stable approach:
-        {
-            accessorKey: "quantity",
-            header: "Issued Quantity",
-            cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                if (isEditing) {
-                    return (
-                        <Input
-                            type="number"
-                            value={editValues.quantity ?? ""}
-                            onChange={e =>
-                                setEditValues(prev => ({
-                                    ...prev,
-                                    quantity: e.target.value === "" ? undefined : Number(e.target.value)
-                                }))
-                            }
-                            autoFocus={editingField === "quantity"}
-                            onFocus={() => setEditingField("quantity")}
-                        />
-                    );
-                }
-                return row.original.quantity;
-            },
-        },
-        {
-            accessorKey: "requestedQuantity",
-            header: "Requested Quantity",
-            cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                if (isEditing) {
-                    return (
-                        <Input
-                            type="number"
-                            value={editValues.requestedQuantity ?? ""}
-                            onChange={e =>
-                                setEditValues(prev => ({
-                                    ...prev,
-                                    requestedQuantity: e.target.value === "" ? undefined : Number(e.target.value)
-                                }))
-                            }
-                            autoFocus={editingField === "requestedQuantity"}
-                            onFocus={() => setEditingField("requestedQuantity")}
-                        />
-                    );
-                }
-                return row.original.requestedQuantity;
-            },
-        },
+        { accessorKey: "quantity", header: "Issued Quantity" },
+        { accessorKey: "requestedQuantity", header: "Requested Quantity" },
 
 
         { accessorKey: "issueApprovedBy", header: "Issue Approved By" },
-        { accessorKey: "validityDate", header: "Validity Date" },
         { accessorKey: "date", header: "Request Date" },
         { accessorKey: "approvalDate", header: "Approval Date" },
         {
@@ -696,7 +557,7 @@ export default () => {
                 const plannedDate = selectedIndent?.planned ? new Date(selectedIndent.planned) : null;
 
                 const approvalData = {
-                    indent_number: selectedIndent?.indentNo,
+                    indent_id: selectedIndent?.id,
                     issueApprovedBy: values.issueApprovedBy,
                     issueStatus: values.issueStatus,
                     issuedQuantity: values.issuedQuantity,

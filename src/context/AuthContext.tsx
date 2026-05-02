@@ -24,8 +24,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const stored = localStorage.getItem('auth');
         if (stored) {
             try {
-                const { user } = JSON.parse(stored);
-                if (user) {
+                const { user, token } = JSON.parse(stored);
+                
+                // Check token expiration
+                const isExpired = (t: string) => {
+                    try {
+                        const payload = JSON.parse(atob(t.split('.')[1]));
+                        return payload.exp * 1000 < Date.now();
+                    } catch {
+                        return true;
+                    }
+                };
+
+                if (user && token && !isExpired(token)) {
                     const permissions = user.permissions || {};
                     const camelPermissions = toCamelCase(permissions);
                     const flattenedUser = { 
@@ -35,6 +46,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                     };
                     setUserPermissions(flattenedUser);
                     setLoggedIn(true);
+                } else if (isExpired(token)) {
+                    console.warn('Session expired, logging out.');
+                    localStorage.removeItem('auth');
                 }
             } catch (error) {
                 console.error('Session Restoration Error:', error);

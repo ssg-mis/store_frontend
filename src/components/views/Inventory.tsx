@@ -21,21 +21,20 @@ interface InventoryTable {
     uom: string;
     status: string;
     opening: number;
-    rate: number;
     indented: number;
     approved: number;
     purchaseQuantity: number;
     storeOut: number;
     current: number;
-    totalPrice: number;
     maxLevel: number;
 }
 
+
 interface EditForm {
     opening: string;
-    rate: string;
     maxLevel: string;
 }
+
 
 export default () => {
     const { inventorySheet, inventoryLoading, updateInventorySheet } = useSheets();
@@ -43,16 +42,15 @@ export default () => {
     const [tableData, setTableData] = useState<InventoryTable[]>([]);
     const [editOpen, setEditOpen] = useState(false);
     const [editRow, setEditRow] = useState<InventoryTable | null>(null);
-    const [editForm, setEditForm] = useState<EditForm>({ opening: '', rate: '', maxLevel: '' });
+    const [editForm, setEditForm] = useState<EditForm>({ opening: '', maxLevel: '' });
     const [saving, setSaving] = useState(false);
+
 
     useEffect(() => {
         setTableData(
             inventorySheet.map((i) => ({
                 inventoryId: i.inventoryId ?? null,
-                totalPrice: Number(i.totalPrice || 0),
                 uom: i.uom || '-',
-                rate: Number(i.individualRate || 0),
                 current: Number(i.current || 0),
                 status: i.colorCode || 'green',
                 indented: Number(i.indented || 0),
@@ -64,6 +62,7 @@ export default () => {
                 storeOut: Number(i.storeOut || 0),
                 maxLevel: Number(i.maxLevel || 0),
             }))
+
                 .reverse()
         );
     }, [inventorySheet]);
@@ -79,10 +78,10 @@ export default () => {
         setEditRow(row);
         setEditForm({
             opening: row.opening ? String(row.opening) : '',
-            rate: row.rate ? String(row.rate) : '',
             maxLevel: row.maxLevel ? String(row.maxLevel) : '',
         });
         setEditOpen(true);
+
     }
 
     async function handleSave() {
@@ -94,9 +93,9 @@ export default () => {
                 groupHead: editRow.groupHead,
                 uom: editRow.uom,
                 opening: parseFloat(editForm.opening) || 0,
-                individualRate: parseFloat(editForm.rate) || 0,
                 maxLevel: editForm.maxLevel ? parseFloat(editForm.maxLevel) : null,
             };
+
 
             let result;
             if (editRow.inventoryId) {
@@ -143,11 +142,14 @@ export default () => {
         },
         { accessorKey: 'uom', header: 'UOM' },
         { accessorKey: 'groupHead', header: 'Department Head' },
-        {
-            accessorKey: 'rate',
-            header: 'Rate',
-            cell: ({ row }) => <>&#8377;{Number(row.original.rate).toFixed(2)}</>,
-        },
+        { accessorKey: 'opening', header: 'Opening' },
+
+        { accessorKey: 'indented', header: 'Indented' },
+        { accessorKey: 'approved', header: 'Approved' },
+        { accessorKey: 'purchaseQuantity', header: 'Purchased' },
+        { accessorKey: 'storeOut', header: 'Store Out' },
+        { accessorKey: 'current', header: 'Current Stock' },
+
         {
             accessorKey: 'status',
             header: 'Status',
@@ -164,17 +166,6 @@ export default () => {
                 }
                 return <Pill variant="secondary">In Stock</Pill>;
             },
-        },
-        { accessorKey: 'opening', header: 'Opening' },
-        { accessorKey: 'indented', header: 'Indented' },
-        { accessorKey: 'approved', header: 'Approved' },
-        { accessorKey: 'purchaseQuantity', header: 'Purchased' },
-        { accessorKey: 'storeOut', header: 'Store Out' },
-        { accessorKey: 'current', header: 'Current Stock' },
-        {
-            accessorKey: 'totalPrice',
-            header: 'Total Price',
-            cell: ({ row }) => <>&#8377;{Number(row.original.totalPrice).toFixed(2)}</>,
         },
     ];
 
@@ -211,15 +202,6 @@ export default () => {
                             />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <Label className="text-sm font-medium">Rate per Unit (₹)</Label>
-                            <Input
-                                type="number"
-                                value={editForm.rate}
-                                onChange={(e) => setEditForm(p => ({ ...p, rate: e.target.value }))}
-                                placeholder="Enter rate"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
                             <Label className="text-sm font-medium">Max Level (optional)</Label>
                             <Input
                                 type="number"
@@ -228,6 +210,7 @@ export default () => {
                                 placeholder="Enter max stock level"
                             />
                         </div>
+
                         <Button
                             className="w-full"
                             onClick={handleSave}

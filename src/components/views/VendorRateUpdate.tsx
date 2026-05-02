@@ -70,11 +70,11 @@ interface HistoryData {
     quantity: number;
     uom: string;
     placeholder?: string;
-    rate: number;
+    rate1: number;
     vendorType: 'Three Party' | 'Regular';
     date: string;
     lastUpdated?: string;
-    vendorName?: string;
+    vendorName1?: string;
     vendorName2?: string;
     rate2?: number;
     paymentTerm1?: string;
@@ -87,12 +87,28 @@ interface HistoryData {
     comparisonSheet?: string;
 }
 
+interface PendingGroup {
+    indentNo: string;
+    firm: string;
+    indenter: string;
+    department: string;
+    areaOfUse?: string;
+    groupHead?: string;
+    indentApprovedBy?: string;
+    requestDate: string;
+    approvalDate: string;
+    date: string;
+    validityDate: string;
+    items: (VendorUpdateData & { displayCode: string; baseIndentNo: string })[];
+}
+
 export default () => {
     const { user } = useAuth();
     const { updateIndentSheet, updateRelatedSheets } = useSheets();
 
-    const [selectedIndent, setSelectedIndent] = useState<VendorUpdateData | null>(null);
+    const [selectedGroup, setSelectedGroup] = useState<PendingGroup | null>(null);
     const [selectedHistory, setSelectedHistory] = useState<HistoryData | null>(null);
+    const [viewingHistoryGroup, setViewingHistoryGroup] = useState<any>(null);
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);
     const [tableData, setTableData] = useState<VendorUpdateData[]>([]);
     const [editingRow, setEditingRow] = useState<string | null>(null);
@@ -184,7 +200,7 @@ export default () => {
 
         try {
             const data: any = await fetchFromSupabasePaginated('approved_indent', '*',
-                { column: 'createdAt', options: { ascending: false } },
+                { column: 'createdAt', options: { ascending: true } },
                 undefined, undefined,
                 { page: pageValue, limit: 50, search: searchQuery, status: 'Pending' }
             );
@@ -244,12 +260,12 @@ export default () => {
             // Fetch from vendor_rate_update (Pending = not yet three-party approved)
             const [rateData, threePartyData]: [any, any] = await Promise.all([
                 fetchFromSupabasePaginated('vendor_rate_update', '*',
-                    { column: 'createdAt', options: { ascending: false } },
+                    { column: 'createdAt', options: { ascending: true } },
                     undefined, undefined,
                     { page: pageValue, limit: 50, search: searchQuery }
                 ),
                 fetchFromSupabasePaginated('three_party_approval', '*',
-                    { column: 'createdAt', options: { ascending: false } },
+                    { column: 'createdAt', options: { ascending: true } },
                     undefined, undefined,
                     { page: pageValue, limit: 50, search: searchQuery }
                 )
@@ -273,9 +289,9 @@ export default () => {
                         productCode: record.productCode || record.product_code || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
-                        rate: record.rate1 || 0,
-                        vendorType: 'Regular',
-                        vendorName: record.vendorName1 || '',
+                        rate1: record.rate1 || 0,
+                        vendorType: record.vendorType || (record.vendorName2 ? 'Three Party' : 'Regular'),
+                        vendorName1: record.vendorName1 || '',
                         vendorName2: record.vendorName2 || '',
                         rate2: record.rate2 || 0,
                         paymentTerm1: record.paymentTerm1 || '',
@@ -304,9 +320,9 @@ export default () => {
                         productCode: record.productCode || record.product_code || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
-                        rate: record.approvedRate || 0,
-                        vendorType: 'Three Party',
-                        vendorName: record.approvedVendorName || '',
+                        rate1: record.approvedRate || 0,
+                        vendorType: record.vendorType || (record.approvedVendorName ? 'Regular' : 'Three Party'),
+                        vendorName1: record.approvedVendorName || '',
                         requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
                     });
@@ -507,31 +523,108 @@ export default () => {
             groups.get(baseIndentNo)!.push(item);
         });
 
-        return Array.from(groups.entries()).map(([baseIndentNo, items]) => {
-            const itemsWithCode = items.map(item => {
+        return Array.from(groups.entries())
+            .map(([baseIndentNo, items]) => {
+                // Sort items within group by date ascending
+                const sortedItems = [...items].sort((a, b) => 
+                    new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
+                );
+
+                const itemsWithCode = sortedItems.map(item => {
+                    return {
+                        ...item,
+                        displayCode: item.productCode || '', // Show empty in UI if productCode is not in DB
+                        baseIndentNo
+                    };
+                });
+                const first = sortedItems[0];
                 return {
-                    ...item,
-                    displayCode: item.productCode || '', // Show empty in UI if productCode is not in DB
-                    baseIndentNo
+                    indentNo: baseIndentNo,
+                    firm: first.firm,
+                    indenter: first.indenter,
+                    department: first.department,
+                    areaOfUse: first.areaOfUse,
+                    groupHead: first.groupHead,
+                    indentApprovedBy: first.indentApprovedBy,
+                    requestDate: first.requestDate,
+                    approvalDate: first.approvalDate,
+                    date: first.date,
+                    validityDate: first.validityDate,
+                    items: itemsWithCode,
                 };
-            });
-            const first = items[0];
-            return {
-                indentNo: baseIndentNo,
-                firm: first.firm,
-                indenter: first.indenter,
-                department: first.department,
-                areaOfUse: first.areaOfUse,
-                groupHead: first.groupHead,
-                indentApprovedBy: first.indentApprovedBy,
-                requestDate: first.requestDate,
-                approvalDate: first.approvalDate,
-                date: first.date,
-                validityDate: first.validityDate,
-                items: itemsWithCode,
-            };
-        });
+            })
+            // Sort groups by date ascending
+            .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
     }, [filteredTableData]);
+
+    const groupedHistoryData = useMemo(() => {
+        const groups = new Map<string, HistoryData[]>();
+        filteredHistoryData.forEach(item => {
+            const baseIndentNo = item.indentNo.replace(/-[A-Z]+$/, '');
+            if (!groups.has(baseIndentNo)) {
+                groups.set(baseIndentNo, []);
+            }
+            groups.get(baseIndentNo)!.push(item);
+        });
+
+        return Array.from(groups.entries())
+            .map(([baseIndentNo, items]) => {
+                // Deduplicate by product: same indent+product can appear in both
+                // vendor_rate_update and three_party_approval — keep three_party if present
+                const seenProducts = new Map<string, HistoryData>();
+                for (const item of items) {
+                    const key = item.productCode || item.product || item.indentNo;
+                    const existing = seenProducts.get(key);
+                    if (!existing) {
+                        seenProducts.set(key, item);
+                    } else if (item.source === 'three_party') {
+                        // Merge: take three_party data but preserve vendor names from rate_update if missing
+                        seenProducts.set(key, {
+                            ...item,
+                            rate1: item.rate1 || existing.rate1,
+                        rate2: item.rate2 || existing.rate2,
+                        rate3: item.rate3 || existing.rate3,
+                        vendorName1: item.vendorName1 || existing.vendorName1,
+                            vendorName2: item.vendorName2 || existing.vendorName2,
+                            vendorName3: item.vendorName3 || existing.vendorName3,
+                        });
+                    } else if (existing.source === 'three_party') {
+                        // Current is rate_update, existing is three_party: update existing with our vendor names
+                        seenProducts.set(key, {
+                            ...existing,
+                            vendorName1: existing.vendorName1 || item.vendorName1,
+                            vendorName2: existing.vendorName2 || item.vendorName2,
+                            vendorName3: existing.vendorName3 || item.vendorName3,
+                        });
+                    }
+                }
+                // Sort deduplicated items by date ascending
+                const deduplicatedItems = Array.from(seenProducts.values()).sort((a, b) => 
+                    new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
+                );
+
+                const first = deduplicatedItems[0];
+                return {
+                    indentNo: baseIndentNo,
+                    firm: first.firm,
+                    indenter: first.indenter,
+                    department: first.department,
+                    vendorName1: first.vendorName1,
+                    vendorName2: first.vendorName2,
+                    vendorName3: first.vendorName3,
+                    rate1: first.rate1,
+                    rate2: first.rate2,
+                    rate3: first.rate3,
+                    vendorType: first.vendorType,
+                    date: first.date,
+                    requestDate: first.requestDate,
+                    approvalDate: first.approvalDate,
+                    items: deduplicatedItems,
+                };
+            })
+            // Sort groups by date ascending
+            .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+    }, [filteredHistoryData]);
 
     const handleIndentSelect = (indentNo: string, checked: boolean) => {
         setSelectedIndents(prev => {
@@ -595,51 +688,22 @@ export default () => {
         </div>
     );
 
-    const historyColumns: ColumnDef<HistoryData>[] = [
+    const historyColumns: ColumnDef<any>[] = [
         {
             header: 'Action',
-            cell: ({ row }: { row: Row<HistoryData> }) => {
-                const indent = row.original;
-
-                return (
-                    <div>
-                        <Button
-                            variant="outline"
-                            disabled={indent.vendorType === "Three Party"}
-                            onClick={() => {
-                                setSelectedHistory(indent);
-                                setIsReviewOpen(true);
-                            }}
-                        >
-                            Update
-                        </Button>
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: 'date',
-            header: 'Date',
+            cell: ({ row }) => (
+                <Button variant="outline" size="sm" onClick={() => setViewingHistoryGroup(row.original)}>
+                    View
+                </Button>
+            ),
         },
         {
             accessorKey: 'indentNo',
             header: 'Indent No.',
         },
         {
-            accessorKey: 'productCode',
-            header: 'Product Code',
-        },
-        {
             accessorKey: 'firm',
             header: 'Firm',
-        },
-        {
-            accessorKey: 'requestDate',
-            header: 'Request Date',
-        },
-        {
-            accessorKey: 'approvalDate',
-            header: 'Approval Date',
         },
         {
             accessorKey: 'indenter',
@@ -650,335 +714,35 @@ export default () => {
             header: 'Department',
         },
         {
-            accessorKey: 'product',
-            header: 'Product',
+            header: 'Products',
             cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                return isEditing ? (
-                    <Input
-                        value={editValues.product ?? row.original.product ?? ''}
-                        onChange={(e) => handleInputChange('product', e.target.value)}
-                        className="w-[150px]"
-                    />
-                ) : (
-                    <div className="max-w-[150px] break-words whitespace-normal flex items-center gap-2">
-                        {row.original.product}
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4"
-                            onClick={() => handleEditClick(row.original)}
-                        >
-                            <PenSquare className="h-3 w-3" />
-                        </Button>
-                    </div>
-                );
-            },
-        },
-
-        {
-            accessorKey: 'quantity',
-            header: 'Quantity',
-            cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                return isEditing ? (
-                    <Input
-                        type="number"
-                        value={editValues.quantity ?? row.original.quantity ?? 0}
-                        onChange={(e) => handleInputChange('quantity', Number(e.target.value))}
-                        className="w-20"
-                    />
-                ) : (
-                    <div className="flex items-center gap-2">
-                        {row.original.quantity}
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4"
-                            onClick={() => handleEditClick(row.original)}
-                        >
-                            <PenSquare className="h-3 w-3" />
-                        </Button>
-                    </div>
-                );
+                const count = row.original.items.length;
+                return `${count} ${count === 1 ? 'product' : 'products'}`;
             },
         },
         {
-            accessorKey: "rate",
-            header: "Rate",
-            cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                const rate = row.original.rate;
-                const vendorType = row.original.vendorType;
-
-                if (!rate && vendorType === "Three Party") {
-                    return (
-                        <span className="text-muted-foreground">Not Decided</span>
-                    )
-                }
-
-                return isEditing ? (
-                    <Input
-                        type="number"
-                        value={editValues.rate ?? rate ?? 0}
-                        onChange={(e) => handleInputChange('rate', Number(e.target.value))}
-                        className="w-20"
-                    />
-                ) : (
-                    <div className="flex items-center gap-2">
-                        &#8377;{rate}
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4"
-                            onClick={() => handleEditClick(row.original)}
-                        >
-                            <PenSquare className="h-3 w-3" />
-                        </Button>
-                    </div>
-                );
-            },
-        },
-
-        {
-            accessorKey: 'uom',
-            header: 'UOM',
-            cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                return isEditing ? (
-                    <Input
-                        value={editValues.uom ?? row.original.uom ?? ''}
-                        onChange={(e) => handleInputChange('uom', e.target.value)}
-                        className="w-20"
-                    />
-                ) : (
-                    <div className="flex items-center gap-2">
-                        {row.original.uom}
-                        {editingRow !== row.original.indentNo && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
-                                onClick={() => handleEditClick(row.original)}
-                            >
-                                <PenSquare className="h-3 w-3" />
-                            </Button>
-                        )}
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: 'vendorName',
+            accessorKey: 'vendorName1',
             header: 'Vendor Name',
             cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                return isEditing ? (
-                    <Select
-                        value={editValues.vendorName ?? row.original.vendorName ?? ''}
-                        onValueChange={(value) => handleInputChange('vendorName', value)}
-                    >
-                        <SelectTrigger className="w-[200px]">
-                            <SelectValue placeholder="Select vendor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <div className="max-h-[200px] overflow-y-auto">
-                                {vendorsLoading ? (
-                                    <div className="py-6 text-center text-sm text-muted-foreground">
-                                        Loading vendors...
-                                    </div>
-                                ) : vendors?.length > 0 ? (
-                                    vendors.map((vendor, i) => (
-                                        <SelectItem key={i} value={vendor.vendorName}>
-                                            {vendor.vendorName}
-                                        </SelectItem>
-                                    ))
-                                ) : (
-                                    <div className="py-6 text-center text-sm text-muted-foreground">
-                                        No vendors found
-                                    </div>
-                                )}
-                            </div>
-                        </SelectContent>
-                    </Select>
-                ) : (
-                    <div className="flex items-center gap-2">
-                        {row.original.vendorName}
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4"
-                            onClick={() => handleEditClick(row.original)}
-                        >
-                            <PenSquare className="h-3 w-3" />
-                        </Button>
-                    </div>
-                );
-            },
+                const type = row.original.vendorType;
+                if (type === 'Three Party') return '3';
+                return row.original.vendorName1 || '—';
+            }
         },
-
+        {
+            accessorKey: 'date',
+            header: 'Date',
+        },
         {
             accessorKey: 'vendorType',
             header: 'Vendor Type',
-            cell: ({ row }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                return isEditing ? (
-                    <Select
-                        value={editValues.vendorType ?? row.original.vendorType ?? ''}
-                        onValueChange={(value) => handleInputChange('vendorType', value)}
-                    >
-                        <SelectTrigger className="w-[150px]">
-                            <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Regular">Regular</SelectItem>
-                            <SelectItem value="Three Party">Three Party</SelectItem>
-                        </SelectContent>
-                    </Select>
-                ) : (
-                    <div className="flex items-center gap-2">
-                        <Pill
-                            variant={row.original.vendorType === 'Regular' ? 'primary' : 'secondary'}
-                        >
-                            {row.original.vendorType}
-                        </Pill>
-                        {editingRow !== row.original.indentNo && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-4 w-4"
-                                onClick={() => handleEditClick(row.original)}
-                            >
-                                <PenSquare className="h-3 w-3" />
-                            </Button>
-                        )}
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: 'comparisonSheet',
-            header: 'Sheet',
-            cell: ({ row }) => {
-                const indent = row.original;
-                if (indent.source !== 'rate_update') return <span className="text-muted-foreground">—</span>;
-
-                const isUploading = uploadingFileId === indent.id;
-
+            cell: ({ getValue }) => {
+                const val = getValue() as string;
                 return (
-                    <div className="flex items-center gap-2">
-                        {indent.comparisonSheet ? (
-                            <div className="flex gap-2 items-center">
-                                <a
-                                    href={indent.comparisonSheet}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-blue-500 hover:underline text-xs"
-                                >
-                                    View
-                                </a>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 text-[10px] px-2 py-0"
-                                    onClick={() => setExcelEditorConfig({ open: true, historyItemId: indent.id, indentNo: indent.indentNo, fileUrl: indent.comparisonSheet || null })}
-                                >
-                                    Edit Sheet
-                                </Button>
-                            </div>
-                        ) : (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-6 text-[10px] px-2 py-0"
-                                onClick={() => setExcelEditorConfig({ open: true, historyItemId: indent.id, indentNo: indent.indentNo, fileUrl: null })}
-                            >
-                                Create Sheet
-                            </Button>
-                        )}
-                    </div>
+                    <Pill variant={val === 'Three Party' ? 'secondary' : 'outline'}>
+                        {val}
+                    </Pill>
                 );
-            },
-        },
-        {
-            id: 'comparisonPdf',
-            header: 'Comparison PDF',
-            cell: ({ row }) => {
-                const indent = row.original;
-                if (indent.source !== 'rate_update') return <span className="text-muted-foreground">—</span>;
-
-                const handleDownloadPdf = async () => {
-                    try {
-                        const vendors = [
-                            { name: indent.vendorName || '', rate: indent.rate || null, paymentTerm: indent.paymentTerm1 || '' },
-                            { name: indent.vendorName2 || '', rate: indent.rate2 || null, paymentTerm: indent.paymentTerm2 || '' },
-                            { name: indent.vendorName3 || '', rate: indent.rate3 || null, paymentTerm: indent.paymentTerm3 || '' },
-                        ].filter(v => v.name); // only include rows with vendor name
-
-                        const blob = await pdf(
-                            <ComparisonPdf
-                                companyName="Shri Shyam Oil Extractions Pvt Ltd"
-                                companyAddress="Banari, Janjgir Champa-495668, Chhattisgarh"
-                                companyPhone="+919993023243"
-                                indentNo={indent.indentNo}
-                                product={indent.product}
-                                department={indent.department}
-                                indenter={indent.indenter}
-                                quantity={indent.quantity}
-                                uom={indent.uom}
-                                date={indent.date}
-                                vendors={vendors}
-                            />
-                        ).toBlob();
-
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `Comparison-${indent.indentNo}.pdf`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        setTimeout(() => URL.revokeObjectURL(url), 100);
-                    } catch (err: any) {
-                        console.error('PDF generation error:', err);
-                        toast.error('Failed to generate PDF');
-                    }
-                };
-
-                return (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[10px] px-2 gap-1"
-                        onClick={handleDownloadPdf}
-                    >
-                        <FileDown className="h-3 w-3" />
-                        Download PDF
-                    </Button>
-                );
-            },
-        },
-        {
-            id: 'editActions',
-            cell: ({ row }: { row: Row<HistoryData> }) => {
-                const isEditing = editingRow === row.original.indentNo;
-                return isEditing ? (
-                    <div className="flex gap-2">
-                        <Button
-                            size="sm"
-                            onClick={() => handleSaveEdit(row.original.indentNo)}
-                        >
-                            Save
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={handleCancelEdit}
-                        >
-                            Cancel
-                        </Button>
-                    </div>
-                ) : null;
             },
         },
     ];
@@ -1013,32 +777,35 @@ export default () => {
 
 
     async function onSubmitRegular(values: z.infer<typeof regularSchema>) {
+        if (!selectedGroup) return;
         try {
-            const result = await postToSheet([{
-                indent_number: selectedIndent?.indentNo, // Base number
-                product_code: selectedIndent?.productCode, // Specific code
-                approvedVendorName: values.vendorName,
-                approvedRate: values.rate,
-                approvedPaymentTerm: values.paymentTerm,
-            } as any], 'insert', 'THREE_PARTY_APPROVAL');
+            const results = await Promise.all(selectedGroup.items.map(item =>
+                postToSheet([{
+                    indent_number: item.indentNo,
+                    product_code: item.productCode,
+                    approvedVendorName: values.vendorName,
+                    approvedRate: values.rate,
+                    approvedPaymentTerm: values.paymentTerm,
+                } as any], 'insert', 'THREE_PARTY_APPROVAL')
+            ));
 
-            if (!result.success) throw new Error('API submission failed');
+            if (results.some(r => !r.success)) throw new Error('API submission failed');
 
-            toast.success(`Directly approved vendor rate for ${selectedIndent?.productCode || selectedIndent?.indentNo}`);
+            toast.success(`Approved vendor for ${selectedGroup.indentNo}`);
 
-            // Update the main Indent tracking
-            await postToSheet([{
-                id: selectedIndent?.indentId,
-                indentNumber: selectedIndent?.indentNo,
-                actual_2: getCurrentFormattedDateOnly(),
-                actual_3: getCurrentFormattedDateOnly(),
-                planned_4: getCurrentFormattedDateOnly(),
-            } as any], 'update', 'INDENT');
+            await Promise.all(selectedGroup.items.map(item =>
+                postToSheet([{
+                    id: item.indentId,
+                    indentNumber: item.indentNo,
+                    actual_2: getCurrentFormattedDateOnly(),
+                    actual_3: getCurrentFormattedDateOnly(),
+                    planned_4: getCurrentFormattedDateOnly(),
+                } as any], 'update', 'INDENT')
+            ));
 
-            setSelectedIndent(null);
+            setSelectedGroup(null);
             setIsReviewOpen(false);
             regularForm.reset();
-
             await fetchData();
             updateRelatedSheets();
         } catch (error: any) {
@@ -1048,81 +815,85 @@ export default () => {
     }
 
 
-    // Creating Three Party Vendor form
+    // Creating Three Party Vendor form (multi-product, 3 vendor columns)
     const threePartySchema = z.object({
-        vendors: z.array(
-            z.object({
-                vendorName: z.string().nonempty(),
-                rate: z.coerce.number().gt(0),
-                paymentTerm: z.string().nonempty(),
-                comparisonSheet: z.instanceof(File, { message: 'File is required' }),
-            })
-        ).max(3).min(3),
+        vendorName1: z.string().nonempty('Vendor 1 is required'),
+        vendorName2: z.string().nonempty('Vendor 2 is required'),
+        vendorName3: z.string().nonempty('Vendor 3 is required'),
+        paymentTerm1: z.string().nonempty('Payment term required'),
+        paymentTerm2: z.string().nonempty('Payment term required'),
+        paymentTerm3: z.string().nonempty('Payment term required'),
+        comparisonSheet1: z.instanceof(File).optional(),
+        comparisonSheet2: z.instanceof(File).optional(),
+        comparisonSheet3: z.instanceof(File).optional(),
+        products: z.array(z.object({
+            rate1: z.coerce.number().gt(0, 'Rate must be > 0'),
+            rate2: z.coerce.number().gt(0, 'Rate must be > 0'),
+            rate3: z.coerce.number().gt(0, 'Rate must be > 0'),
+        })).min(1),
     });
 
     const threePartyForm = useForm<z.infer<typeof threePartySchema>>({
         resolver: zodResolver(threePartySchema),
         defaultValues: {
-            vendors: [
-                { vendorName: '', rate: 0, paymentTerm: '', comparisonSheet: undefined },
-                { vendorName: '', rate: 0, paymentTerm: '', comparisonSheet: undefined },
-                { vendorName: '', rate: 0, paymentTerm: '', comparisonSheet: undefined },
-            ],
+            vendorName1: '', vendorName2: '', vendorName3: '',
+            paymentTerm1: '', paymentTerm2: '', paymentTerm3: '',
+            products: [],
         },
     });
 
-    const { fields } = useFieldArray({
+    const { fields: productFields } = useFieldArray({
         control: threePartyForm.control,
-        name: 'vendors',
+        name: 'products',
     });
 
+    useEffect(() => {
+        if (selectedGroup) {
+            threePartyForm.reset({
+                vendorName1: '', vendorName2: '', vendorName3: '',
+                paymentTerm1: '', paymentTerm2: '', paymentTerm3: '',
+                products: selectedGroup.items.map(() => ({ rate1: 0, rate2: 0, rate3: 0 })),
+            });
+        }
+    }, [selectedGroup]); // eslint-disable-line react-hooks/exhaustive-deps
+
     async function onSubmitThreeParty(values: z.infer<typeof threePartySchema>) {
+        if (!selectedGroup) return;
         try {
-            const urls = await Promise.all(
-                values.vendors.map(async (vendor) => {
-                    if (vendor.comparisonSheet) {
-                        return await uploadFile(vendor.comparisonSheet, import.meta.env.VITE_COMPARISON_SHEET_FOLDER);
-                    }
-                    return '';
-                })
-            );
+            const [url1, url2, url3] = await Promise.all([
+                values.comparisonSheet1 ? uploadFile(values.comparisonSheet1, import.meta.env.VITE_COMPARISON_SHEET_FOLDER) : Promise.resolve(''),
+                values.comparisonSheet2 ? uploadFile(values.comparisonSheet2, import.meta.env.VITE_COMPARISON_SHEET_FOLDER) : Promise.resolve(''),
+                values.comparisonSheet3 ? uploadFile(values.comparisonSheet3, import.meta.env.VITE_COMPARISON_SHEET_FOLDER) : Promise.resolve(''),
+            ]);
 
-            const updatePayload: any = {
-                indent_number: selectedIndent?.indentNo,
-                product_code: selectedIndent?.productCode,
-                vendorName1: values.vendors[0].vendorName,
-                rate1: values.vendors[0].rate,
-                paymentTerm1: values.vendors[0].paymentTerm,
-                vendorName2: values.vendors[1].vendorName,
-                rate2: values.vendors[1].rate,
-                paymentTerm2: values.vendors[1].paymentTerm,
-                vendorName3: values.vendors[2].vendorName,
-                rate3: values.vendors[2].rate,
-                paymentTerm3: values.vendors[2].paymentTerm,
-                planned: new Date().toISOString(),
-            };
+            await Promise.all(selectedGroup.items.map((item, i) => {
+                const payload: any = {
+                    indent_number: item.indentNo,
+                    product_code: item.productCode,
+                    vendorName1: values.vendorName1, rate1: values.products[i].rate1, paymentTerm1: values.paymentTerm1,
+                    vendorName2: values.vendorName2, rate2: values.products[i].rate2, paymentTerm2: values.paymentTerm2,
+                    vendorName3: values.vendorName3, rate3: values.products[i].rate3, paymentTerm3: values.paymentTerm3,
+                    planned: new Date().toISOString(),
+                };
+                if (url1) payload.comparisonSheet = url1;
+                if (url2) payload.comparisonSheet2 = url2;
+                if (url3) payload.comparisonSheet3 = url3;
+                return postToSheet([payload], 'insert', 'VENDOR_RATE_UPDATE');
+            }));
 
-            if (urls[0]) updatePayload.comparisonSheet = urls[0];
-            if (urls[1]) updatePayload.comparisonSheet2 = urls[1];
-            if (urls[2]) updatePayload.comparisonSheet3 = urls[2];
+            await Promise.all(selectedGroup.items.map(item =>
+                postToSheet([{
+                    id: item.indentId,
+                    indentNumber: item.indentNo,
+                    actual_2: getCurrentFormattedDateOnly(),
+                    planned_3: getCurrentFormattedDateOnly(),
+                } as any], 'update', 'INDENT')
+            ));
 
-            const result = await postToSheet([updatePayload], 'insert', 'VENDOR_RATE_UPDATE');
-            if (!result.success) throw new Error('API update failed');
-
-            toast.success(`Submitted three-party rates for ${selectedIndent?.productCode || selectedIndent?.indentNo}`);
-
-            // Update the main Indent tracking
-            await postToSheet([{
-                id: selectedIndent?.indentId,
-                indentNumber: selectedIndent?.indentNo,
-                actual_2: getCurrentFormattedDateOnly(),
-                planned_3: getCurrentFormattedDateOnly(),
-            } as any], 'update', 'INDENT');
-
-            setSelectedIndent(null);
+            toast.success(`Submitted vendor rates for ${selectedGroup.indentNo}`);
+            setSelectedGroup(null);
             setIsReviewOpen(false);
             threePartyForm.reset();
-
             await fetchData();
             updateRelatedSheets();
         } catch (error: any) {
@@ -1314,18 +1085,11 @@ export default () => {
                 </TabsContent>
                 <TabsContent value="history" className="w-full">
                     <DataTable
-                        data={historyData}
+                        data={groupedHistoryData}
                         columns={historyColumns}
-                        searchFields={['indentNo', 'product', 'department', 'indenter', 'vendorName']}
+                        searchFields={['indentNo', 'firm', 'department', 'indenter', 'vendorName']}
                         dataLoading={historyInitialLoading}
                         isSearching={historySearching}
-                        totalCount={historyTotal}
-                        currentPage={historyPage}
-                        onPageChange={(page) => {
-                            setHistoryPage(page);
-                            fetchHistoryData(page, historySearch, false);
-                        }}
-                        onSearchChange={debouncedHistorySearch}
                         pagination={true}
                         pageSize={50}
                         extraActions={
@@ -1340,13 +1104,13 @@ export default () => {
                 onOpenChange={(open) => {
                     setIsReviewOpen(open);
                     if (!open) {
-                        setSelectedIndent(null);
+                        setSelectedGroup(null);
                         setSelectedHistory(null);
                     }
                 }}
             >
                 <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
-                    {!selectedIndent && !selectedHistory ? (
+                    {!selectedGroup && !selectedHistory ? (
                         <>
                             <DialogHeader>
                                 <DialogTitle>Review & Update Vendor Rates</DialogTitle>
@@ -1361,6 +1125,14 @@ export default () => {
                                             {/* ── Indent title bar ── */}
                                             <div className="bg-primary px-4 py-2 flex items-center justify-between">
                                                 <span className="text-sm font-bold text-primary-foreground tracking-wide">{group.indentNo}</span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    className="h-7 text-xs"
+                                                    onClick={() => setSelectedGroup(group)}
+                                                >
+                                                    Update
+                                                </Button>
                                             </div>
 
                                             {/* ── Indent details grid ── */}
@@ -1397,7 +1169,6 @@ export default () => {
                                                             <TableHead className="text-xs">Specifications</TableHead>
                                                             <TableHead className="text-xs">Attachment</TableHead>
                                                             <TableHead className="text-xs">Vendor Type</TableHead>
-                                                            <TableHead className="text-xs">Action</TableHead>
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
@@ -1427,16 +1198,6 @@ export default () => {
                                                                         {item.vendorType}
                                                                     </Pill>
                                                                 </TableCell>
-                                                                <TableCell>
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="h-7 text-[10px]"
-                                                                        onClick={() => setSelectedIndent(item)}
-                                                                    >
-                                                                        Update
-                                                                    </Button>
-                                                                </TableCell>
                                                             </TableRow>
                                                         ))}
                                                     </TableBody>
@@ -1446,48 +1207,37 @@ export default () => {
                                     ))}
                             </div>
                         </>
-                    ) : selectedIndent ? (
+                    ) : selectedGroup ? (
                         <div>
-
-                            {selectedIndent.vendorType === 'Three Party' ? (
+                            {selectedGroup.items[0]?.vendorType === 'Three Party' ? (
                                 <Form {...threePartyForm}>
                                     <form
-                                        onSubmit={threePartyForm.handleSubmit(
-                                            onSubmitThreeParty,
-                                            onError
-                                        )}
+                                        onSubmit={threePartyForm.handleSubmit(onSubmitThreeParty, onError)}
                                         className="space-y-7"
                                     >
                                         <DialogHeader className="space-y-1">
                                             <DialogTitle>Three Party Vendors</DialogTitle>
                                             <DialogDescription>
                                                 Update vendors for{' '}
-                                                <span className="font-medium">
-                                                    {selectedIndent.indentNo}{selectedIndent.productCode ? ` (${selectedIndent.productCode})` : ''}
-                                                </span>
+                                                <span className="font-medium">{selectedGroup.indentNo}</span>
                                             </DialogDescription>
                                         </DialogHeader>
 
-                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-muted py-2 px-5 rounded-md ">
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-muted py-2 px-5 rounded-md">
                                             <div className="space-y-1">
                                                 <p className="font-medium text-xs">Indenter</p>
-                                                <p className="text-sm font-light">
-                                                    {selectedIndent.indenter}
-                                                </p>
+                                                <p className="text-sm font-light">{selectedGroup.indenter}</p>
                                             </div>
                                             <div className="space-y-1">
                                                 <p className="font-medium text-xs">Department</p>
-                                                <p className="text-sm font-light">
-                                                    {selectedIndent.department}
-                                                </p>
+                                                <p className="text-sm font-light">{selectedGroup.department}</p>
                                             </div>
                                             <div className="space-y-1">
-                                                <p className="font-medium text-xs">Product</p>
-                                                <p className="text-sm font-light">
-                                                    {selectedIndent.product}
-                                                </p>
+                                                <p className="font-medium text-xs">Products</p>
+                                                <p className="text-sm font-light">{selectedGroup.items.length} item{selectedGroup.items.length > 1 ? 's' : ''}</p>
                                             </div>
                                         </div>
+
                                         <div className="border rounded-md overflow-x-auto">
                                             <Table>
                                                 <TableHeader>
@@ -1499,73 +1249,83 @@ export default () => {
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
-                                                    {/* Product row: vendor selects + rate inputs stacked per vendor column */}
+                                                    {/* Vendor Name row */}
                                                     <TableRow>
-                                                        <TableCell className="text-xs font-medium align-top pt-3">
-                                                            <div className="space-y-1">
-                                                                {selectedIndent.productCode && (
-                                                                    <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">
-                                                                        {selectedIndent.productCode}
-                                                                    </span>
-                                                                )}
-                                                                <div>{selectedIndent.product}</div>
-                                                            </div>
-                                                        </TableCell>
-                                                        {fields.map((field, index) => (
-                                                            <TableCell key={field.id} className="min-w-[180px] align-top">
-                                                                <div className="space-y-2">
+                                                        <TableCell className="text-xs font-medium text-muted-foreground">Vendor</TableCell>
+                                                        {([1, 2, 3] as const).map(n => (
+                                                            <TableCell key={n} className="min-w-[180px]">
+                                                                <FormField
+                                                                    control={threePartyForm.control}
+                                                                    name={`vendorName${n}`}
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                                <FormControl>
+                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                        <SelectValue placeholder="Select vendor" />
+                                                                                    </SelectTrigger>
+                                                                                </FormControl>
+                                                                                <SelectContent>
+                                                                                    <div className="max-h-[300px] overflow-y-auto">
+                                                                                        {vendorsLoading ? (
+                                                                                            <div className="py-6 text-center text-sm text-muted-foreground">Loading vendors...</div>
+                                                                                        ) : vendors?.length > 0 ? (
+                                                                                            vendors.map((vendor, i) => (
+                                                                                                <SelectItem key={i} value={vendor.vendorName}>{vendor.vendorName}</SelectItem>
+                                                                                            ))
+                                                                                        ) : (
+                                                                                            <div className="py-6 text-center text-sm text-muted-foreground">No vendors available</div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                            <FormMessage className="text-[10px]" />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                            </TableCell>
+                                                        ))}
+                                                    </TableRow>
+                                                    {/* One row per product */}
+                                                    {productFields.map((field, i) => (
+                                                        <TableRow key={field.id}>
+                                                            <TableCell className="text-xs font-medium align-top pt-3">
+                                                                <div className="space-y-1">
+                                                                    {selectedGroup.items[i]?.productCode && (
+                                                                        <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">
+                                                                            {selectedGroup.items[i].productCode}
+                                                                        </span>
+                                                                    )}
+                                                                    <div>{selectedGroup.items[i]?.product}</div>
+                                                                </div>
+                                                            </TableCell>
+                                                            {([1, 2, 3] as const).map(n => (
+                                                                <TableCell key={n} className="min-w-[180px] align-top">
                                                                     <FormField
                                                                         control={threePartyForm.control}
-                                                                        name={`vendors.${index}.vendorName`}
-                                                                        render={({ field }) => (
-                                                                            <FormItem>
-                                                                                <Select onValueChange={field.onChange} value={field.value}>
-                                                                                    <FormControl>
-                                                                                        <SelectTrigger className="w-full h-8 text-xs">
-                                                                                            <SelectValue placeholder="Select vendor" />
-                                                                                        </SelectTrigger>
-                                                                                    </FormControl>
-                                                                                    <SelectContent>
-                                                                                        <div className="max-h-[300px] overflow-y-auto">
-                                                                                            {vendorsLoading ? (
-                                                                                                <div className="py-6 text-center text-sm text-muted-foreground">Loading vendors...</div>
-                                                                                            ) : vendors?.length > 0 ? (
-                                                                                                vendors.map((vendor, i) => (
-                                                                                                    <SelectItem key={i} value={vendor.vendorName}>{vendor.vendorName}</SelectItem>
-                                                                                                ))
-                                                                                            ) : (
-                                                                                                <div className="py-6 text-center text-sm text-muted-foreground">No vendors available</div>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </SelectContent>
-                                                                                </Select>
-                                                                            </FormItem>
-                                                                        )}
-                                                                    />
-                                                                    <FormField
-                                                                        control={threePartyForm.control}
-                                                                        name={`vendors.${index}.rate`}
+                                                                        name={`products.${i}.rate${n}`}
                                                                         render={({ field }) => (
                                                                             <FormItem>
                                                                                 <FormLabel className="text-[10px] text-muted-foreground">Rate <span className="text-red-500">*</span></FormLabel>
                                                                                 <FormControl>
                                                                                     <Input type="number" placeholder="Enter rate" className="h-8 text-xs" {...field} />
                                                                                 </FormControl>
+                                                                                <FormMessage className="text-[10px]" />
                                                                             </FormItem>
                                                                         )}
                                                                     />
-                                                                </div>
-                                                            </TableCell>
-                                                        ))}
-                                                    </TableRow>
+                                                                </TableCell>
+                                                            ))}
+                                                        </TableRow>
+                                                    ))}
                                                     {/* Payment Term row */}
                                                     <TableRow>
                                                         <TableCell className="text-xs font-medium text-muted-foreground">Payment Term <span className="text-red-500">*</span></TableCell>
-                                                        {fields.map((field, index) => (
-                                                            <TableCell key={field.id} className="min-w-[180px]">
+                                                        {([1, 2, 3] as const).map(n => (
+                                                            <TableCell key={n} className="min-w-[180px]">
                                                                 <FormField
                                                                     control={threePartyForm.control}
-                                                                    name={`vendors.${index}.paymentTerm`}
+                                                                    name={`paymentTerm${n}`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
                                                                             <Select onValueChange={field.onChange} value={field.value}>
@@ -1588,6 +1348,7 @@ export default () => {
                                                                                     </div>
                                                                                 </SelectContent>
                                                                             </Select>
+                                                                            <FormMessage className="text-[10px]" />
                                                                         </FormItem>
                                                                     )}
                                                                 />
@@ -1596,12 +1357,12 @@ export default () => {
                                                     </TableRow>
                                                     {/* Comparison Sheet upload row */}
                                                     <TableRow>
-                                                        <TableCell className="text-xs font-medium text-muted-foreground">Comparison Sheet <span className="text-red-500">*</span></TableCell>
-                                                        {fields.map((field, index) => (
-                                                            <TableCell key={field.id} className="min-w-[180px]">
+                                                        <TableCell className="text-xs font-medium text-muted-foreground">Comparison Sheet</TableCell>
+                                                        {([1, 2, 3] as const).map(n => (
+                                                            <TableCell key={n} className="min-w-[180px]">
                                                                 <FormField
                                                                     control={threePartyForm.control}
-                                                                    name={`vendors.${index}.comparisonSheet`}
+                                                                    name={`comparisonSheet${n}`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
                                                                             <FormControl>
@@ -1621,7 +1382,6 @@ export default () => {
                                                                                     />
                                                                                 </label>
                                                                             </FormControl>
-                                                                            <FormMessage className="text-[10px]" />
                                                                         </FormItem>
                                                                     )}
                                                                 />
@@ -1632,19 +1392,9 @@ export default () => {
                                             </Table>
                                         </div>
                                         <DialogFooter>
-                                            <Button variant="outline" onClick={() => setSelectedIndent(null)}>Back to list</Button>
-
-                                            <Button
-                                                type="submit"
-                                                disabled={threePartyForm.formState.isSubmitting}
-                                            >
-                                                {threePartyForm.formState.isSubmitting && (
-                                                    <Loader
-                                                        size={20}
-                                                        color="white"
-                                                        aria-label="Loading Spinner"
-                                                    />
-                                                )}
+                                            <Button variant="outline" onClick={() => setSelectedGroup(null)}>Back to list</Button>
+                                            <Button type="submit" disabled={threePartyForm.formState.isSubmitting}>
+                                                {threePartyForm.formState.isSubmitting && <Loader size={20} color="white" aria-label="Loading Spinner" />}
                                                 Update
                                             </Button>
                                         </DialogFooter>
@@ -1660,29 +1410,17 @@ export default () => {
                                             <DialogTitle>Regular Vendor</DialogTitle>
                                             <DialogDescription>
                                                 Update vendor for{' '}
-                                                <span className="font-medium">
-                                                    {selectedIndent.indentNo}{selectedIndent.productCode ? ` (${selectedIndent.productCode})` : ''}
-                                                </span>
+                                                <span className="font-medium">{selectedGroup.indentNo}</span>
                                             </DialogDescription>
                                         </DialogHeader>
-                                        <div className="grid grid-cols-3 bg-muted p-2 rounded-md ">
+                                        <div className="grid grid-cols-2 bg-muted p-2 rounded-md">
                                             <div className="space-y-1">
                                                 <p className="font-medium text-xs">Indenter</p>
-                                                <p className="text-sm font-light">
-                                                    {selectedIndent.indenter}
-                                                </p>
+                                                <p className="text-sm font-light">{selectedGroup.indenter}</p>
                                             </div>
                                             <div className="space-y-1">
                                                 <p className="font-medium text-xs">Department</p>
-                                                <p className="text-sm font-light">
-                                                    {selectedIndent.department}
-                                                </p>
-                                            </div>
-                                            <div className="space-y-1">
-                                                <p className="font-medium text-xs">Product</p>
-                                                <p className="text-sm font-light">
-                                                    {selectedIndent.product}
-                                                </p>
+                                                <p className="text-sm font-light">{selectedGroup.department}</p>
                                             </div>
                                         </div>
                                         <div className="grid gap-3">
@@ -1693,16 +1431,13 @@ export default () => {
                                                     const filteredVendors = vendors?.filter(vendor =>
                                                         vendor.vendorName.toLowerCase().includes(vendorSearch.toLowerCase())
                                                     );
-
                                                     return (
                                                         <FormItem>
                                                             <FormLabel>Vendor Name</FormLabel>
                                                             <Select
                                                                 onValueChange={field.onChange}
                                                                 value={field.value}
-                                                                onOpenChange={(open) => {
-                                                                    if (!open) setVendorSearch("");
-                                                                }}
+                                                                onOpenChange={(open) => { if (!open) setVendorSearch(""); }}
                                                             >
                                                                 <FormControl>
                                                                     <SelectTrigger className="w-full">
@@ -1724,19 +1459,13 @@ export default () => {
                                                                     </div>
                                                                     <div className="max-h-[200px] overflow-y-auto">
                                                                         {vendorsLoading ? (
-                                                                            <div className="py-6 text-center text-sm text-muted-foreground">
-                                                                                Loading vendors...
-                                                                            </div>
+                                                                            <div className="py-6 text-center text-sm text-muted-foreground">Loading vendors...</div>
                                                                         ) : filteredVendors?.length > 0 ? (
                                                                             filteredVendors.map((vendor, i) => (
-                                                                                <SelectItem key={i} value={vendor.vendorName}>
-                                                                                    {vendor.vendorName}
-                                                                                </SelectItem>
+                                                                                <SelectItem key={i} value={vendor.vendorName}>{vendor.vendorName}</SelectItem>
                                                                             ))
                                                                         ) : (
-                                                                            <div className="py-6 text-center text-sm text-muted-foreground">
-                                                                                No vendors found
-                                                                            </div>
+                                                                            <div className="py-6 text-center text-sm text-muted-foreground">No vendors found</div>
                                                                         )}
                                                                     </div>
                                                                 </SelectContent>
@@ -1745,7 +1474,6 @@ export default () => {
                                                     );
                                                 }}
                                             />
-
                                             <FormField
                                                 control={regularForm.control}
                                                 name="rate"
@@ -1763,10 +1491,7 @@ export default () => {
                                                 name="paymentTerm"
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <Select
-                                                            onValueChange={field.onChange}
-                                                            value={field.value}
-                                                        >
+                                                        <Select onValueChange={field.onChange} value={field.value}>
                                                             <FormLabel>Payment Term</FormLabel>
                                                             <FormControl>
                                                                 <SelectTrigger className="w-full">
@@ -1791,21 +1516,10 @@ export default () => {
                                                 )}
                                             />
                                         </div>
-
                                         <DialogFooter>
-                                            <Button variant="outline" onClick={() => setSelectedIndent(null)}>Back to list</Button>
-
-                                            <Button
-                                                type="submit"
-                                                disabled={regularForm.formState.isSubmitting}
-                                            >
-                                                {regularForm.formState.isSubmitting && (
-                                                    <Loader
-                                                        size={20}
-                                                        color="white"
-                                                        aria-label="Loading Spinner"
-                                                    />
-                                                )}
+                                            <Button variant="outline" onClick={() => setSelectedGroup(null)}>Back to list</Button>
+                                            <Button type="submit" disabled={regularForm.formState.isSubmitting}>
+                                                {regularForm.formState.isSubmitting && <Loader size={20} color="white" aria-label="Loading Spinner" />}
                                                 Update
                                             </Button>
                                         </DialogFooter>
@@ -1860,6 +1574,97 @@ export default () => {
                             </form>
                         </Form>
                     ) : null}
+                </DialogContent>
+            </Dialog>
+
+            <Dialog 
+                open={!!viewingHistoryGroup} 
+                onOpenChange={(open) => !open && setViewingHistoryGroup(null)}
+            >
+                <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Indent Details - {viewingHistoryGroup?.indentNo}</DialogTitle>
+                    </DialogHeader>
+                    
+                    <div className="space-y-6 py-4">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-muted/30 p-4 rounded-lg">
+                            <div>
+                                <p className="text-xs text-muted-foreground">Firm</p>
+                                <p className="text-sm font-medium">{viewingHistoryGroup?.firm}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Indenter</p>
+                                <p className="text-sm font-medium">{viewingHistoryGroup?.indenter}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Department</p>
+                                <p className="text-sm font-medium">{viewingHistoryGroup?.department}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Vendor Name</p>
+                                <div className="text-sm font-medium">
+                                    {viewingHistoryGroup?.vendorType === 'Three Party' ? (
+                                        <div className="space-y-1 mt-1">
+                                            <div className="flex items-center gap-2"><span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded border border-primary/20 font-bold">V1</span> {viewingHistoryGroup?.vendorName1}</div>
+                                            <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V2</span> {viewingHistoryGroup?.vendorName2 || '—'}</div>
+                                            <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V3</span> {viewingHistoryGroup?.vendorName3 || '—'}</div>
+                                        </div>
+                                    ) : (
+                                        viewingHistoryGroup?.vendorName1
+                                    )}
+                                </div>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Vendor Type</p>
+                                <p className="text-sm font-medium">{viewingHistoryGroup?.vendorType}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Date</p>
+                                <p className="text-sm font-medium">{viewingHistoryGroup?.date}</p>
+                            </div>
+                        </div>
+
+                        <div className="rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Product Code</TableHead>
+                                        <TableHead>Product Name</TableHead>
+                                        <TableHead>Quantity</TableHead>
+                                        <TableHead>UOM</TableHead>
+                                        {viewingHistoryGroup?.vendorType === 'Three Party' ? (
+                                            <>
+                                                <TableHead className="text-primary font-bold text-[10px]">Rate 1 (R1)</TableHead>
+                                                <TableHead className="text-[10px]">Rate 2 (R2)</TableHead>
+                                                <TableHead className="text-[10px]">Rate 3 (R3)</TableHead>
+                                            </>
+                                        ) : (
+                                            <TableHead>Rate</TableHead>
+                                        )}
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {viewingHistoryGroup?.items.slice().sort((a: any, b: any) => (a.product || '').localeCompare(b.product || '')).map((item: any, i: number) => (
+                                        <TableRow key={i}>
+                                            <TableCell className="font-mono text-xs">{item.productCode || '—'}</TableCell>
+                                            <TableCell className="text-sm">{item.product}</TableCell>
+                                            <TableCell className="text-sm">{item.quantity}</TableCell>
+                                            <TableCell className="text-sm">{item.uom}</TableCell>
+                                            {viewingHistoryGroup?.vendorType === 'Three Party' ? (
+                                                <>
+                                                    <TableCell className="text-sm font-bold text-primary">₹{item.rate1}</TableCell>
+                                                    <TableCell className="text-sm">₹{item.rate2 || '—'}</TableCell>
+                                                    <TableCell className="text-sm">₹{item.rate3 || '—'}</TableCell>
+                                                </>
+                                            ) : (
+                                                <TableCell className="text-sm">₹{item.rate1}</TableCell>
+                                            )}
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </div>
                 </DialogContent>
             </Dialog>
 

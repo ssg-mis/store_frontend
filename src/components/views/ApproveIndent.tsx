@@ -120,7 +120,7 @@ export default () => {
         else setPendingLoadingMore(true);
 
         try {
-            const data: any = await fetchFromSupabasePaginated('indent', '*', { column: 'created_at', options: { ascending: false } }, undefined, undefined, {
+            const data: any = await fetchFromSupabasePaginated('indent', '*', { column: 'created_at', options: { ascending: true } }, undefined, undefined, {
                 page: pageValue,
                 limit: 50,
                 search: searchQuery,
@@ -183,7 +183,7 @@ export default () => {
         else setHistoryLoadingMore(true);
 
         try {
-            const data: any = await fetchFromSupabasePaginated('indent', '*', { column: 'created_at', options: { ascending: false } }, undefined, undefined, {
+            const data: any = await fetchFromSupabasePaginated('indent', '*', { column: 'created_at', options: { ascending: true } }, undefined, undefined, {
                 page: pageValue,
                 limit: 50,
                 search: searchQuery,
@@ -489,7 +489,7 @@ export default () => {
         });
         return Array.from(groups.entries()).map(([indentNo, items]) => {
             const first = items[0];
-            return { indentNo, firm: first.firm, indenter: first.indenter, department: first.department, date: first.date, approvedDate: first.approvedDate, delay: first.delay, items };
+            return { indentNo, firm: first.firm, indenter: first.indenter, department: first.department, date: first.date, approvedDate: first.approvedDate, delay: first.delay, vendorType: first.vendorType, items };
         });
     }, [filteredHistoryData]);
 
@@ -537,37 +537,37 @@ export default () => {
         </div>
     );
 
-    const historyColumns: ColumnDef<HistoryData>[] = [
-        { accessorKey: 'indentNo', header: 'Indent No', size: 100 },
-        { accessorKey: 'firm', header: 'Firm', size: 120 },
-        { accessorKey: 'indenter', header: 'Indenter', size: 120 },
-        { accessorKey: 'product', header: 'Product', size: 150 },
-        { accessorKey: 'approvedQuantity', header: 'Appr. Qty', size: 80 },
+    const historyColumns: ColumnDef<any>[] = [
         {
-            accessorKey: 'vendorType', header: 'Status', size: 110, cell: ({ row }) => (
+            header: 'Action',
+            cell: ({ row }) => (
+                <Button variant="outline" size="sm" onClick={() => setHistoryViewGroup(row.original)}>
+                    View
+                </Button>
+            ),
+        },
+        { accessorKey: 'indentNo', header: 'Indent No' },
+        { accessorKey: 'firm', header: 'Firm' },
+        { accessorKey: 'indenter', header: 'Indenter' },
+        { accessorKey: 'department', header: 'Department' },
+        {
+            header: 'Products',
+            cell: ({ row }) => {
+                const count = row.original.items.length;
+                return `${count} ${count === 1 ? 'product' : 'products'}`;
+            },
+        },
+        { accessorKey: 'date', header: 'Request Date' },
+        { accessorKey: 'approvedDate', header: 'Approval Date' },
+        {
+            accessorKey: 'vendorType',
+            header: 'Status',
+            cell: ({ row }) => (
                 <Pill variant={row.original.vendorType === 'Reject' ? 'reject' : row.original.vendorType === 'Regular' ? 'primary' : 'secondary'}>
                     {row.original.vendorType}
                 </Pill>
             )
         },
-        { accessorKey: 'date', header: 'Request Date', size: 100 },
-        { accessorKey: 'approvedDate', header: 'Approval Date', size: 100 },
-        { accessorKey: 'delay', header: 'Delay', size: 80 },
-        {
-            accessorKey: 'attachment',
-            header: 'Attachment',
-            cell: ({ row }) => {
-                const attachment = row.original.attachment;
-                return attachment ? (
-                    <a href={attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                        View
-                    </a>
-                ) : (
-                    <div className="text-gray-500">-</div>
-                );
-            },
-            size: 80,
-        }
     ];
 
     return (
@@ -688,101 +688,19 @@ export default () => {
                         )}
                     </div>
                 </TabsContent>
-                <TabsContent value="history" className="w-full max-w-full">
-                    <div className="space-y-3">
-                        <div className="flex flex-wrap items-center gap-2 justify-between">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <div className="relative">
-                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                                    <Input
-                                        placeholder="Search history..."
-                                        className="pl-8 h-8 text-xs w-[200px]"
-                                        onChange={(e) => debouncedHistorySearch(e.target.value)}
-                                    />
-                                </div>
-                                <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyItems} />
-                            </div>
-                        </div>
-
-                        {historySearching && (
-                            <div className="w-full h-0.5 bg-primary/20 rounded-full overflow-hidden">
-                                <div className="h-full w-1/2 bg-primary animate-pulse rounded-full" />
-                            </div>
-                        )}
-
-                        {historyInitialLoading ? (
-                            <div className="space-y-2">
-                                {[...Array(5)].map((_, i) => (
-                                    <div key={i} className="h-10 bg-muted animate-pulse rounded" />
-                                ))}
-                            </div>
-                        ) : groupedHistoryData.length === 0 ? (
-                            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-                                No history found
-                            </div>
-                        ) : (
-                            <div className="rounded-md border overflow-x-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Indent No</TableHead>
-                                            <TableHead>Firm</TableHead>
-                                            <TableHead>Indenter</TableHead>
-                                            <TableHead>Department</TableHead>
-                                            <TableHead>Date</TableHead>
-                                            <TableHead>Approval Date</TableHead>
-                                            <TableHead>Products</TableHead>
-                                            <TableHead></TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {groupedHistoryData.map(group => (
-                                            <TableRow key={group.indentNo}>
-                                                <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.approvedDate}</TableCell>
-                                                <TableCell>
-                                                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                                                        {group.items.length} {group.items.length === 1 ? 'product' : 'products'}
-                                                    </span>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-7 text-xs px-2"
-                                                        onClick={() => setHistoryViewGroup(group)}
-                                                    >
-                                                        View
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        )}
-
-                        {!historyInitialLoading && historyTotal > 0 && (
-                            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-                                <span>{filteredHistoryData.length} of {historyTotal} items</span>
-                                <div className="flex items-center gap-2">
-                                    <Button variant="outline" size="sm" className="h-7 text-xs px-3"
-                                        disabled={historyPage === 1}
-                                        onClick={() => { const p = historyPage - 1; setHistoryPage(p); fetchHistoryData(p, historySearch, false); }}
-                                    >Previous</Button>
-                                    <span>Page {historyPage}</span>
-                                    <Button variant="outline" size="sm" className="h-7 text-xs px-3"
-                                        disabled={filteredHistoryData.length >= historyTotal}
-                                        onClick={() => { const p = historyPage + 1; setHistoryPage(p); fetchHistoryData(p, historySearch, false); }}
-                                    >Next</Button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                <TabsContent value="history" className="w-full">
+                    <DataTable
+                        data={groupedHistoryData}
+                        columns={historyColumns}
+                        searchFields={['indentNo', 'firm', 'department', 'indenter']}
+                        dataLoading={historyInitialLoading}
+                        isSearching={historySearching}
+                        pagination={true}
+                        pageSize={50}
+                        extraActions={
+                            <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyItems} />
+                        }
+                    />
                 </TabsContent>
             </Tabs>
 
@@ -918,77 +836,88 @@ export default () => {
                 </DialogContent>
             </Dialog>
 
-            {/* History detail dialog */}
-            <Dialog open={!!historyViewGroup} onOpenChange={(open) => !open && setHistoryViewGroup(null)}>
-                <DialogContent className="max-w-[90vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+            <Dialog 
+                open={!!historyViewGroup} 
+                onOpenChange={(open) => !open && setHistoryViewGroup(null)}
+            >
+                <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>Indent {historyViewGroup?.indentNo}</DialogTitle>
+                        <DialogTitle>Indent Details - {historyViewGroup?.indentNo}</DialogTitle>
                     </DialogHeader>
-                    {historyViewGroup && (
-                        <div className="space-y-4">
-                            <div className="bg-muted/30 rounded-lg px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2">
-                                {[
-                                    { label: 'Firm', value: historyViewGroup.firm },
-                                    { label: 'Indenter', value: historyViewGroup.indenter },
-                                    { label: 'Department', value: historyViewGroup.department },
-                                    { label: 'Request Date', value: historyViewGroup.date },
-                                    { label: 'Approval Date', value: historyViewGroup.approvedDate },
-                                    { label: 'Delay', value: historyViewGroup.delay },
-                                ].map(({ label, value }) =>
-                                    value ? (
-                                        <div key={label} className="flex flex-col">
-                                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
-                                            <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
-                                        </div>
-                                    ) : null
-                                )}
+                    
+                    <div className="space-y-6 py-4">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-muted/30 p-4 rounded-lg">
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Firm</p>
+                                <p className="text-sm font-medium">{historyViewGroup?.firm}</p>
                             </div>
-                            <div className="overflow-x-auto rounded-md border">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow className="bg-muted/20">
-                                            <TableHead className="text-xs">Code</TableHead>
-                                            <TableHead className="text-xs">Product</TableHead>
-                                            <TableHead className="text-xs">Appr. Qty</TableHead>
-                                            <TableHead className="text-xs">UOM</TableHead>
-                                            <TableHead className="text-xs">Status</TableHead>
-                                            <TableHead className="text-xs">Specifications</TableHead>
-                                            <TableHead className="text-xs">Attachment</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {historyViewGroup.items.map((item, idx) => (
-                                            <TableRow key={idx}>
-                                                <TableCell>
-                                                    {item.productCode
-                                                        ? <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">{item.productCode}</span>
-                                                        : <span className="text-muted-foreground text-xs">—</span>
-                                                    }
-                                                </TableCell>
-                                                <TableCell className="text-xs font-medium">{item.product}</TableCell>
-                                                <TableCell className="text-xs">{item.approvedQuantity}</TableCell>
-                                                <TableCell className="text-xs">{item.uom}</TableCell>
-                                                <TableCell>
-                                                    <Pill variant={item.vendorType === 'Reject' ? 'reject' : item.vendorType === 'Regular' ? 'primary' : 'secondary'}>
-                                                        {item.vendorType}
-                                                    </Pill>
-                                                </TableCell>
-                                                <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
-                                                    {item.specifications || '—'}
-                                                </TableCell>
-                                                <TableCell className="text-xs">
-                                                    {item.attachment
-                                                        ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
-                                                        : <span className="text-muted-foreground">—</span>
-                                                    }
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Indenter</p>
+                                <p className="text-sm font-medium">{historyViewGroup?.indenter}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Department</p>
+                                <p className="text-sm font-medium">{historyViewGroup?.department}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Request Date</p>
+                                <p className="text-sm font-medium">{historyViewGroup?.date}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Approval Date</p>
+                                <p className="text-sm font-medium">{historyViewGroup?.approvedDate}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Delay</p>
+                                <p className="text-sm font-medium">{historyViewGroup?.delay}</p>
                             </div>
                         </div>
-                    )}
+
+                        <div className="rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">Product Code</TableHead>
+                                        <TableHead className="text-xs">Product Name</TableHead>
+                                        <TableHead className="text-xs">Quantity</TableHead>
+                                        <TableHead className="text-xs">UOM</TableHead>
+                                        <TableHead className="text-xs">Status</TableHead>
+                                        <TableHead className="text-xs">Specifications</TableHead>
+                                        <TableHead className="text-xs text-right">Attachment</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {historyViewGroup?.items.slice().sort((a: any, b: any) => (a.product || '').localeCompare(b.product || '')).map((item: any, i: number) => (
+                                        <TableRow key={i}>
+                                            <TableCell>
+                                                {item.productCode 
+                                                    ? <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">{item.productCode}</span>
+                                                    : <span className="text-muted-foreground text-xs">—</span>
+                                                }
+                                            </TableCell>
+                                            <TableCell className="text-xs font-medium">{item.product}</TableCell>
+                                            <TableCell className="text-xs">{item.approvedQuantity}</TableCell>
+                                            <TableCell className="text-xs">{item.uom}</TableCell>
+                                            <TableCell>
+                                                <Pill variant={item.vendorType === 'Reject' ? 'reject' : item.vendorType === 'Regular' ? 'primary' : 'secondary'}>
+                                                    {item.vendorType}
+                                                </Pill>
+                                            </TableCell>
+                                            <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
+                                                {item.specifications || '—'}
+                                            </TableCell>
+                                            <TableCell className="text-xs text-right">
+                                                {item.attachment 
+                                                    ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
+                                                    : <span className="text-muted-foreground">—</span>
+                                                }
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>

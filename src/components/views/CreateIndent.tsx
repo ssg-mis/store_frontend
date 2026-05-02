@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { toast } from 'sonner';
-import { Form, FormField, FormItem, FormLabel, FormControl } from '@/components/ui/form';
+import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,7 +32,7 @@ export default () => {
     const { user } = useAuth();
     const isAdmin = (user as any)?.role === 'ADMIN';
 
-    const { indentSheet: sheet, updateIndentSheet, inventorySheet, updateInventorySheet } = useSheets();
+    const { indentSheet: sheet, updateIndentSheet, inventorySheet, updateInventorySheet, receivedSheet, poMasterSheet } = useSheets();
     const [indentSheet, setIndentSheet] = useState<IndentSheet[]>([]);
     const [master, setMaster] = useState<any>(null);
     const [users, setUsers] = useState<{ id: number; name: string; username: string }[]>([]);
@@ -40,7 +41,6 @@ export default () => {
     const [searchTermProductName, setSearchTermProductName] = useState('');
     const [uoms, setUoms] = useState<{ uom_id: number; uom_name: string }[]>([]);
     const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string }[]>([]);
-    const [stockError, setStockError] = useState<string>('');
 
     const refreshMaster = async () => {
         const data = await fetchIndentMasterData();
@@ -116,20 +116,49 @@ export default () => {
         name: 'products',
     });
 
-    // Helper: get current stock for a product
-    function getStock(productName: string, groupHead: string): number {
-        if (!productName) return 0;
-        const item = inventorySheet.find(
-            i =>
-                i.itemName?.toLowerCase().trim() === productName.toLowerCase().trim() &&
-                (!groupHead || i.groupHead?.toLowerCase().trim() === groupHead.toLowerCase().trim())
+    const getStock = (itemName: string, groupHead: string) => {
+        const item = inventorySheet?.find(
+            (i) =>
+                i.itemName?.toLowerCase().trim() === itemName?.toLowerCase().trim() &&
+                (!groupHead || i.groupHead?.toLowerCase().trim() === groupHead?.toLowerCase().trim())
         );
         return Number(item?.current || 0);
-    }
+    };
+
+    const getLastPurchaseInfo = (itemName: string, groupHead: string) => {
+        if (!itemName || !receivedSheet) return null;
+        const latest = [...receivedSheet]
+            .filter(r => 
+                (r.product || '').toLowerCase().trim() === itemName.toLowerCase().trim() &&
+                ((r as any).indent?.groupHead || '').toLowerCase().trim() === (groupHead || '').toLowerCase().trim()
+            )
+            .sort((a, b) => {
+                const dateA = new Date((a as any).createdAt || a.timestamp || 0).getTime();
+                const dateB = new Date((b as any).createdAt || b.timestamp || 0).getTime();
+                return dateB - dateA;
+            })[0];
+
+        if (!latest) return null;
+
+        const po = poMasterSheet?.find(p => 
+            (((p as any).poNumber === latest.poNumber) || ((p as any).po_number === latest.poNumber)) &&
+            (p.product || '').toLowerCase().trim() === itemName.toLowerCase().trim()
+        );
+        
+        const rate = (po as any)?.rate || 'N/A';
+        const rawDate = (latest as any).createdAt || latest.timestamp;
+        const date = rawDate ? new Date(rawDate).toLocaleDateString() : 'N/A';
+
+        return {
+            qty: latest.receivedQuantity,
+            uom: (latest as any).uom || 'Qty',
+            rate,
+            date
+        };
+    };
 
     // Auto-set indent type based on stock availability
     useEffect(() => {
-        setStockError('');
         const filled = products.filter(p => p.productName);
         if (filled.length === 0) return;
 
@@ -184,8 +213,6 @@ export default () => {
         return () => subscription.unsubscribe();
     }, [form, master]);
 
-    // Function to generate next indent number
-    // Function to generate next indent number from dummy data
     const getNextIndentNumber = async () => {
         try {
             const indents = await fetchFromSupabasePaginated('indent', 'indentNumber', { column: 'indentNumber', options: { ascending: false } }, undefined, { from: 0, to: 0 });
@@ -213,7 +240,6 @@ export default () => {
 
 
     async function onSubmit(data: z.infer<typeof schema>) {
-        // Validate stock for store-out type indents
         const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType);
         if (isStoreOutType) {
             const shortProducts = data.products
@@ -228,12 +254,10 @@ export default () => {
                     const stock = getStock(p.productName, p.createGroupHead);
                     return `${p.productName}: need ${p.quantity}, available ${stock}`;
                 });
-                setStockError(`Insufficient stock for ${data.indentType} — ${messages.join(' | ')}`);
+                toast.error(`Insufficient stock for ${data.indentType}, ${messages.join(' | ')}. Please change Indent Type to "Purchase" instead of "${data.indentType}".`);
                 return;
             }
         }
-
-        setStockError('');
         try {
             const formatDate = (date: Date) => {
                 const d = String(date.getDate()).padStart(2, '0');
@@ -246,10 +270,9 @@ export default () => {
             };
 
             const createdAt = new Date().toISOString();
-            const plannedStr = formatDate(new Date()); // For the planned string field
+            const plannedStr = formatDate(new Date()); 
             const rows: any[] = [];
 
-            // Get the starting indent number
             const currentIndentNumber = await getNextIndentNumber();
 
             for (let i = 0; i < data.products.length; i++) {
@@ -270,7 +293,7 @@ export default () => {
                     specifications: product.specifications || '',
                     indentType: data.indentType,
                     validityDate: (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType)) ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
-                    planned: plannedStr, // Store current date in same format as requested
+                    planned: plannedStr, 
                 };
 
                 if (product.attachment !== undefined) {
@@ -284,17 +307,12 @@ export default () => {
                 rows.push(row);
             }
 
-            // Insert all rows via API
             const result = await postToSheet(rows, 'insert', 'INDENT');
 
             if (!result.success) throw new Error('API insertion failed');
 
-            setTimeout(() => {
-                fetchIndentData();
-            }, 1000);
-
             toast.success('Indent created successfully');
-            updateIndentSheet(); // Update context for sidebars
+            updateIndentSheet(); 
 
             form.reset({
                 firm: '',
@@ -453,8 +471,6 @@ export default () => {
 
                             const createGroupHead = products[index]?.createGroupHead;
 
-                            // Get products from the corrected master data structure
-                            // The createGroupHead field in the form represents create_group_head
                             const productOptions = master?.groupHeadItems?.[createGroupHead] || [];
 
                             return (
@@ -490,7 +506,6 @@ export default () => {
                                                             <Select
                                                                 onValueChange={(value) => {
                                                                     field.onChange(value);
-                                                                    // Auto-fill Department Head
                                                                     const gh = master?.departmentToGroupHead?.[value];
                                                                     if (gh) {
                                                                         form.setValue(`products.0.createGroupHead` as any, gh);
@@ -542,7 +557,6 @@ export default () => {
                                                             <Select
                                                                 onValueChange={(value) => {
                                                                     field.onChange(value);
-                                                                    // Auto-fill Department
                                                                     const dep = master?.groupHeadToDepartment?.[value];
                                                                     if (dep) {
                                                                         form.setValue(`products.0.department` as any, dep);
@@ -552,7 +566,7 @@ export default () => {
                                                             >
                                                                 <FormControl>
                                                                     <SelectTrigger className="w-full">
-                                                                        <SelectValue placeholder="Select category" />
+                                                                        <SelectValue placeholder="Select head" />
                                                                     </SelectTrigger>
                                                                 </FormControl>
                                                                 <SelectContent>
@@ -609,7 +623,14 @@ export default () => {
                                                     <FormItem>
                                                         <FormLabel>Product Category</FormLabel>
                                                         <Select
-                                                            onValueChange={field.onChange}
+                                                            onValueChange={(val) => {
+                                                                field.onChange(val);
+                                                                const currentProd = form.getValues(`products.${index}.productName` as any);
+                                                                if (currentProd && master?.itemToCategory?.[currentProd] !== val) {
+                                                                    form.setValue(`products.${index}.productName` as any, '');
+                                                                    form.setValue(`products.${index}.uom` as any, '');
+                                                                }
+                                                            }}
                                                             value={field.value}
                                                         >
                                                             <FormControl>
@@ -636,79 +657,94 @@ export default () => {
                                                 name={`products.${index}.productName`}
                                                 render={({ field }) => {
                                                     const stock = getStock(field.value, createGroupHead);
-                                                    const qty = Number(products[index]?.quantity || 0);
-                                                    const hasProduct = !!field.value;
-                                                    const stockOk = hasProduct && stock >= qty;
                                                     return (
-                                                    <FormItem>
-                                                        <FormLabel>
-                                                            Product Name
-                                                            <span className="text-destructive">
-                                                                *
-                                                            </span>
-                                                        </FormLabel>
-                                                        <Select
-                                                            onValueChange={(value) => {
-                                                                field.onChange(value);
-                                                                const uom = master?.uomLookup?.[createGroupHead]?.[value];
-                                                                if (uom) {
-                                                                    form.setValue(`products.${index}.uom` as any, uom);
-                                                                }
-                                                            }}
-                                                            value={field.value}
-                                                            disabled={!createGroupHead}
-                                                        >
-                                                            <FormControl>
-                                                                <SelectTrigger className="w-full">
-                                                                    <SelectValue placeholder="Select product" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                <div className="flex items-center border-b px-3 pb-3">
-                                                                    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                                    <input
-                                                                        placeholder="Search products..."
-                                                                        value={
-                                                                            searchTermProductName
+                                                        <FormItem>
+                                                            <FormLabel>
+                                                                Product Name
+                                                                <span className="text-destructive">
+                                                                    *
+                                                                </span>
+                                                            </FormLabel>
+                                                            <div className="relative">
+                                                                <Select
+                                                                    onValueChange={(value) => {
+                                                                        field.onChange(value);
+                                                                        const uom = master?.uomLookup?.[createGroupHead]?.[value];
+                                                                        if (uom) {
+                                                                            form.setValue(`products.${index}.uom` as any, uom);
                                                                         }
-                                                                        onChange={(e) =>
-                                                                            setSearchTermProductName(
-                                                                                e.target.value
-                                                                            )
+                                                                        // Auto-fill category if not set or different
+                                                                        const cat = master?.itemToCategory?.[value];
+                                                                        if (cat) {
+                                                                            form.setValue(`products.${index}.productCategory` as any, cat);
                                                                         }
-                                                                        onKeyDown={(e) =>
-                                                                            e.stopPropagation()
-                                                                        }
-                                                                        className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                                    />
-                                                                </div>
+                                                                    }}
+                                                                    value={field.value}
+                                                                    disabled={!createGroupHead}
+                                                                >
+                                                                    <FormControl>
+                                                                        <SelectTrigger className="w-full">
+                                                                            <SelectValue placeholder="Select product" />
+                                                                        </SelectTrigger>
+                                                                    </FormControl>
+                                                                    <SelectContent>
+                                                                        <div className="flex items-center border-b px-3 pb-3">
+                                                                            <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                                            <input
+                                                                                placeholder="Search products..."
+                                                                                value={searchTermProductName}
+                                                                                onChange={(e) => setSearchTermProductName(e.target.value)}
+                                                                                onKeyDown={(e) => e.stopPropagation()}
+                                                                                className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                                            />
+                                                                        </div>
 
-                                                                <div className="max-h-[300px] overflow-y-auto">
-                                                                    {productOptions
-                                                                        ?.filter((dep: string) =>
-                                                                            dep
-                                                                                .toLowerCase()
-                                                                                .includes(
-                                                                                    searchTermProductName.toLowerCase()
-                                                                                )
-                                                                        )
-                                                                        .map((dep: string, i: number) => (
-                                                                            <SelectItem
-                                                                                key={i}
-                                                                                value={dep}
-                                                                            >
-                                                                                {dep}
-                                                                            </SelectItem>
-                                                                        ))}
-                                                                </div>
-                                                            </SelectContent>
-                                                        </Select>
-                                                        {hasProduct && (
-                                                            <p className={`text-xs mt-1 ${stockOk ? 'text-green-600' : 'text-destructive'}`}>
-                                                                Current stock: {stock} {products[index]?.uom || ''}{!stockOk && qty > 0 ? ` — need ${qty}, short by ${qty - stock}` : ''}
-                                                            </p>
-                                                        )}
-                                                    </FormItem>
+                                                                        <div className="max-h-[300px] overflow-y-auto">
+                                                                            {productOptions
+                                                                                ?.filter((dep: string) => {
+                                                                                    const searchMatch = dep.toLowerCase().includes(searchTermProductName.toLowerCase());
+                                                                                    const currentCategory = form.getValues(`products.${index}.productCategory` as any);
+                                                                                    const categoryMatch = !currentCategory || master?.itemToCategory?.[dep] === currentCategory;
+                                                                                    return searchMatch && categoryMatch;
+                                                                                })
+                                                                                .map((dep: string, i: number) => {
+                                                                                    const depStock = getStock(dep, createGroupHead);
+                                                                                    return (
+                                                                                        <SelectItem
+                                                                                            key={i}
+                                                                                            value={dep}
+                                                                                            indicator={
+                                                                                                <span className={`text-xs font-semibold tabular-nums ${depStock > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                                                                                    {depStock}
+                                                                                                </span>
+                                                                                            }
+                                                                                        >
+                                                                                            {dep}
+                                                                                        </SelectItem>
+                                                                                    );
+                                                                                })}
+                                                                        </div>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                {field.value && (
+                                                                    <div className="absolute top-full left-0 w-full z-10 pt-0.5 pointer-events-none">
+                                                                        <div className="flex flex-col gap-0.5">
+                                                                            <p className="text-[10px] text-muted-foreground bg-background/80 backdrop-blur-sm rounded-sm px-1">
+                                                                                Stock: <span className={cn("font-bold", stock > 0 ? "text-green-600" : "text-red-500")}>
+                                                                                    {stock}
+                                                                                </span>
+                                                                            </p>
+                                                                            {getLastPurchaseInfo(field.value, createGroupHead) && (
+                                                                                <p className="text-[10px] text-yellow-600 font-medium bg-background/80 backdrop-blur-sm rounded-sm px-1">
+                                                                                    Last Purchased: {getLastPurchaseInfo(field.value, createGroupHead)?.qty} {getLastPurchaseInfo(field.value, createGroupHead)?.uom} @ ₹{getLastPurchaseInfo(field.value, createGroupHead)?.rate} on {getLastPurchaseInfo(field.value, createGroupHead)?.date}
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <FormMessage />
+                                                        </FormItem>
                                                     );
                                                 }}
                                             />
@@ -818,11 +854,6 @@ export default () => {
                             )}
                             Create Indent
                         </Button>
-                        {stockError && (
-                            <p className="text-sm text-destructive font-medium text-center">
-                                {stockError}
-                            </p>
-                        )}
                     </div>
                 </form>
             </Form>

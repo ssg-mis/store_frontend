@@ -47,30 +47,26 @@ const styles = StyleSheet.create({
     tableRow: {
         flexDirection: 'row',
         borderBottom: '1 solid #cccccc',
-        minHeight: 20,
+        minHeight: 25,
+        alignItems: 'center',
     },
     tableRowAlt: {
         flexDirection: 'row',
         borderBottom: '1 solid #cccccc',
         backgroundColor: '#f9f9f9',
-        minHeight: 20,
+        minHeight: 25,
+        alignItems: 'center',
     },
 
     // Columns
     colSn:       { width: '4%',  borderRight: '1 solid black', padding: 4 },
-    colItem:     { width: '20%', borderRight: '1 solid black', padding: 4 },
+    colItem:     { width: '26%', borderRight: '1 solid black', padding: 4 },
     colQty:      { width: '8%',  borderRight: '1 solid black', padding: 4, textAlign: 'center' },
-    colUom:      { width: '6%',  borderRight: '1 solid black', padding: 4, textAlign: 'center' },
-    colVendor:   { width: '18%', borderRight: '1 solid black', padding: 4 },
-    colRate:     { width: '10%', borderRight: '1 solid black', padding: 4, textAlign: 'right' },
-    colPayment:  { width: '14%', borderRight: '1 solid black', padding: 4 },
-    colAmount:   { width: '12%', borderRight: '0',             padding: 4, textAlign: 'right' },
-
-    headerText:  { fontFamily: 'Helvetica-Bold', fontSize: 8 },
-    cellText:    { fontSize: 8 },
-
-    // Divider between vendor rows
-    vendorDivider: { borderTop: '0.5 solid #bbbbbb' },
+    colVendor:   { width: '20%', borderRight: '1 solid black', padding: 4, textAlign: 'center' },
+    
+    headerText:  { fontFamily: 'Helvetica-Bold', fontSize: 7, textAlign: 'center' },
+    cellText:    { fontSize: 7 },
+    boldText:    { fontFamily: 'Helvetica-Bold' },
 
     // Footer
     footer: {
@@ -83,12 +79,27 @@ const styles = StyleSheet.create({
     footerSignature: { alignItems: 'center', gap: 2 },
     footerLabel: { fontFamily: 'Helvetica-Bold', borderTop: '1 solid black', paddingTop: 2, width: 80, textAlign: 'center' },
     footerNote: { fontSize: 7, color: '#666666', paddingHorizontal: 10, paddingTop: 4 },
+    
+    totalRow: {
+        flexDirection: 'row',
+        backgroundColor: '#f0f0f0',
+        borderBottom: '1 solid black',
+        minHeight: 25,
+        alignItems: 'center',
+    }
 });
 
-export interface ComparisonVendor {
-    name: string;
-    rate: number | null;
+export interface ComparisonVendorOffer {
+    vendorName: string;
+    rate: number;
     paymentTerm: string;
+}
+
+export interface ComparisonProduct {
+    name: string;
+    quantity: number;
+    uom: string;
+    offers: ComparisonVendorOffer[];
 }
 
 export interface ComparisonPdfProps {
@@ -96,13 +107,11 @@ export interface ComparisonPdfProps {
     companyAddress: string;
     companyPhone: string;
     indentNo: string;
-    product: string;
     department: string;
     indenter: string;
-    quantity: number;
-    uom: string;
     date: string;
-    vendors: ComparisonVendor[]; // up to 3
+    products: ComparisonProduct[];
+    vendorNames: string[];
     recommendedVendor?: string;
     preparedBy?: string;
     approvedBy?: string;
@@ -113,20 +122,30 @@ export default ({
     companyAddress,
     companyPhone,
     indentNo,
-    product,
     department,
     indenter,
-    quantity,
-    uom,
     date,
-    vendors,
+    products,
+    vendorNames,
     recommendedVendor,
     preparedBy,
     approvedBy,
 }: ComparisonPdfProps) => {
-    // Determine lowest-rate vendor
-    const validVendors = vendors.filter(v => v.name && v.rate !== null && v.rate !== undefined && v.rate > 0);
-    const lowestRate = validVendors.length > 0 ? Math.min(...validVendors.map(v => v.rate!)) : null;
+    
+    // Calculate totals per vendor
+    const vendorTotals: Record<string, number> = {};
+    vendorNames.forEach(v => vendorTotals[v] = 0);
+    
+    products.forEach(p => {
+        p.offers.forEach(o => {
+            if (vendorTotals[o.vendorName] !== undefined) {
+                vendorTotals[o.vendorName] += o.rate;
+            }
+        });
+    });
+
+    const minTotal = Math.min(...Object.values(vendorTotals).filter(t => t > 0));
+    const vendorWidth = 62 / vendorNames.length; // Remaining width for vendor columns
 
     return (
         <Document>
@@ -140,7 +159,7 @@ export default ({
                     </View>
 
                     {/* Title */}
-                    <Text style={styles.title}>Vendor Comparison Statement</Text>
+                    <Text style={styles.title}>Comparative Statement of Rates</Text>
 
                     {/* Meta */}
                     <View style={styles.metaRow}>
@@ -166,49 +185,62 @@ export default ({
                     <View style={styles.table}>
                         {/* Header Row */}
                         <View style={styles.tableHeaderRow}>
-                            <Text style={[styles.colSn,    styles.headerText]}>S/N</Text>
-                            <Text style={[styles.colItem,  styles.headerText]}>Item / Product</Text>
-                            <Text style={[styles.colQty,   styles.headerText]}>Qty</Text>
-                            <Text style={[styles.colUom,   styles.headerText]}>UOM</Text>
-                            <Text style={[styles.colVendor,styles.headerText]}>Vendor Name</Text>
-                            <Text style={[styles.colRate,  styles.headerText]}>Rate (₹)</Text>
-                            <Text style={[styles.colPayment,styles.headerText]}>Payment Terms</Text>
-                            <Text style={[styles.colAmount,styles.headerText]}>Total Amount (₹)</Text>
+                            <Text style={[styles.colSn, styles.headerText]}>S/N</Text>
+                            <Text style={[styles.colItem, styles.headerText]}>Item / Product Description</Text>
+                            <Text style={[styles.colQty, styles.headerText]}>Qty / UOM</Text>
+                            {vendorNames.map(v => (
+                                <Text key={v} style={[styles.headerText, { width: `${vendorWidth}%`, borderRight: '1 solid black', padding: 4 }]}>
+                                    {v}
+                                </Text>
+                            ))}
                         </View>
 
-                        {/* Vendor rows — one row per vendor */}
-                        {vendors.map((vendor, idx) => {
-                            const isLowest = lowestRate !== null && vendor.rate === lowestRate && vendor.rate > 0;
-                            const totalAmt = vendor.rate && quantity ? (vendor.rate * quantity).toFixed(2) : '-';
-                            const isAlt = idx % 2 === 1;
-                            const rowStyle = isAlt ? styles.tableRowAlt : styles.tableRow;
+                        {/* Product rows */}
+                        {products.map((product, idx) => (
+                            <View key={idx} style={idx % 2 === 1 ? styles.tableRowAlt : styles.tableRow}>
+                                <Text style={[styles.colSn, styles.cellText]}>{idx + 1}</Text>
+                                <Text style={[styles.colItem, styles.cellText]}>{product.name}</Text>
+                                <Text style={[styles.colQty, styles.cellText]}>{product.quantity} {product.uom}</Text>
+                                {vendorNames.map(vName => {
+                                    const offer = product.offers.find(o => o.vendorName === vName);
+                                    return (
+                                        <View key={vName} style={{ width: `${vendorWidth}%`, borderRight: '1 solid black', padding: 4, height: '100%', justifyContent: 'center' }}>
+                                            {offer ? (
+                                                <>
+                                                    <Text style={[styles.cellText, { textAlign: 'center', fontFamily: 'Helvetica-Bold' }]}>₹{offer.rate.toLocaleString()}</Text>
+                                                    <Text style={[styles.cellText, { textAlign: 'center', fontSize: 6, color: '#666' }]}>{offer.paymentTerm}</Text>
+                                                </>
+                                            ) : (
+                                                <Text style={[styles.cellText, { textAlign: 'center', color: '#ccc' }]}>-</Text>
+                                            )}
+                                        </View>
+                                    );
+                                })}
+                            </View>
+                        ))}
 
-                            return (
-                                <View key={idx} style={rowStyle}>
-                                    <Text style={[styles.colSn,     styles.cellText]}>{idx + 1}</Text>
-                                    <Text style={[styles.colItem,   styles.cellText]}>{idx === 0 ? product : ''}</Text>
-                                    <Text style={[styles.colQty,    styles.cellText]}>{idx === 0 ? String(quantity) : ''}</Text>
-                                    <Text style={[styles.colUom,    styles.cellText]}>{idx === 0 ? uom : ''}</Text>
-                                    <Text style={[styles.colVendor, styles.cellText, isLowest ? { color: '#1a7a1a' } : {}]}>
-                                        {vendor.name || '—'}
-                                        {isLowest ? ' ✓ (L1)' : ''}
-                                    </Text>
-                                    <Text style={[styles.colRate,   styles.cellText]}>
-                                        {vendor.rate ? vendor.rate.toFixed(2) : '—'}
-                                    </Text>
-                                    <Text style={[styles.colPayment,styles.cellText]}>{vendor.paymentTerm || '—'}</Text>
-                                    <Text style={[styles.colAmount, styles.cellText, isLowest ? { color: '#1a7a1a' } : {}]}>
-                                        {totalAmt}
-                                    </Text>
-                                </View>
-                            );
-                        })}
+                        {/* Totals Row */}
+                        <View style={styles.totalRow}>
+                            <Text style={{ width: '38%', padding: 4, textAlign: 'right', fontFamily: 'Helvetica-Bold', fontSize: 8 }}>GROSS TOTAL AMOUNT (₹)</Text>
+                            {vendorNames.map(vName => {
+                                const total = vendorTotals[vName];
+                                const isL1 = total === minTotal && total > 0;
+                                return (
+                                    <View key={vName} style={{ width: `${vendorWidth}%`, borderRight: '1 solid black', padding: 4, height: '100%', justifyContent: 'center', backgroundColor: isL1 ? '#e6ffed' : 'transparent' }}>
+                                        <Text style={[styles.cellText, { textAlign: 'center', fontFamily: 'Helvetica-Bold', fontSize: 8, color: isL1 ? '#1a7a1a' : '#000' }]}>
+                                            ₹{total.toLocaleString()}
+                                        </Text>
+                                        {isL1 && <Text style={[styles.cellText, { textAlign: 'center', fontSize: 6, color: '#1a7a1a' }]}>L1 (LOWEST)</Text>}
+                                    </View>
+                                );
+                            })}
+                        </View>
                     </View>
 
                     {/* Recommendation note */}
                     {recommendedVendor && (
                         <Text style={styles.footerNote}>
-                            Recommended Vendor: {recommendedVendor}
+                            Decision: Selected {recommendedVendor} as approved vendor.
                         </Text>
                     )}
 
