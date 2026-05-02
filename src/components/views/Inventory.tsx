@@ -142,7 +142,7 @@ export default () => {
         },
         { accessorKey: 'uom', header: 'UOM' },
         { accessorKey: 'groupHead', header: 'Department Head' },
-        { accessorKey: 'opening', header: 'Opening' },
+
 
         { accessorKey: 'indented', header: 'Indented' },
         { accessorKey: 'approved', header: 'Approved' },
@@ -192,15 +192,6 @@ export default () => {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
-                        <div className="flex flex-col gap-1.5">
-                            <Label className="text-sm font-medium">Opening Stock</Label>
-                            <Input
-                                type="number"
-                                value={editForm.opening}
-                                onChange={(e) => setEditForm(p => ({ ...p, opening: e.target.value }))}
-                                placeholder="Enter opening stock"
-                            />
-                        </div>
                         <div className="flex flex-col gap-1.5">
                             <Label className="text-sm font-medium">Max Level (optional)</Label>
                             <Input

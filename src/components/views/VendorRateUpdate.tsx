@@ -825,9 +825,9 @@ export default () => {
         paymentTerm1: z.string().nonempty('Payment term required'),
         paymentTerm2: z.string().nonempty('Payment term required'),
         paymentTerm3: z.string().nonempty('Payment term required'),
-        comparisonSheet1: z.instanceof(File).optional(),
-        comparisonSheet2: z.instanceof(File).optional(),
-        comparisonSheet3: z.instanceof(File).optional(),
+        comparisonSheet1: z.instanceof(File, { message: 'Comparison sheet 1 is required' }),
+        comparisonSheet2: z.instanceof(File, { message: 'Comparison sheet 2 is required' }),
+        comparisonSheet3: z.instanceof(File, { message: 'Comparison sheet 3 is required' }),
         products: z.array(z.object({
             rate1: z.coerce.number().gt(0, 'Rate must be > 0'),
             rate2: z.coerce.number().gt(0, 'Rate must be > 0'),
@@ -1359,17 +1359,19 @@ export default () => {
                                                     </TableRow>
                                                     {/* Comparison Sheet upload row */}
                                                     <TableRow>
-                                                        <TableCell className="text-xs font-medium text-muted-foreground">Comparison Sheet</TableCell>
+                                                        <TableCell className="text-xs font-medium text-muted-foreground">
+                                                            Comparison Sheet <span className="text-red-500">*</span>
+                                                        </TableCell>
                                                         {([1, 2, 3] as const).map(n => (
                                                             <TableCell key={n} className="min-w-[180px]">
                                                                 <FormField
                                                                     control={threePartyForm.control}
                                                                     name={`comparisonSheet${n}`}
-                                                                    render={({ field }) => (
+                                                                    render={({ field, fieldState }) => (
                                                                         <FormItem>
                                                                             <FormControl>
                                                                                 <label className="flex flex-col gap-1 cursor-pointer w-fit">
-                                                                                    <span className="inline-flex items-center justify-center h-6 px-2 rounded border border-input bg-background text-[10px] font-medium hover:bg-accent shrink-0">
+                                                                                    <span className={`inline-flex items-center justify-center h-6 px-2 rounded border bg-background text-[10px] font-medium hover:bg-accent shrink-0 ${fieldState.error ? 'border-red-500' : 'border-input'}`}>
                                                                                         Upload
                                                                                     </span>
                                                                                     {field.value?.name && (
@@ -1384,6 +1386,9 @@ export default () => {
                                                                                     />
                                                                                 </label>
                                                                             </FormControl>
+                                                                            {fieldState.error && (
+                                                                                <p className="text-[10px] text-red-500 mt-0.5">{fieldState.error.message}</p>
+                                                                            )}
                                                                         </FormItem>
                                                                     )}
                                                                 />

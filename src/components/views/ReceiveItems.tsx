@@ -408,7 +408,7 @@ const ReceiveItems = () => {
         advanceAmount: z.coerce.number().min(0).optional(),
         leadTime: z.string().min(1, 'Required'),
         photoOfItem: z.instanceof(File, { message: 'Required' }),
-        photoOfBill: z.instanceof(File, { message: 'Required' }),
+        photoOfBill: z.instanceof(File, { message: 'Required' }).optional(),
     }).superRefine((data, ctx) => {
         if (data.billStatus === 'Received') {
             if (!data.billAmount || data.billAmount <= 0) {
@@ -416,6 +416,9 @@ const ReceiveItems = () => {
             }
             if (!data.typeOfBill) {
                 ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Required', path: ['typeOfBill'] });
+            }
+            if (!data.photoOfBill) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Required', path: ['photoOfBill'] });
             }
         }
     });
@@ -792,7 +795,7 @@ const ReceiveItems = () => {
                                                     <th className="px-4 py-2 text-center">Pending</th>
                                                     <th className="px-4 py-2 text-right w-[120px]">Receive Qty</th>
                                                     <th className="px-4 py-2 text-right w-[120px]">Damaged Qty</th>
-                                                    <th className="px-4 py-2 text-right w-[100px]">Good Qty</th>
+                                                    <th className="px-4 py-2 text-right w-[100px]">Okay Qty</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
@@ -1020,22 +1023,24 @@ const ReceiveItems = () => {
                                             )}
                                         />
 
-                                        <FormField
-                                            control={form.control}
-                                            name="photoOfBill"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel className="text-xs">Photo of Invoice / Bill <span className="text-red-500">*</span></FormLabel>
-                                                    <FormControl>
-                                                        <Input
-                                                            type="file"
-                                                            className="h-10 text-xs shadow-sm bg-background cursor-pointer"
-                                                            onChange={(e) => field.onChange(e.target.files?.[0])}
-                                                        />
-                                                    </FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
+                                        {form.watch('billStatus') === 'Received' && (
+                                            <FormField
+                                                control={form.control}
+                                                name="photoOfBill"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs">Photo of Invoice / Bill <span className="text-red-500">*</span></FormLabel>
+                                                        <FormControl>
+                                                            <Input
+                                                                type="file"
+                                                                className="h-10 text-xs shadow-sm bg-background cursor-pointer"
+                                                                onChange={(e) => field.onChange(e.target.files?.[0])}
+                                                            />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        )}
                                     </div>
                                 </div>
 
@@ -1125,7 +1130,7 @@ const ReceiveItems = () => {
                                         <TableHead className="text-xs">UOM</TableHead>
                                         <TableHead className="text-xs text-right">Received Qty</TableHead>
                                         <TableHead className="text-xs text-right">Damaged Qty</TableHead>
-                                        <TableHead className="text-xs text-right">Good Qty</TableHead>
+                                        <TableHead className="text-xs text-right">Okay Qty</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>

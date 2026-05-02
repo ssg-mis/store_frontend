@@ -190,7 +190,9 @@ const routes: RouteAttributes[] = [
         element: <VendorRateUpdate />,
         notifications: (data) =>
             data.approvedIndents.filter(
-                (sheet) => !(sheet.hasRateUpdate || sheet.hasThreeParty)
+                (sheet) => 
+                    sheet.indentType === 'Purchase' &&
+                    !(sheet.hasRateUpdate || sheet.hasThreeParty)
             ).length,
     },
     {
@@ -202,13 +204,14 @@ const routes: RouteAttributes[] = [
         notifications: (data) => {
             const approvedIds = new Set(data.threePartyApprovals.map((r: any) => String(r.indentId || r.indent_id || '').trim()));
             
-            // Only count rate updates for Three Party indents that haven't been approved yet
-            // Group by indentNumber to match the view's grouping
             const pendingIndents = new Set();
             data.rateUpdates.forEach((r: any) => {
                 const indentId = String(r.indentId || r.indent_id || '').trim();
                 const indentNum = String(r.indentNumber || r.indent_number || '').trim();
-                if (!approvedIds.has(indentId)) {
+                const indent = data.indents.find((i: any) => String(i.id) === indentId);
+                
+                // Only count for Purchase indents
+                if (indent?.indentType === 'Purchase' && !approvedIds.has(indentId)) {
                     pendingIndents.add(indentNum);
                 }
             });
@@ -224,7 +227,7 @@ const routes: RouteAttributes[] = [
         notifications: (data) => {
             const pendingIndents = new Set();
             data.indents.forEach((sheet: any) => {
-                if ((sheet.planned4 && sheet.planned4 !== '') && (!sheet.actual4 || sheet.actual4 === '')) {
+                if (sheet.indentType === 'Purchase' && (sheet.planned4 && sheet.planned4 !== '') && (!sheet.actual4 || sheet.actual4 === '')) {
                     pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
                 }
             });
@@ -294,7 +297,9 @@ const routes: RouteAttributes[] = [
         notifications: (data) =>
             data.indents.filter(
                 (sheet) =>
-                    // Match StoreOutPending logic: actual_6 is null
+                    // Match StoreOutPending logic: actual_6 is null AND it's a Store Out type or Received Purchase
+                    (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(sheet.indentType) || 
+                     (sheet.indentType === 'Purchase' && data.received.some((r: any) => String(r.indentId || r.indent_id) === String(sheet.id)))) &&
                     (!sheet.actual6 || sheet.actual6 === '')
             ).length,
     },
