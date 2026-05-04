@@ -888,8 +888,9 @@ export default function QuotationPage() {
                 <Button type="reset" variant="outline" onClick={() => {
                   form.reset();
                   setSelectedItems([]);
-                  setSelectedSuppliers([]);
-                  setSupplierInfos([]);
+                  setSupplierSearch1('');
+                  setSupplierSearch2('');
+                  setSupplierSearch3('');
                 }}>
                   Reset
                 </Button>
