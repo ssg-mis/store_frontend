@@ -1,6 +1,7 @@
 export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT' | 'GET_PURCHASE' | 'GET PURCHASE';
 
 export type IndentSheet = {
+    id: number;
     timestamp: string;
     indentNumber: string;
     indenterName: string;

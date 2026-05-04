@@ -210,6 +210,7 @@ export default () => {
                 const seenHistoryIds = new Set<number>();
                 
                 data.items.forEach((r: any) => {
+                    if (r.vendorType === 'Regular') return; // Hide Regular vendors from Three Party history
                     const indentNo = r.indentNumber || '';
                     if (seenHistoryIds.has(r.indentId)) return;
                     seenHistoryIds.add(r.indentId);

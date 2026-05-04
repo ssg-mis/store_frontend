@@ -65,6 +65,7 @@ interface HistoryData {
     receivedQuantity: number;
     damagedQuantity: number;
     remainingQty?: number;
+    createdAtRaw?: string;
     photoOfProduct: string;
     billStatus: string;
     billNumber: string;
@@ -82,6 +83,7 @@ const ReceiveItems = () => {
     const [localReceivedLoading, setLocalReceivedLoading] = useState(false);
     const { user } = useAuth();
     const { updateIndentSheet, updateReceivedSheet, updateRelatedSheets } = useSheets();
+    const PAYMENT_TERMS = ['ADVANCE', 'CASH', 'BANK', 'ONLINE'];
 
     const [tableData, setTableData] = useState<RecieveItemsData[]>([]);
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);
@@ -141,6 +143,10 @@ const ReceiveItems = () => {
                 const mappedData = indentData.items.map((indent: any) => {
                     const po = indent.poMasters?.[0] || {};
                     const poQty = Number(po.quantity) || 0;
+                    const receivedRecords = indent.received || [];
+                    const totalReceived = receivedRecords.reduce((sum: number, r: any) => sum + Number(r.receivedQuantity || 0) + Number(r.damagedQuantity || 0), 0);
+                    const remainingQty = poQty - totalReceived;
+
                     return {
                         id: indent.id,
                         indentNumber: indent.indentNumber || '',
@@ -151,7 +157,7 @@ const ReceiveItems = () => {
                         productCode: indent.productCode || '',
                         quantity: poQty,
                         rate: Number(po.rate) || 0,
-                        remainingQty: poQty,
+                        remainingQty: remainingQty > 0 ? remainingQty : 0,
                         poDate: po.createdAt || '',
                         product: indent.productName || po.product || '',
                         firm: indent.firm || 'N/A',
@@ -206,7 +212,8 @@ const ReceiveItems = () => {
                         product: receivedRecord.product || '',
                         uom: receivedRecord.uom || '',
                         firm: receivedRecord.indent?.firm || 'N/A',
-                        orderQuantity: 0, // Simplified for pagination compatibility
+                        orderQuantity: Number(receivedRecord.orderQuantity) || 0,
+                        createdAtRaw: receivedRecord.createdAt || '',
                         receivedDate: receivedRecord.createdAt ? formatDate(new Date(receivedRecord.createdAt)) : '',
                         receivedQuantity: Number(receivedRecord.receivedQuantity) || 0,
                         damagedQuantity: Number(receivedRecord.damagedQuantity) || 0,
@@ -946,9 +953,9 @@ const ReceiveItems = () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                <SelectItem value="Credit">Credit</SelectItem>
-                                                                <SelectItem value="Advance">Advance</SelectItem>
-                                                                <SelectItem value="Cash">Cash</SelectItem>
+                                                                {PAYMENT_TERMS.map((term) => (
+                                                                    <SelectItem key={term} value={term}>{term}</SelectItem>
+                                                                ))}
                                                             </SelectContent>
                                                         </Select>
                                                     </FormItem>
@@ -1127,25 +1134,53 @@ const ReceiveItems = () => {
                                     <TableRow className="bg-muted/20">
                                         <TableHead className="text-xs">Product Code</TableHead>
                                         <TableHead className="text-xs">Product</TableHead>
+                                        <TableHead className="text-xs text-right">PO Qty</TableHead>
                                         <TableHead className="text-xs">UOM</TableHead>
                                         <TableHead className="text-xs text-right">Received Qty</TableHead>
                                         <TableHead className="text-xs text-right">Damaged Qty</TableHead>
                                         <TableHead className="text-xs text-right">Okay Qty</TableHead>
+                                        <TableHead className="text-xs text-right text-orange-600 font-semibold">Remaining Qty</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {historyViewGroup?.items.slice().sort((a, b) => (a.product || '').localeCompare(b.product || '')).map((item, i) => (
-                                        <TableRow key={i}>
-                                            <TableCell className="text-xs font-mono">{item.productCode || '—'}</TableCell>
-                                            <TableCell className="text-xs font-medium max-w-[200px]">{item.product}</TableCell>
-                                            <TableCell className="text-xs">{item.uom}</TableCell>
-                                            <TableCell className="text-xs text-right">{item.receivedQuantity}</TableCell>
-                                            <TableCell className="text-xs text-right">{item.damagedQuantity}</TableCell>
-                                            <TableCell className="text-xs text-right font-semibold text-green-700">
-                                                {Math.max(0, item.receivedQuantity - item.damagedQuantity)}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {(() => {
+                                        const runningTotals: Record<string, number> = {};
+                                        const sortedItems = historyViewGroup?.items.slice().sort((a, b) => {
+                                            const prodCompare = (a.product || '').localeCompare(b.product || '');
+                                            if (prodCompare !== 0) return prodCompare;
+                                            // Chronological order (oldest first) within the same product
+                                            return new Date(a.createdAtRaw).getTime() - new Date(b.createdAtRaw).getTime();
+                                        }) || [];
+
+                                        return sortedItems.map((item, i) => {
+                                            const code = item.productCode || item.product || 'unknown';
+                                            
+                                            // Backend receives goodQuantity as receivedQuantity.
+                                            const okayQty = item.receivedQuantity;
+                                            const grossReceived = item.receivedQuantity + item.damagedQuantity;
+                                            
+                                            runningTotals[code] = (runningTotals[code] || 0) + okayQty;
+                                            
+                                            const remainingQty = Math.max(0, item.orderQuantity - runningTotals[code]);
+                                            
+                                            return (
+                                                <TableRow key={i}>
+                                                    <TableCell className="text-xs font-mono">{item.productCode || '—'}</TableCell>
+                                                    <TableCell className="text-xs font-medium max-w-[200px]">{item.product}</TableCell>
+                                                    <TableCell className="text-xs text-right font-medium">{item.orderQuantity || '—'}</TableCell>
+                                                    <TableCell className="text-xs">{item.uom}</TableCell>
+                                                    <TableCell className="text-xs text-right">{grossReceived}</TableCell>
+                                                    <TableCell className="text-xs text-right">{item.damagedQuantity}</TableCell>
+                                                    <TableCell className="text-xs text-right font-semibold text-green-700">
+                                                        {okayQty}
+                                                    </TableCell>
+                                                    <TableCell className="text-xs text-right font-semibold text-orange-600">
+                                                        {remainingQty}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        });
+                                    })()}
                                 </TableBody>
                             </Table>
                         </div>

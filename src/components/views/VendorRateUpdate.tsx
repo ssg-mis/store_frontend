@@ -120,8 +120,7 @@ export default () => {
     const [vendorSearch, setVendorSearch] = useState('');
     const [vendors, setVendors] = useState<any[]>([]);
     const [vendorsLoading, setVendorsLoading] = useState(true);
-    const [paymentTerms, setPaymentTerms] = useState<string[]>([]);
-    const [paymentTermsLoading, setPaymentTermsLoading] = useState(true);
+    const PAYMENT_TERMS = ['ADVANCE', 'CASH', 'BANK', 'ONLINE'];
 
     // Server-side pagination states
     const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
@@ -168,26 +167,6 @@ export default () => {
         loadVendors();
     }, []);
 
-    // Fetch payment terms from master_data
-    useEffect(() => {
-        const fetchPaymentTerms = async () => {
-            setPaymentTermsLoading(true);
-            try {
-                const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/masters`);
-                if (!response.ok) throw new Error('API error');
-                const data = await response.json();
-                const terms = [...new Set(
-                    data.map((d: any) => d.paymentTerm || d.payment_term).filter(Boolean)
-                )] as string[];
-                setPaymentTerms(terms);
-            } catch (err) {
-                console.error('Error fetching payment terms:', err);
-            } finally {
-                setPaymentTermsLoading(false);
-            }
-        };
-        fetchPaymentTerms();
-    }, []);
 
 
 
@@ -1337,17 +1316,9 @@ export default () => {
                                                                                     </SelectTrigger>
                                                                                 </FormControl>
                                                                                 <SelectContent>
-                                                                                    <div className="max-h-[200px] overflow-y-auto">
-                                                                                        {paymentTermsLoading ? (
-                                                                                            <div className="py-6 text-center text-sm text-muted-foreground">Loading...</div>
-                                                                                        ) : paymentTerms.length > 0 ? (
-                                                                                            paymentTerms.map((term, i) => (
-                                                                                                <SelectItem key={i} value={term}>{term}</SelectItem>
-                                                                                            ))
-                                                                                        ) : (
-                                                                                            <div className="py-6 text-center text-sm text-muted-foreground">No payment terms found</div>
-                                                                                        )}
-                                                                                    </div>
+                                                                                    {PAYMENT_TERMS.map((term) => (
+                                                                                        <SelectItem key={term} value={term}>{term}</SelectItem>
+                                                                                    ))}
                                                                                 </SelectContent>
                                                                             </Select>
                                                                             <FormMessage className="text-[10px]" />
@@ -1506,17 +1477,9 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                <div className="max-h-[200px] overflow-y-auto">
-                                                                    {paymentTermsLoading ? (
-                                                                        <div className="py-6 text-center text-sm text-muted-foreground">Loading...</div>
-                                                                    ) : paymentTerms.length > 0 ? (
-                                                                        paymentTerms.map((term, i) => (
-                                                                            <SelectItem key={i} value={term}>{term}</SelectItem>
-                                                                        ))
-                                                                    ) : (
-                                                                        <div className="py-6 text-center text-sm text-muted-foreground">No payment terms found</div>
-                                                                    )}
-                                                                </div>
+                                                                {PAYMENT_TERMS.map((term) => (
+                                                                    <SelectItem key={term} value={term}>{term}</SelectItem>
+                                                                ))}
                                                             </SelectContent>
                                                         </Select>
                                                     </FormItem>

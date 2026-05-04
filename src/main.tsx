@@ -175,12 +175,15 @@ const routes: RouteAttributes[] = [
         name: 'Approve Indent',
         icon: <ClipboardCheck size={20} />,
         element: <ApproveIndent />,
-        notifications: (data) =>
-            data.indents.filter(
-                (sheet) =>
-                    sheet.indentType === 'Purchase' &&
-                    sheet.status === 'Pending'
-            ).length,
+        notifications: (data) => {
+            const pendingIndents = new Set();
+            data.indents.forEach((sheet) => {
+                if (sheet.indentType === 'Purchase' && sheet.status === 'Pending') {
+                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
+                }
+            });
+            return pendingIndents.size;
+        },
     },
     {
         path: 'vendor-rate-update',
@@ -188,12 +191,15 @@ const routes: RouteAttributes[] = [
         name: 'Vendor Rate Update',
         icon: <UserCheck size={20} />,
         element: <VendorRateUpdate />,
-        notifications: (data) =>
-            data.approvedIndents.filter(
-                (sheet) => 
-                    sheet.indentType === 'Purchase' &&
-                    !(sheet.hasRateUpdate || sheet.hasThreeParty)
-            ).length,
+        notifications: (data) => {
+            const pendingIndents = new Set();
+            data.approvedIndents.forEach((sheet) => {
+                if (!(sheet.hasRateUpdate || sheet.hasThreeParty)) {
+                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
+                }
+            });
+            return pendingIndents.size;
+        },
     },
     {
         path: 'three-party-approval',
@@ -277,15 +283,18 @@ const routes: RouteAttributes[] = [
                 poMap.set(key, Number(po.quantity) || 0);
             });
 
-            return data.indents.filter((indent: any) => {
-                if (indent.indentType !== 'Purchase') return false;
-                if (!poMap.has(String(indent.id))) return false; // Only count if PO exists
-
-                const poQty = poMap.get(String(indent.id));
-                const totalReceived = receivedMap.get(String(indent.id)) || 0;
-                
-                return (poQty - totalReceived) > 0;
-            }).length;
+            const pendingIndents = new Set();
+            data.indents.forEach((indent: any) => {
+                if (indent.indentType === 'Purchase' && poMap.has(String(indent.id))) {
+                    const poQty = poMap.get(String(indent.id));
+                    const totalReceived = receivedMap.get(String(indent.id)) || 0;
+                    
+                    if ((poQty - totalReceived) > 0) {
+                        pendingIndents.add(String(indent.indentNumber || indent.indent_number || '').trim());
+                    }
+                }
+            });
+            return pendingIndents.size;
         },
     },
     {
@@ -294,14 +303,19 @@ const routes: RouteAttributes[] = [
         name: 'Store Out Approval',
         icon: <PackageCheck size={20} />,
         element: <StoreOutApproval />,
-        notifications: (data) =>
-            data.indents.filter(
-                (sheet) =>
-                    // Match StoreOutPending logic: actual_6 is null AND it's a Store Out type or Received Purchase
-                    (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(sheet.indentType) || 
-                     (sheet.indentType === 'Purchase' && data.received.some((r: any) => String(r.indentId || r.indent_id) === String(sheet.id)))) &&
-                    (!sheet.actual6 || sheet.actual6 === '')
-            ).length,
+        notifications: (data) => {
+            const pendingIndents = new Set();
+            data.indents.forEach((sheet) => {
+                const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(sheet.indentType);
+                
+                const isPending = (isStoreOutType && sheet.status === 'Approved') && (!sheet.actual6 || sheet.actual6 === '');
+                
+                if (isPending) {
+                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
+                }
+            });
+            return pendingIndents.size;
+        },
     },
     {
         path: 'quotation',

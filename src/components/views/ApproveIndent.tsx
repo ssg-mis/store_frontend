@@ -88,7 +88,7 @@ export default () => {
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
     const [loading, setLoading] = useState(false);
     const [selectedIndents, setSelectedIndents] = useState<Set<string>>(new Set());
-    const [bulkUpdates, setBulkUpdates] = useState<Map<number, { vendorType?: string; quantity?: number; product?: string; plannedDate?: string }>>(new Map());
+    const [bulkUpdates, setBulkUpdates] = useState<Map<number, { vendorType?: string; quantity?: number; product?: string; plannedDate?: string; firm?: string }>>(new Map());
     const [submitting, setSubmitting] = useState(false);
     // Separate initial loading (shows skeleton) from background searching (shows progress bar)
     const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
@@ -273,7 +273,8 @@ export default () => {
                             vendorType: 'Select',
                             quantity: item.quantity,
                             product: item.product,
-                            plannedDate: new Date().toISOString().split('T')[0]
+                            plannedDate: new Date().toISOString().split('T')[0],
+                            firm: item.firm
                         });
                     });
                     return newUpdates;
@@ -300,7 +301,8 @@ export default () => {
                     vendorType: 'Select',
                     quantity: item.quantity,
                     product: item.product,
-                    plannedDate: new Date().toISOString().split('T')[0]
+                    plannedDate: new Date().toISOString().split('T')[0],
+                    firm: item.firm
                 });
             });
             setBulkUpdates(newUpdates);
@@ -312,7 +314,7 @@ export default () => {
 
     const handleBulkUpdate = (
         id: number,
-        field: 'vendorType' | 'quantity' | 'product' | 'plannedDate',
+        field: 'vendorType' | 'quantity' | 'product' | 'plannedDate' | 'firm',
         value: string | number
     ) => {
         setBulkUpdates((prevUpdates) => {
@@ -349,6 +351,24 @@ export default () => {
             return;
         }
 
+        // Validation: check valid quantities
+        let qtyError = false;
+        selectedProductIds.forEach(id => {
+            const update = bulkUpdates.get(id);
+            const originalRecord = pendingItems.find(i => i.id === id);
+            if (originalRecord) {
+                const qty = update?.quantity !== undefined ? Number(update.quantity) : originalRecord.quantity;
+                if (isNaN(qty) || qty <= 0 || qty > originalRecord.quantity) {
+                    qtyError = true;
+                }
+            }
+        });
+
+        if (qtyError) {
+            toast.error("Quantity must be greater than 0 and cannot exceed the originally indented quantity.");
+            return;
+        }
+
         setSubmitting(true);
         try {
             const updatesToProcess = selectedProductIds.map(id => {
@@ -361,13 +381,11 @@ export default () => {
                     updatePayload: {
                         indentNumber: originalRecord.indentNo, // Base number
                         productCode: originalRecord.productCode, // Specific code
-                        quantity: Math.min(
-                            Math.max(update.quantity !== undefined ? update.quantity : originalRecord.quantity, 1),
-                            originalRecord.quantity   // hard cap at original indent quantity
-                        ),
+                        quantity: update.quantity !== undefined ? Number(update.quantity) : originalRecord.quantity,
                         productName: update.product || originalRecord.product,
                         vendorType: update.vendorType || originalRecord.vendorType,
-                        planned: update.plannedDate || new Date().toISOString().split('T')[0]
+                        planned: update.plannedDate || new Date().toISOString().split('T')[0],
+                        firm: update.firm || originalRecord.firm
                     }
                 };
             }).filter((item): item is NonNullable<typeof item> => item !== null);
@@ -760,6 +778,7 @@ export default () => {
                                                     <TableHead className="text-xs">Specifications</TableHead>
                                                     <TableHead className="text-xs">Attachment</TableHead>
                                                     <TableHead className="text-xs">Vendor Type</TableHead>
+                                                    <TableHead className="text-xs">Firm</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -779,14 +798,10 @@ export default () => {
                                                             <TableCell>
                                                                 <Input
                                                                     type="number"
-                                                                    value={currentQty}
+                                                                    value={currentQty === undefined ? item.quantity : currentQty}
                                                                     min={1}
                                                                     max={item.quantity}
-                                                                    onChange={(e) => {
-                                                                        const raw = Number(e.target.value);
-                                                                        const clamped = Math.min(Math.max(raw || 1, 1), item.quantity);
-                                                                        handleBulkUpdate(item.id, 'quantity', clamped);
-                                                                    }}
+                                                                    onChange={(e) => handleBulkUpdate(item.id, 'quantity', e.target.value)}
                                                                     className="w-20 text-xs h-8"
                                                                 />
                                                             </TableCell>
@@ -812,6 +827,21 @@ export default () => {
                                                                         <SelectItem value="Select">Select</SelectItem>
                                                                         <SelectItem value="Regular">Regular</SelectItem>
                                                                         <SelectItem value="Three Party">Three Party</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Select
+                                                                    value={bulkUpdates.get(item.id)?.firm || item.firm || 'N/A'}
+                                                                    onValueChange={(val) => handleBulkUpdate(item.id, 'firm', val)}
+                                                                >
+                                                                    <SelectTrigger className="w-32 h-8 text-xs">
+                                                                        <SelectValue placeholder="Firm" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        {master?.firms?.map((f: string) => (
+                                                                            <SelectItem key={f} value={f}>{f}</SelectItem>
+                                                                        ))}
                                                                     </SelectContent>
                                                                 </Select>
                                                             </TableCell>

@@ -123,7 +123,9 @@ export default () => {
 
 
     const getIndentTypeQuery = useCallback(() => {
-        return mainTab === 'store-out' ? 'Store Out' : 'Store Out Return';
+        return mainTab === 'store-out' 
+            ? ['Store Out', 'Loan Out'] 
+            : ['Store Out Return', 'Loan Out Return'];
     }, [mainTab]);
 
     const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
@@ -345,11 +347,15 @@ export default () => {
     });
 
     const displayPendingData = filteredTableData.filter(item => 
-        mainTab === 'store-out' ? item.indentType === 'Store Out' : item.indentType === 'Store Out Return'
+        mainTab === 'store-out' 
+            ? ['Store Out', 'Loan Out'].includes(item.indentType) 
+            : ['Store Out Return', 'Loan Out Return'].includes(item.indentType)
     );
 
     const displayHistoryData = filteredHistoryData.filter(item => 
-        mainTab === 'store-out' ? item.indentType === 'Store Out' : item.indentType === 'Store Out Return'
+        mainTab === 'store-out' 
+            ? ['Store Out', 'Loan Out'].includes(item.indentType) 
+            : ['Store Out Return', 'Loan Out Return'].includes(item.indentType)
     );
 
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (

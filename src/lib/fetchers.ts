@@ -196,7 +196,7 @@ export async function fetchFromSupabasePaginated(
         limit?: number;
         search?: string;
         status?: string;
-        indentType?: string;
+        indentType?: string | string[];
         abortSignal?: AbortSignal;
     } = {}
 ) {
@@ -225,7 +225,13 @@ export async function fetchFromSupabasePaginated(
     if (options.limit) queryParams.append('limit', options.limit.toString());
     if (options.search) queryParams.append('search', options.search);
     if (options.status) queryParams.append('status', options.status);
-    if (options.indentType) queryParams.append('indentType', options.indentType);
+    if (options.indentType) {
+        if (Array.isArray(options.indentType)) {
+            options.indentType.forEach(type => queryParams.append('indentType', type));
+        } else {
+            queryParams.append('indentType', options.indentType);
+        }
+    }
 
     const queryString = queryParams.toString();
     const url = `${API_BASE_URL}${endpoint}${queryString ? `?${queryString}` : ''}`;
