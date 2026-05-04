@@ -79,11 +79,12 @@ function generateNextQuotationNumber(existingNumbers: string[]): string {
 }
 
 
-// Updated schema - removed mandatory validations
 const quotationSchema = z.object({
   quotationNumber: z.string().optional().default(''),
   quotationDate: z.coerce.date().optional().default(new Date()),
-  suppliers: z.array(z.string()).optional().default([]),
+  supplier1: z.string().min(1, "Supplier 1 is required"),
+  supplier2: z.string().min(1, "Supplier 2 is required"),
+  supplier3: z.string().min(1, "Supplier 3 is required"),
   description: z.string().optional().default(''),
   selectedIndents: z.array(z.string()).optional().default([]),
   terms: z.array(z.string()).optional().default([]),
@@ -116,9 +117,10 @@ export default function QuotationPage() {
   const { indentSheet, poMasterSheet, updateIndentSheet, updatePoMasterSheet, updateMasterSheet, masterSheet: details } = useSheets();
   const [mode, setMode] = useState<Mode>('create');
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
-  const [supplierInfos, setSupplierInfos] = useState<SupplierInfo[]>([]);
   const [masterSuppliers, setMasterSuppliers] = useState<MasterSheetSupplier[]>([]);
+  const [supplierSearch1, setSupplierSearch1] = useState('');
+  const [supplierSearch2, setSupplierSearch2] = useState('');
+  const [supplierSearch3, setSupplierSearch3] = useState('');
   const [latestQuotationNumbers, setLatestQuotationNumbers] = useState<string[]>([]);
   const [allHistory, setAllHistory] = useState<QuotationHistorySheet[]>([]);
   const [selectedQuotationNo, setSelectedQuotationNo] = useState<string>('');
@@ -254,7 +256,7 @@ export default function QuotationPage() {
       const isApproved = item.status === 'Approved' || (item.approvedIndents && item.approvedIndents.length > 0);
 
       // 2. Identify if it already has a quotation
-      const hasQuotationInHistory = allHistory.some(h => h.indentNo === item.indentNumber);
+      const hasQuotationInHistory = allHistory.some(h => ((h as any).indent?.indentNumber || h.indentNo) === item.indentNumber);
 
       // 3. Stage check: Identify if it already moved to Vendor Rate Update or Three Party Approval
       const isAlreadyInNextStage =
@@ -263,7 +265,7 @@ export default function QuotationPage() {
 
       // 4. If we are in revise mode, include items that were already in this quotation
       const isPartOfCurrentQuotation = mode === 'revise' && selectedQuotationNo &&
-        allHistory.some(h => h.quatationNo === selectedQuotationNo && h.indentNo === item.indentNumber);
+        allHistory.some(h => h.quatationNo === selectedQuotationNo && ((h as any).indent?.indentNumber || h.indentNo) === item.indentNumber);
 
       // Eligible if Approved AND (Not yet in any quotation OR part of the current revision)
       // AND also NOT yet in Vendor Rate Update/Approval stages (unless revising)
@@ -283,7 +285,9 @@ export default function QuotationPage() {
     defaultValues: {
       quotationNumber: '',
       quotationDate: new Date(),
-      suppliers: [],
+      supplier1: '',
+      supplier2: '',
+      supplier3: '',
       description: '',
       selectedIndents: [],
       terms: details?.defaultTerms || [],
@@ -310,36 +314,16 @@ export default function QuotationPage() {
   }, [mode, poMasterSheet, latestQuotationNumbers, form]);
 
 
-  // Handle multiple supplier selection from MASTER sheet - Robust lookup
-  const handleSupplierSelect = (supplierName: string) => {
-    if (!supplierName) return;
-
-    setSelectedSuppliers(prev => {
-      const isAlreadySelected = prev.some(s => s.trim().toLowerCase() === supplierName.trim().toLowerCase());
-      const newSuppliers = isAlreadySelected
-        ? prev.filter(s => s.trim().toLowerCase() !== supplierName.trim().toLowerCase())
-        : [...prev, supplierName];
-
-      form.setValue('suppliers', newSuppliers);
-
-      // Fetch supplier info from MASTER sheet data
-      const infos = newSuppliers.map(name => {
-        const masterSupplier = masterSuppliers.find(s =>
-          (s.supplierName || '').trim().toLowerCase() === name.trim().toLowerCase()
-        );
-        return {
-          name,
-          address: masterSupplier?.vendorAddress || '',
-          gstin: masterSupplier?.vendorGstin || '',
-          email: masterSupplier?.email || ''
-        };
-      });
-      setSupplierInfos(infos);
-
-      console.log('Selected suppliers info:', infos);
-
-      return newSuppliers;
-    });
+  const getSupplierInfo = (name: string): SupplierInfo | null => {
+    if (!name) return null;
+    const masterSupplier = masterSuppliers.find(s => (s.supplierName || '').trim().toLowerCase() === name.trim().toLowerCase());
+    if (!masterSupplier) return null;
+    return {
+      name,
+      address: masterSupplier.vendorAddress || '',
+      gstin: masterSupplier.vendorGstin || '',
+      email: masterSupplier.email || ''
+    };
   };
 
 
@@ -366,16 +350,15 @@ export default function QuotationPage() {
         });
 
         // Unique indents from these records
-        const uniqueIndents = Array.from(new Set(historyRecords.map(h => h.indentNo)));
+        const uniqueIndents = Array.from(new Set(historyRecords.map(h => (h as any).indent?.indentNumber || h.indentNo)));
 
-        // Update state
-        setSelectedSuppliers(uniqueSuppliers);
-        setSupplierInfos(infos as SupplierInfo[]);
         setSelectedItems(uniqueIndents);
 
         // Update form
         form.setValue('quotationNumber', selectedQuotationNo);
-        form.setValue('suppliers', uniqueSuppliers);
+        form.setValue('supplier1', uniqueSuppliers[0] || '');
+        form.setValue('supplier2', uniqueSuppliers[1] || '');
+        form.setValue('supplier3', uniqueSuppliers[2] || '');
         form.setValue('selectedIndents', uniqueIndents);
 
         // Optionally set date if we have it
@@ -436,8 +419,12 @@ export default function QuotationPage() {
         return;
       }
 
-      if (selectedSuppliers.length === 0) {
-        toast.error('Please select at least one supplier');
+      const suppliersToProcess = [values.supplier1, values.supplier2, values.supplier3].filter(Boolean);
+      
+      const supplierInfos = suppliersToProcess.map(getSupplierInfo).filter((s): s is SupplierInfo => s !== null);
+
+      if (supplierInfos.length !== 3) {
+        toast.error('Please select exactly 3 valid suppliers from the list');
         return;
       }
 
@@ -531,6 +518,7 @@ export default function QuotationPage() {
           supplierName: supplierInfo.name,
           adreess: supplierInfo.address,
           gst: supplierInfo.gstin,
+          indent_id: item.id,
           indentNo: item.indentNumber,
           product: item.productName,
           description: item.specifications || '',
@@ -549,11 +537,9 @@ export default function QuotationPage() {
 
       await postToSheet(allQuotationRows, 'insert', 'QUOTATION HISTORY');
 
-      toast.success(`Successfully created ${selectedSuppliers.length} unique quotation(s) for ${selectedSuppliers.length} supplier(s)`);
+      toast.success(`Successfully created 3 unique quotation(s) for 3 supplier(s)`);
       form.reset();
       setSelectedItems([]);
-      setSelectedSuppliers([]);
-      setSupplierInfos([]);
 
       setTimeout(() => {
         updatePoMasterSheet();
@@ -641,79 +627,74 @@ export default function QuotationPage() {
 
                 {/* Quotation meta */}
                 <div className="grid gap-5 px-4 py-2 text-foreground/80">
-                  {/* Multi-Supplier Selection from MASTER sheet */}
-                  <div className="space-y-3">
-                    <FormField
-                      control={form.control}
-                      name="suppliers"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Suppliers (From MASTER Table)</FormLabel>
-                          <FormControl>
-                            <div className="space-y-2">
-                              <Select onValueChange={handleSupplierSelect}>
-                                <SelectTrigger size="sm" className="w-full">
-                                  <SelectValue placeholder="Select suppliers from MASTER Table" />
-                                </SelectTrigger>
-                                <SelectContent className="z-[100] max-h-[300px]">
-                                  {masterSuppliers.length === 0 ? (
-                                    <SelectItem value="no-suppliers" disabled>
-                                      No suppliers found in MASTER sheet
-                                    </SelectItem>
-                                  ) : (
-                                    masterSuppliers.map((supplier, k) => (
-                                      <SelectItem key={k} value={supplier.supplierName}>
-                                        {supplier.supplierName}
-                                      </SelectItem>
-                                    ))
-                                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {([1, 2, 3] as const).map((num) => {
+                      const fieldName = `supplier${num}` as const;
+                      const supplierSearch = num === 1 ? supplierSearch1 : num === 2 ? supplierSearch2 : supplierSearch3;
+                      const setSupplierSearch = num === 1 ? setSupplierSearch1 : num === 2 ? setSupplierSearch2 : setSupplierSearch3;
+                      const selectedSupplierName = form.watch(fieldName);
+                      const selectedSupplierInfo = getSupplierInfo(selectedSupplierName);
+                      
+                      const filteredSuppliers = masterSuppliers.filter(vendor =>
+                        (vendor.supplierName || '').toLowerCase().includes(supplierSearch.toLowerCase())
+                      );
+
+                      return (
+                        <FormField
+                          key={num}
+                          control={form.control}
+                          name={fieldName}
+                          render={({ field }) => (
+                            <FormItem className="bg-gray-50 border p-3 rounded-md">
+                              <FormLabel className="font-semibold text-primary">Supplier {num} <span className="text-red-500">*</span></FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value}
+                                onOpenChange={(open) => { if (!open) setSupplierSearch(""); }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="w-full bg-white">
+                                    <SelectValue placeholder="Select supplier..." />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <div className="p-2 border-b space-y-2">
+                                    <div className="flex items-center border-b px-2 pb-1">
+                                      <SearchIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                      <Input
+                                        placeholder="Search suppliers..."
+                                        className="h-8 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                                        value={supplierSearch}
+                                        onChange={(e) => setSupplierSearch(e.target.value)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="max-h-[200px] overflow-y-auto">
+                                    {filteredSuppliers.length > 0 ? (
+                                      filteredSuppliers.map((supplier, i) => (
+                                        <SelectItem key={i} value={supplier.supplierName}>{supplier.supplierName}</SelectItem>
+                                      ))
+                                    ) : (
+                                      <div className="py-6 text-center text-sm text-muted-foreground">No suppliers found</div>
+                                    )}
+                                  </div>
                                 </SelectContent>
                               </Select>
-
-                              {/* Selected suppliers badges */}
-                              {selectedSuppliers.length > 0 && (
-                                <div className="flex flex-wrap gap-2 mt-2">
-                                  {selectedSuppliers.map((supplier, index) => (
-                                    <Badge key={index} variant="secondary" className="flex items-center gap-1 cursor-pointer hover:bg-gray-200">
-                                      {supplier}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSupplierSelect(supplier)}
-                                        className="ml-1 hover:bg-gray-300 rounded-full w-4 h-4 flex items-center justify-center text-xs"
-                                      >
-                                        ×
-                                      </button>
-                                    </Badge>
-                                  ))}
+                              
+                              {selectedSupplierInfo && (
+                                <div className="mt-2 text-xs text-muted-foreground bg-white p-2 rounded border">
+                                  <p className="font-medium text-foreground truncate" title={selectedSupplierInfo.name}>{selectedSupplierInfo.name}</p>
+                                  <p className="truncate" title={selectedSupplierInfo.address}>{selectedSupplierInfo.address || 'No address'}</p>
+                                  <p>GSTIN: {selectedSupplierInfo.gstin || 'N/A'}</p>
                                 </div>
                               )}
-                            </div>
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-
-                    {/* Display supplier details from MASTER sheet */}
-                    {supplierInfos.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="font-medium">Selected Supplier Details (From MASTER Sheet):</h4>
-                        {supplierInfos.map((supplier, index) => (
-                          <div key={index} className="bg-gray-50 p-3 rounded border text-sm">
-                            <div className="grid grid-cols-3 gap-x-4">
-                              <div>
-                                <span className="font-medium">Name:</span> {supplier.name}
-                              </div>
-                              <div>
-                                <span className="font-medium">Address:</span> {supplier.address}
-                              </div>
-                              <div>
-                                <span className="font-medium">GSTIN:</span> {supplier.gstin}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                            </FormItem>
+                          )}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
 

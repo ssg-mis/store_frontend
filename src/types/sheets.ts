@@ -286,6 +286,7 @@ export type QuotationHistorySheet = {
     supplierName: string;
     adreess: string;          // Note: matches sheet spelling
     gst: string;
+    indent_id: number;
     indentNo: string;
     product: string;
     description: string;
