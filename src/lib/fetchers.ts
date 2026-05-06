@@ -113,62 +113,62 @@ export async function uploadFile(
 
 export async function fetchIndentMasterData() {
     try {
-        const response = await apiFetch(`${API_BASE_URL}/masters`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const data = await response.json();
+        const [deptsRes, headsRes, firmsRes, inventoryRes] = await Promise.all([
+            apiFetch(`${API_BASE_URL}/departments`),
+            apiFetch(`${API_BASE_URL}/department-heads`),
+            apiFetch(`${API_BASE_URL}/firms`),
+            apiFetch(`${API_BASE_URL}/inventory`),
+        ]);
 
-        // Use raw data (before toCamelCase) so group_head and isActive are not mangled
-        // by the duplicate group_head/groupHead columns overwriting each other
-        const firms = [...new Set(data.map((d: any) => d.firm_name || d.firmName))].filter(Boolean) as string[];
+        const deptsData = deptsRes.ok ? await deptsRes.json() : [];
+        const headsData = headsRes.ok ? await headsRes.json() : [];
+        const firmsData = firmsRes.ok ? await firmsRes.json() : [];
+        const inventoryData: any[] = inventoryRes.ok ? await inventoryRes.json() : [];
 
-        const groupHeadItems: Record<string, string[]> = {};
-        const uomLookup: Record<string, Record<string, string>> = {};
+        const firms = firmsData.map((f: any) => f.firm_name).filter(Boolean) as string[];
+        const departments = deptsData.map((d: any) => d.name) as string[];
+        const allDepartmentHeads = headsData.map((h: any) => h.name) as string[];
 
-        // Filter inactive or hidden rows using raw fields
-        const activeData = data.filter((d: any) => d.isActive !== false && d.inventoryStatus !== 'Hide');
-
-        // Derive departments only from active records
-        const departments = [...new Set(activeData.map((d: any) => d.department))].filter(Boolean) as string[];
-        const allGroupHeads = [...new Set(activeData.map((d: any) => d.group_head || d.groupHead))].filter(Boolean) as string[];
-
-        // Build bidirectional department <-> group_head lookup maps
-        const departmentToGroupHead: Record<string, string> = {};
-        const groupHeadToDepartment: Record<string, string> = {};
-        activeData.forEach((d: any) => {
+        // Build bidirectional dept ↔ head lookup from Inventory records
+        const departmentToHead: Record<string, string> = {};
+        const headToDepartment: Record<string, string> = {};
+        inventoryData.forEach((d: any) => {
             const dep = d.department;
-            const gh = d.group_head || d.groupHead;
-            if (dep && gh) {
-                departmentToGroupHead[dep] = gh;
-                groupHeadToDepartment[gh] = dep;
+            const dh = d.departmentHead;
+            if (dep && dep !== 'N/A' && dh) {
+                departmentToHead[dep] = dh;
+                headToDepartment[dh] = dep;
             }
         });
 
-        allGroupHeads.forEach((gh: string) => {
-            const itemsInGh = activeData.filter((d: any) => (d.group_head || d.groupHead) === gh);
-            groupHeadItems[gh] = [...new Set(itemsInGh.map((d: any) => d.itemName).filter(Boolean))] as string[];
-
-            uomLookup[gh] = {};
-            itemsInGh.forEach((d: any) => {
-                if (d.itemName && d.uom) uomLookup[gh][d.itemName] = d.uom;
+        // Build product lists and UOM lookup per department head from Inventory
+        const departmentHeadItems: Record<string, string[]> = {};
+        const uomLookup: Record<string, Record<string, string>> = {};
+        allDepartmentHeads.forEach((dh: string) => {
+            const itemsInDh = inventoryData.filter((d: any) => d.departmentHead === dh);
+            departmentHeadItems[dh] = [...new Set(itemsInDh.map((d: any) => d.itemName).filter(Boolean))] as string[];
+            uomLookup[dh] = {};
+            itemsInDh.forEach((d: any) => {
+                if (d.itemName && d.uom && d.uom !== '-') uomLookup[dh][d.itemName] = d.uom;
             });
         });
 
+        // Build item → category map from Inventory
         const itemToCategory: Record<string, string> = {};
-        activeData.forEach((d: any) => {
-            if (d.itemName) {
-                const catName = d.itemCategory?.product_category_name || d.itemCategory;
-                if (catName) itemToCategory[d.itemName] = catName;
+        inventoryData.forEach((d: any) => {
+            if (d.itemName && d.itemCategoryName) {
+                itemToCategory[d.itemName] = d.itemCategoryName;
             }
         });
 
         return {
             departments,
-            createGroupHeads: allGroupHeads,
-            groupHeadItems,
+            createGroupHeads: allDepartmentHeads,
+            groupHeadItems: departmentHeadItems,
             uomLookup,
             firms,
-            departmentToGroupHead,
-            groupHeadToDepartment,
+            departmentToGroupHead: departmentToHead,
+            groupHeadToDepartment: headToDepartment,
             itemToCategory,
         };
     } catch (error) {
@@ -176,8 +176,60 @@ export async function fetchIndentMasterData() {
         return {
             departments: [],
             createGroupHeads: [],
-            groupHeadItems: {}
+            groupHeadItems: {},
         };
+    }
+}
+
+export async function fetchDepartments() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/departments`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching departments:', error);
+        return [];
+    }
+}
+
+export async function postDepartment(name: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/departments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting department:', error);
+        throw error;
+    }
+}
+
+export async function fetchDepartmentHeads() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/department-heads`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching department heads:', error);
+        return [];
+    }
+}
+
+export async function postDepartmentHead(name: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/department-heads`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting department head:', error);
+        throw error;
     }
 }
 
@@ -215,6 +267,7 @@ export async function fetchFromSupabasePaginated(
         'three_party_approvals': '/three-party-approvals',
         'three_party_approval': '/three-party-approvals',
         'uom': '/uom',
+        'loan': '/loans',
     };
 
     const endpoint = endpointMap[tableName] || `/${tableName.replace(/_/g, '-')}`;
@@ -450,18 +503,21 @@ export async function fetchSheet(
 
     if (sheetName === 'MASTER') {
         try {
-            const data = await fetchFromSupabasePaginated('master_data');
-            const camelData = toCamelCase(data);
+            const masterData = await fetchIndentMasterData();
             const vendors = await fetchVendors();
 
-            // For now, return the first row as config or a default object
-            // Ideally, we'd have a separate config table
             return {
-                ...(camelData[0] || {}),
                 vendors: vendors,
-                departments: [...new Set(camelData.map((d: any) => d.department))].filter(Boolean),
-                groupHeads: {},
-                paymentTerms: [...new Set(camelData.map((d: any) => d.paymentTerm || d.payment_term))].filter(Boolean),
+                departments: masterData.departments,
+                groupHeads: masterData.groupHeadItems ?? {},   // Required field; mirrors groupHeadItems for legacy consumers
+                createGroupHeads: masterData.createGroupHeads,
+                groupHeadItems: masterData.groupHeadItems,
+                uomLookup: masterData.uomLookup,
+                firms: masterData.firms,
+                departmentToGroupHead: masterData.departmentToGroupHead,
+                groupHeadToDepartment: masterData.groupHeadToDepartment,
+                itemToCategory: masterData.itemToCategory,
+                paymentTerms: [],
                 companyName: 'Shri Shyam Oil Extractions Pvt Ltd',
                 companyAddress: 'Banari, Janjgir Champa-495668, Chhattisgarh',
                 companyPhone: '+919993023243',
@@ -469,7 +525,7 @@ export async function fetchSheet(
                 companyPan: 'PAN123',
                 billingAddress: 'Billing Address',
                 destinationAddress: 'Destination Address',
-                defaultTerms: []
+                defaultTerms: [],
             } as MasterConfigSheet;
         } catch (err) {
             console.error('Error fetching MASTER:', err);
@@ -537,6 +593,7 @@ export async function postToSheet(
         'STORE OUT APPROVAL': '/store-out-approvals',
         'VENDOR_RATE_UPDATE': '/vendor-rate-updates',
         'THREE_PARTY_APPROVAL': '/three-party-approvals',
+        'LOAN': '/loans',
     };
 
     const endpoint = endpointMap[sheet] || `/${sheet.toLowerCase().replace(/ /g, '-')}`;
@@ -557,7 +614,12 @@ export async function postToSheet(
             });
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                let errorMessage = errorText;
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    errorMessage = errorJson.error || errorJson.message || errorText;
+                } catch (e) {}
+                throw new Error(errorMessage);
             }
         } catch (error) {
             console.error(`Error ${action}ing ${sheet}:`, error);
@@ -631,12 +693,12 @@ export async function fetchFirms() {
     }
 }
 
-export async function postToFirm(firmName: string) {
+export async function postToFirm(data: any) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/firms`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ firm_name: firmName })
+            body: JSON.stringify(data)
         });
         if (!response.ok) {
             const errorText = await response.text();
@@ -645,6 +707,24 @@ export async function postToFirm(firmName: string) {
         return { success: true, data: await response.json() };
     } catch (error: any) {
         console.error('Error creating firm:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateFirm(id: number, data: any) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/firms/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update firm');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating firm:', error);
         return { success: false, error: error.message };
     }
 }

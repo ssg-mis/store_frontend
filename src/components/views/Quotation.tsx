@@ -82,9 +82,7 @@ function generateNextQuotationNumber(existingNumbers: string[]): string {
 const quotationSchema = z.object({
   quotationNumber: z.string().optional().default(''),
   quotationDate: z.coerce.date().optional().default(new Date()),
-  supplier1: z.string().min(1, "Supplier 1 is required"),
-  supplier2: z.string().min(1, "Supplier 2 is required"),
-  supplier3: z.string().min(1, "Supplier 3 is required"),
+  suppliers: z.array(z.string()).min(1, "At least one supplier is required"),
   description: z.string().optional().default(''),
   selectedIndents: z.array(z.string()).optional().default([]),
   terms: z.array(z.string()).optional().default([]),
@@ -118,9 +116,7 @@ export default function QuotationPage() {
   const [mode, setMode] = useState<Mode>('create');
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [masterSuppliers, setMasterSuppliers] = useState<MasterSheetSupplier[]>([]);
-  const [supplierSearch1, setSupplierSearch1] = useState('');
-  const [supplierSearch2, setSupplierSearch2] = useState('');
-  const [supplierSearch3, setSupplierSearch3] = useState('');
+  const [supplierSearch, setSupplierSearch] = useState('');
   const [latestQuotationNumbers, setLatestQuotationNumbers] = useState<string[]>([]);
   const [allHistory, setAllHistory] = useState<QuotationHistorySheet[]>([]);
   const [selectedQuotationNo, setSelectedQuotationNo] = useState<string>('');
@@ -285,9 +281,7 @@ export default function QuotationPage() {
     defaultValues: {
       quotationNumber: '',
       quotationDate: new Date(),
-      supplier1: '',
-      supplier2: '',
-      supplier3: '',
+      suppliers: [],
       description: '',
       selectedIndents: [],
       terms: details?.defaultTerms || [],
@@ -356,9 +350,7 @@ export default function QuotationPage() {
 
         // Update form
         form.setValue('quotationNumber', selectedQuotationNo);
-        form.setValue('supplier1', uniqueSuppliers[0] || '');
-        form.setValue('supplier2', uniqueSuppliers[1] || '');
-        form.setValue('supplier3', uniqueSuppliers[2] || '');
+        form.setValue('suppliers', uniqueSuppliers);
         form.setValue('selectedIndents', uniqueIndents);
 
         // Optionally set date if we have it
@@ -419,12 +411,12 @@ export default function QuotationPage() {
         return;
       }
 
-      const suppliersToProcess = [values.supplier1, values.supplier2, values.supplier3].filter(Boolean);
+      const suppliersToProcess = values.suppliers;
       
       const supplierInfos = suppliersToProcess.map(getSupplierInfo).filter((s): s is SupplierInfo => s !== null);
 
-      if (supplierInfos.length !== 3) {
-        toast.error('Please select exactly 3 valid suppliers from the list');
+      if (supplierInfos.length === 0) {
+        toast.error('Please select at least one valid supplier');
         return;
       }
 
@@ -537,9 +529,10 @@ export default function QuotationPage() {
 
       await postToSheet(allQuotationRows, 'insert', 'QUOTATION HISTORY');
 
-      toast.success(`Successfully created 3 unique quotation(s) for 3 supplier(s)`);
+      toast.success(`Successfully created ${supplierInfos.length} unique quotation(s) for ${supplierInfos.length} supplier(s)`);
       form.reset();
       setSelectedItems([]);
+      setSupplierSearch('');
 
       setTimeout(() => {
         updatePoMasterSheet();
@@ -625,77 +618,116 @@ export default function QuotationPage() {
                 <h2 className="text-center font-bold text-lg">{mode === 'create' ? 'Create New' : 'Revise Existing'} Quotation</h2>
                 <hr />
 
-                {/* Quotation meta */}
-                <div className="grid gap-5 px-4 py-2 text-foreground/80">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {([1, 2, 3] as const).map((num) => {
-                      const fieldName = `supplier${num}` as const;
-                      const supplierSearch = num === 1 ? supplierSearch1 : num === 2 ? supplierSearch2 : supplierSearch3;
-                      const setSupplierSearch = num === 1 ? setSupplierSearch1 : num === 2 ? setSupplierSearch2 : setSupplierSearch3;
-                      const selectedSupplierName = form.watch(fieldName);
-                      const selectedSupplierInfo = getSupplierInfo(selectedSupplierName);
-                      
-                      const filteredSuppliers = masterSuppliers.filter(vendor =>
-                        (vendor.supplierName || '').toLowerCase().includes(supplierSearch.toLowerCase())
-                      );
-
-                      return (
-                        <FormField
-                          key={num}
-                          control={form.control}
-                          name={fieldName}
-                          render={({ field }) => (
-                            <FormItem className="bg-gray-50 border p-3 rounded-md">
-                              <FormLabel className="font-semibold text-primary">Supplier {num} <span className="text-red-500">*</span></FormLabel>
-                              <Select
-                                onValueChange={field.onChange}
-                                value={field.value}
-                                onOpenChange={(open) => { if (!open) setSupplierSearch(""); }}
-                              >
-                                <FormControl>
-                                  <SelectTrigger className="w-full bg-white">
-                                    <SelectValue placeholder="Select supplier..." />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <div className="p-2 border-b space-y-2">
-                                    <div className="flex items-center border-b px-2 pb-1">
-                                      <SearchIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                      <Input
-                                        placeholder="Search suppliers..."
-                                        className="h-8 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                                        value={supplierSearch}
-                                        onChange={(e) => setSupplierSearch(e.target.value)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onKeyDown={(e) => e.stopPropagation()}
-                                      />
-                                    </div>
+                {/* Supplier Selection */}
+                <div className="px-4 py-2 space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="suppliers"
+                    render={({ field }) => (
+                      <FormItem className="space-y-4">
+                        <FormLabel className="text-lg font-semibold text-primary">Select Suppliers (Vendors)</FormLabel>
+                        <div className="flex gap-4 items-end">
+                          <div className="flex-1">
+                            <Select
+                              onValueChange={(val) => {
+                                if (val && !field.value.includes(val)) {
+                                  field.onChange([...field.value, val]);
+                                }
+                                setSupplierSearch('');
+                              }}
+                              onOpenChange={(open) => { if (!open) setSupplierSearch(""); }}
+                            >
+                              <FormControl>
+                                <SelectTrigger className="w-full bg-white">
+                                  <SelectValue placeholder="Search and select a supplier..." />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent className="z-[150]">
+                                <div className="p-2 border-b space-y-2 sticky top-0 bg-white">
+                                  <div className="flex items-center border-b px-2 pb-1">
+                                    <SearchIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                    <Input
+                                      placeholder="Search suppliers..."
+                                      className="h-8 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                                      value={supplierSearch}
+                                      onChange={(e) => setSupplierSearch(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onKeyDown={(e) => e.stopPropagation()}
+                                    />
                                   </div>
-                                  <div className="max-h-[200px] overflow-y-auto">
-                                    {filteredSuppliers.length > 0 ? (
-                                      filteredSuppliers.map((supplier, i) => (
-                                        <SelectItem key={i} value={supplier.supplierName}>{supplier.supplierName}</SelectItem>
-                                      ))
+                                </div>
+                                <div className="max-h-[300px] overflow-y-auto">
+                                  {masterSuppliers
+                                    .filter(v => (v.supplierName || '').toLowerCase().includes(supplierSearch.toLowerCase()))
+                                    .length > 0 ? (
+                                      masterSuppliers
+                                        .filter(v => (v.supplierName || '').toLowerCase().includes(supplierSearch.toLowerCase()))
+                                        .map((supplier, i) => (
+                                          <SelectItem 
+                                            key={i} 
+                                            value={supplier.supplierName}
+                                            disabled={field.value.includes(supplier.supplierName)}
+                                          >
+                                            {supplier.supplierName}
+                                          </SelectItem>
+                                        ))
                                     ) : (
                                       <div className="py-6 text-center text-sm text-muted-foreground">No suppliers found</div>
                                     )}
-                                  </div>
-                                </SelectContent>
-                              </Select>
-                              
-                              {selectedSupplierInfo && (
-                                <div className="mt-2 text-xs text-muted-foreground bg-white p-2 rounded border">
-                                  <p className="font-medium text-foreground truncate" title={selectedSupplierInfo.name}>{selectedSupplierInfo.name}</p>
-                                  <p className="truncate" title={selectedSupplierInfo.address}>{selectedSupplierInfo.address || 'No address'}</p>
-                                  <p>GSTIN: {selectedSupplierInfo.gstin || 'N/A'}</p>
                                 </div>
-                              )}
-                            </FormItem>
-                          )}
-                        />
-                      );
-                    })}
-                  </div>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        {/* Selected Suppliers List */}
+                        {field.value.length > 0 && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                            {field.value.map((supplierName, idx) => {
+                              const info = getSupplierInfo(supplierName);
+                              return (
+                                <Card key={idx} className="relative border-primary/20 bg-primary/5">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="absolute top-2 right-2 h-6 w-6 p-0 hover:bg-red-100 hover:text-red-600 rounded-full"
+                                    onClick={() => {
+                                      field.onChange(field.value.filter(s => s !== supplierName));
+                                    }}
+                                  >
+                                    <Trash size={14} />
+                                  </Button>
+                                  <CardContent className="p-4 pt-4">
+                                    <div className="flex items-start gap-3">
+                                      <div className="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-xs flex-shrink-0 mt-1">
+                                        {idx + 1}
+                                      </div>
+                                      <div className="space-y-1 overflow-hidden">
+                                        <p className="font-bold text-sm truncate" title={supplierName}>
+                                          {supplierName}
+                                        </p>
+                                        {info && (
+                                          <>
+                                            <p className="text-[10px] text-muted-foreground line-clamp-2" title={info.address}>
+                                              {info.address}
+                                            </p>
+                                            <p className="text-[10px] font-medium text-primary/80">
+                                              GSTIN: {info.gstin || 'N/A'}
+                                            </p>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </FormItem>
+                    )}
+                  />
                 </div>
 
                 {/* Cards */}
@@ -888,9 +920,7 @@ export default function QuotationPage() {
                 <Button type="reset" variant="outline" onClick={() => {
                   form.reset();
                   setSelectedItems([]);
-                  setSupplierSearch1('');
-                  setSupplierSearch2('');
-                  setSupplierSearch3('');
+                  setSupplierSearch('');
                 }}>
                   Reset
                 </Button>

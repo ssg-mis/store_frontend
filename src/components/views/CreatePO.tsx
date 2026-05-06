@@ -9,7 +9,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
-import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers } from '@/lib/fetchers';
+import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms } from '@/lib/fetchers';
 import { useEffect, useMemo, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import { useAuth } from '@/context/AuthContext';
@@ -65,7 +65,7 @@ function incrementPoRevision(poNumber: string, allPOs: PoMasterSheet[]): string 
     let maxRevision = 0;
 
     for (const po of allPOs) {
-        const currentPoNumber = po.po_number || '';
+        const currentPoNumber = (po as any).poNumber || po.po_number || '';
         const poParts = currentPoNumber.split('/');
         const poLastSegment = poParts[poParts.length - 1];
         const [poSeq, poRev] = poLastSegment.split('-');
@@ -109,6 +109,7 @@ export default () => {
     const [vendorsData, setVendorsData] = useState<any[]>([]);
     const [inventoryData, setInventoryData] = useState<any[]>([]);
     const [users, setUsers] = useState<any[]>([]);
+    const [firms, setFirms] = useState<any[]>([]);
     const [readOnly, setReadOnly] = useState(-1);
     const [mode, setMode] = useState<'create' | 'revise'>('create');
     const [isEditingDestination, setIsEditingDestination] = useState(false);
@@ -116,6 +117,8 @@ export default () => {
     const [loading, setLoading] = useState(true);
     // PO numbers whose items have been fully received — cannot be revised
     const [receivedPoNumbers, setReceivedPoNumbers] = useState<Set<string>>(new Set());
+    // All indents (including those with POs) for type-based filtering in Revise tab
+    const [allIndentsData, setAllIndentsData] = useState<any[]>([]);
  
 
 
@@ -184,20 +187,29 @@ export default () => {
                 const inventory = await fetchSheet('INVENTORY') as any[];
                 setInventoryData(inventory || []);
 
+                const firmsData = await fetchFirms();
+                setFirms(firmsData || []);
+
                 const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
 
-                // Fetch indents that are fully received (actual_5 is set)
-                // Use status=ReceivePending complement: indents where actual_5 is NOT null
-                const receivedIndents = await fetchFromSupabasePaginated(
-                    'indent',
+                // Fetch received records to find POs that have been partially or fully received
+                const receivedRecords = await fetchFromSupabasePaginated(
+                    'received',
                     '*',
-                    { column: 'createdAt', options: { ascending: false } },
-                    (q) => q.not('actual_5', 'is', null)
+                    { column: 'createdAt', options: { ascending: false } }
                 );
                 const receivedPoSet = new Set<string>(
-                    (receivedIndents || []).map((i: any) => i.po_number || i.poNumber).filter(Boolean)
+                    (receivedRecords || []).map((r: any) => r.poNumber || r.po_number).filter(Boolean)
                 );
                 setReceivedPoNumbers(receivedPoSet);
+
+                // Fetch all indents (including those with POs) for indent type filtering in Revise tab
+                const allIndentsRaw = await fetchFromSupabasePaginated(
+                    'indent',
+                    '*',
+                    { column: 'id', options: { ascending: true } }
+                );
+                setAllIndentsData(allIndentsRaw || []);
 
                 enrichAndSetData(allIndents || [], approvals || [], poData || [], masterData, vendorsMapped);
             } catch (error: any) {
@@ -315,15 +327,21 @@ export default () => {
         return firmName;
     }, [mode, indents, indentSheetData, poNumber, poMasterSheetData, indentName]);
 
+    const selectedFirmData = useMemo(() => {
+        return firms.find(f => f.firm_name === displayFirm);
+    }, [firms, displayFirm]);
+
 
     // Initialize destination address from details
     useEffect(() => {
+        const baseAddr = selectedFirmData ? `${selectedFirmData.firm_name}\n${selectedFirmData.firm_address || ''}\n${selectedFirmData.state || ''} ${selectedFirmData.pin_code || ''}` : displayFirm;
+        
         if (detailsData?.destinationAddress) {
-            setDestinationAddress(`${displayFirm}\n${detailsData.destinationAddress}`);
-        } else if (detailsData) {
-            setDestinationAddress(displayFirm);
+            setDestinationAddress(`${baseAddr}\n${detailsData.destinationAddress}`);
+        } else {
+            setDestinationAddress(baseAddr);
         }
-    }, [detailsData, displayFirm]);
+    }, [detailsData, displayFirm, selectedFirmData]);
 
     const termsArray = useFieldArray({
         control: form.control,
@@ -525,16 +543,16 @@ export default () => {
     };
 
     async function onSubmit(values: FormData) {
-        // Stock Validation
+        // Stock Validation (skipped in revise mode — already checked at PO creation)
         const stockErrors: string[] = [];
-        values.indents.forEach((itemRow) => {
+        if (mode !== 'revise') values.indents.forEach((itemRow) => {
             const indent = indentSheetData.find(i => i.indentNumber === itemRow.indentNumber);
             const itemName = indent?.productName || indent?.product_name || '';
-            const groupHead = indent?.createGroupHead || indent?.create_group_head || '';
+            const departmentHead = indent?.departmentHead || '';
             
             const inventoryItem = inventoryData.find(
                 i => i.itemName?.toLowerCase().trim() === itemName.toLowerCase().trim() &&
-                     (!groupHead || i.groupHead?.toLowerCase().trim() === groupHead.toLowerCase().trim())
+                    (!departmentHead || i.departmentHead?.toLowerCase().trim() === departmentHead.toLowerCase().trim())
             );
             const stock = Number(inventoryItem?.current || 0);
             const indentType = indent?.indentType || '';
@@ -616,11 +634,11 @@ export default () => {
             const pdfProps: POPdfProps = {
                 companyLogo: logoBase64,
                 companyName: displayFirm,
-                companyPhone: detailsData?.companyPhone || '', // Updated to camelCase
-                companyGstin: detailsData?.companyGstin || '', // Updated to camelCase
-                companyPan: detailsData?.companyPan || '', // Updated to camelCase
-                companyAddress: detailsData?.companyAddress || '', // Updated to camelCase
-                billingAddress: detailsData?.billingAddress || '', // Updated to camelCase
+                companyPhone: selectedFirmData?.mobile || detailsData?.companyPhone || '',
+                companyGstin: selectedFirmData?.firm_gstin || detailsData?.companyGstin || '',
+                companyPan: selectedFirmData?.pan_number || detailsData?.companyPan || '',
+                companyAddress: selectedFirmData?.firm_address || detailsData?.companyAddress || '',
+                billingAddress: selectedFirmData?.firm_address || detailsData?.billingAddress || '',
                 destinationAddress: destinationAddress, // Use the editable destination address
                 supplierName: values.supplierName,
                 supplierAddress: values.supplierAddress,
@@ -863,8 +881,12 @@ export default () => {
                                 <div className="text-center">
                                     <h1 className="text-2xl font-bold">{displayFirm}</h1>
                                     <div>
-                                        <p className="text-sm">Banari, Janjgir Champa-495668, Chhattisgarh</p>
-                                        <p className="text-sm">Phone No: +919993023243</p>
+                                        <p className="text-sm">
+                                            {selectedFirmData?.firm_address || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
+                                            {selectedFirmData?.state && `, ${selectedFirmData.state}`}
+                                            {selectedFirmData?.pin_code && `-${selectedFirmData.pin_code}`}
+                                        </p>
+                                        <p className="text-sm">Phone No: {selectedFirmData?.mobile || '+919993023243'}</p>
                                     </div>
                                 </div>
                             </div>
@@ -910,7 +932,15 @@ export default () => {
                                                                 {filterUniquePoNumbers(
                                                                     poMasterSheetData.filter((i: any) => {
                                                                         const poNum = i.poNumber || i.po_number;
-                                                                        return !receivedPoNumbers.has(poNum);
+                                                                        if (receivedPoNumbers.has(poNum)) return false;
+                                                                        const indentNum = i.internalCode || i.internal_code || i.indent_number;
+                                                                        const matchedIndent = allIndentsData.find((ind: any) =>
+                                                                            (ind.indentNumber || ind.indent_number) === indentNum
+                                                                        );
+                                                                        if (!matchedIndent) return false;
+                                                                        return (matchedIndent.indentType || matchedIndent.indent_type || '')
+                                                                            .toLowerCase()
+                                                                            .includes('purchase');
                                                                     })
                                                                 ).map((i: any, k) => {
                                                                     const poNumDisplay = i.poNumber || i.po_number;
@@ -1097,12 +1127,12 @@ export default () => {
                                     </CardHeader>
                                     <CardContent className="p-5 text-sm">
                                         <p>
-                                            <span className="font-medium">GSTIN</span>{'21AACCJ1154B1ZG '}
-                                            {detailsData?.company_gstin}
+                                            <span className="font-medium">GSTIN: </span>
+                                            {selectedFirmData?.firm_gstin || detailsData?.company_gstin || '21AACCJ1154B1ZG'}
                                         </p>
                                         <p>
-                                            <span className="font-medium">Pan No.</span>{'AACCJ1154B'}
-                                            {detailsData?.company_pan}
+                                            <span className="font-medium">Pan No: </span>
+                                            {selectedFirmData?.pan_number || detailsData?.company_pan || 'AACCJ1154B'}
                                         </p>
                                     </CardContent>
                                 </Card>
@@ -1113,10 +1143,12 @@ export default () => {
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent className="p-5 text-sm">
-                                        <p>M/S  shri shyam oil extractions pvt.ltd
-
-                                            Banari, Janjgir Champa-495668, Chhattisgarh{detailsData?.company_name}</p>
-                                        <p>{detailsData?.billing_address}</p>
+                                        <p className="font-medium">M/S {displayFirm}</p>
+                                        <p className="whitespace-pre-wrap">
+                                            {selectedFirmData?.firm_address || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
+                                            {selectedFirmData?.state && `, ${selectedFirmData.state}`}
+                                            {selectedFirmData?.pin_code && `-${selectedFirmData.pin_code}`}
+                                        </p>
                                     </CardContent>
                                 </Card>
                                 <Card className="p-0 gap-0 shadow-xs rounded-[3px]">
@@ -1241,12 +1273,12 @@ export default () => {
                                                             render={({ field: indentField }) => {
                                                                 const inventoryItem = inventoryData.find(
                                                                     i => i.itemName?.toLowerCase().trim() === (indent?.productName || indent?.product_name || '').toLowerCase().trim() &&
-                                                                         (!indent?.createGroupHead || i.groupHead?.toLowerCase().trim() === (indent?.createGroupHead || '').toLowerCase().trim())
+                                                                         (!indent?.departmentHead || i.departmentHead?.toLowerCase().trim() === (indent?.departmentHead || '').toLowerCase().trim())
                                                                 );
                                                                 const stock = Number(inventoryItem?.current || 0);
                                                                 const indentType = indent?.indentType || '';
                                                                 const isPurchase = indentType.toLowerCase().includes('purchase');
-                                                                const isInsufficient = !isPurchase && Number(indentField.value) > stock;
+                                                                const isInsufficient = mode !== 'revise' && !isPurchase && Number(indentField.value) > stock;
 
                                                                 return (
                                                                     <FormItem className="space-y-0">

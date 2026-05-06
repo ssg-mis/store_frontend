@@ -1,7 +1,7 @@
 import { Database, Plus, Search } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
-import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, fetchFirms, postToFirm, fetchProductCategories, postProductCategory } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, fetchDepartments, postDepartment, fetchDepartmentHeads, postDepartmentHead } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -25,31 +25,35 @@ import { Pill } from '../ui/pill';
 /* ───── types ───── */
 interface MasterRow {
     id: number;
-    vendor_name: string;
-    vendorName?: string;
+    vendor_name: string | null;
     vendor_gstin: string | null;
-    vendorAddress?: string | null;
-    vendor_address?: string | null;
+    vendor_address: string | null;
     vendor_email: string | null;
-    payment_term: string | null;
-    department: string | null;
-    group_head: string | null;
-    groupHead?: string | null;
-    itemName: string | null;
-    uom: string | null;
+    payment_term: string | string[] | null;
     firm_name: string | null;
-    firmName?: string | null;
-    contact_person?: string | null;
-    mobile?: string | null;
-    pan_number?: string | null;
-    state?: string | null;
-    pin_code?: string | null;
+    contact_person: string | null;
+    mobile: string | null;
+    pan_number: string | null;
+    state: string | null;
+    pin_code: string | null;
     createdAt: string | null;
-    isActive?: boolean;
-    itemCategory?: string | any | null;
-    itemCategoryId?: number | string | null;
-    inventoryStatus?: string | null;
+    isActive: boolean;
 }
+
+interface FirmRow {
+    firm_id: number;
+    firm_name: string;
+    firm_gstin: string | null;
+    firm_address: string | null;
+    firm_email: string | null;
+    contact_person: string | null;
+    mobile: string | null;
+    pan_number: string | null;
+    state: string | null;
+    pin_code: string | null;
+    isActive: boolean;
+}
+
 interface MasterForm {
     vendor_name: string;
     vendor_gstin: string;
@@ -57,10 +61,13 @@ interface MasterForm {
     vendor_email: string;
     payment_term: string;
     department: string;
-    group_head: string;
+    department_head: string;
     item_name: string;
     uom: string;
     firm_name: string;
+    firm_gstin: string;
+    firm_address: string;
+    firm_email: string;
     contact_person: string;
     mobile: string;
     pan_number: string;
@@ -78,10 +85,13 @@ const emptyForm: MasterForm = {
     vendor_email: '',
     payment_term: '',
     department: '',
-    group_head: '',
+    department_head: '',
     item_name: '',
     uom: '',
     firm_name: '',
+    firm_gstin: '',
+    firm_address: '',
+    firm_email: '',
     contact_person: '',
     mobile: '',
     pan_number: '',
@@ -166,13 +176,13 @@ export default function MasterData() {
     const [form, setForm] = useState<MasterForm>(emptyForm);
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
-    const [activeTab, setActiveTab] = useState<'item' | 'vendor'>('item');
-    const [pageTab, setPageTab] = useState<'inventory' | 'vendor'>('inventory');
-    const [inventoryFilter, setInventoryFilter] = useState('Show');
+    const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm'>('item');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm'>('inventory');
 
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
-    const [editDialogType, setEditDialogType] = useState<'inventory' | 'vendor'>('inventory');
+    const [editDialogType, setEditDialogType] = useState<'inventory' | 'vendor' | 'firm'>('inventory');
     const [editDialogForm, setEditDialogForm] = useState<MasterForm>(emptyForm);
     const [editingId, setEditingId] = useState<number | null>(null);
 
@@ -193,7 +203,7 @@ export default function MasterData() {
     const [isAddingUOM, setIsAddingUOM] = useState(false);
     const [newUOMName, setNewUOMName] = useState('');
     const [addingUOM, setAddingUOM] = useState(false);
-    const [firms, setFirms] = useState<{ firm_id: number, firm_name: string }[]>([]);
+    const [firms, setFirms] = useState<FirmRow[]>([]);
     const [isAddingFirm, setIsAddingFirm] = useState(false);
     const [newFirmName, setNewFirmName] = useState('');
     const [addingFirm, setAddingFirm] = useState(false);
@@ -201,6 +211,11 @@ export default function MasterData() {
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [addingCategory, setAddingCategory] = useState(false);
+
+    const [allDepartments, setAllDepartments] = useState<{ id: number, name: string }[]>([]);
+    const [allDepartmentHeads, setAllDepartmentHeads] = useState<{ id: number, name: string }[]>([]);
+    const [addingDepartment, setAddingDepartment] = useState(false);
+    const [addingHead, setAddingHead] = useState(false);
 
     // Edit dialog UOM/Firm add state (separate from add dialog)
     const [editIsAddingUOM, setEditIsAddingUOM] = useState(false);
@@ -212,109 +227,97 @@ export default function MasterData() {
     const [editIsAddingCategory, setEditIsAddingCategory] = useState(false);
     const [editNewCategoryName, setEditNewCategoryName] = useState('');
     const [editAddingCategory, setEditAddingCategory] = useState(false);
+    const [editAddingDepartment, setEditAddingDepartment] = useState(false);
+    const [editAddingHead, setEditAddingHead] = useState(false);
+    const [editIsAddingPaymentTerm, setEditIsAddingPaymentTerm] = useState(false);
+    const [editNewPaymentTermName, setEditNewPaymentTermName] = useState('');
+    const [isAddingPaymentTerm, setIsAddingPaymentTerm] = useState(false);
+    const [newPaymentTermName, setNewPaymentTermName] = useState('');
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
+
+    // Derive unique payment terms from all master records (payment_term is String[])
+    const uniquePaymentTerms = useMemo(() => {
+        const terms = new Set<string>();
+        tableData.forEach(r => {
+            const pt = r.payment_term;
+            if (Array.isArray(pt)) pt.forEach(t => { if (t) terms.add(t); });
+            else if (typeof pt === 'string' && pt) terms.add(pt);
+        });
+        return Array.from(terms).sort();
+    }, [tableData]);
+
     const uniqueDepartments = useMemo(() =>
-        Array.from(new Set(tableData.map(r => r.department).filter(Boolean))).sort() as string[],
-    [tableData]);
+        allDepartments.map(d => d.name).sort() as string[],
+    [allDepartments]);
 
     const uniqueHeads = useMemo(() =>
-        Array.from(new Set(tableData.map(r => r.group_head || r.groupHead).filter(Boolean))).sort() as string[],
-    [tableData]);
+        allDepartmentHeads.map(h => h.name).sort() as string[],
+    [allDepartmentHeads]);
 
-    const deptToHeadMap = useMemo(() => {
-        const map: Record<string, string> = {};
-        tableData.forEach(r => {
-            const gh = r.group_head || r.groupHead;
-            if (r.department && gh) map[r.department] = gh;
-        });
-        return map;
-    }, [tableData]);
-
-    const headToDeptMap = useMemo(() => {
-        const map: Record<string, string> = {};
-        tableData.forEach(r => {
-            const gh = r.group_head || r.groupHead;
-            if (r.department && gh) map[gh] = r.department;
-        });
-        return map;
-    }, [tableData]);
-
-    const vendorToFirmMap = useMemo(() => {
-        const map: Record<string, string> = {};
-        tableData.forEach(r => {
-            const vendor = r.vendor_name || r.vendorName;
-            const firm = r.firm_name || r.firmName;
-            if (vendor && firm && firm !== '---' && firm !== 'null' && firm !== 'undefined') {
-                map[vendor] = firm;
-            }
-        });
-        return map;
-    }, [tableData]);
-
-    const nonEmptyData = useMemo(() => {
-        return tableData
-            .filter(r => {
-                const fields = [
-                    r.vendor_name,
-                    r.vendor_gstin,
-                    r.vendor_email,
-                    r.payment_term,
-                    r.department,
-                    r.group_head,
-                    r.firm_name
-                ];
-                return fields.some(f => f && f !== 'null' && f !== '---' && f.trim() !== '') ||
-                    (!!r.itemName && r.itemName !== 'null' && r.itemName.trim() !== '');
-            })
-            .map(r => {
-                const vendor = r.vendor_name || r.vendorName;
-                const firm = r.firm_name || r.firmName;
-                return {
-                    ...r,
-                    firm_name: firm || (vendor ? vendorToFirmMap[vendor] : firm)
-                };
-            });
-    }, [tableData, vendorToFirmMap]);
-
-    const inventoryData = useMemo(() => {
-        const items = nonEmptyData.filter(r => !!r.itemName && r.itemName !== 'null' && r.itemName.trim() !== '');
-        if (inventoryFilter === 'All') return items;
-        return items.filter(r => (r.inventoryStatus || 'Show') === inventoryFilter);
-    }, [nonEmptyData, inventoryFilter]);
+    const inventoryData = useMemo(() => inventoryTableData, [inventoryTableData]);
 
     const vendorData = useMemo(() => {
-        const vendors = nonEmptyData.filter(r => r.vendor_name && r.vendor_name !== 'null');
+        const vendors = tableData.filter(r => r.vendor_name && r.vendor_name !== 'null');
         return vendorFilter === 'All' ? vendors : vendors.filter(r => r.vendor_name === vendorFilter);
-    }, [nonEmptyData, vendorFilter]);
+    }, [tableData, vendorFilter]);
 
     function setEditDialogField(key: keyof MasterForm) {
         return (val: string) => setEditDialogForm(prev => ({ ...prev, [key]: val }));
     }
 
-    function openEditDialog(row: MasterRow, type: 'inventory' | 'vendor') {
-        setEditingId(row.id);
+    function openEditDialog(row: any, type: 'inventory' | 'vendor' | 'firm') {
+        setEditingId(type === 'firm' ? row.firm_id : row.id);
         setEditDialogType(type);
-        setEditDialogForm({
-            vendor_name: row.vendor_name || '',
-            vendor_gstin: row.vendor_gstin || '',
-            vendor_address: row.vendorAddress || row.vendor_address || '',
-            vendor_email: row.vendor_email || '',
-            payment_term: row.payment_term || '',
-            department: row.department || '',
-            group_head: row.groupHead || row.group_head || '',
-            item_name: row.itemName || '',
-            uom: row.uom || '',
-            firm_name: row.firm_name || row.firmName || '',
-            contact_person: row.contact_person || '',
-            mobile: row.mobile || '',
-            pan_number: row.pan_number || '',
-            state: row.state || '',
-            pin_code: row.pin_code || '',
-            isActive: row.isActive !== false ? 'true' : 'false',
-            itemCategoryId: (row.itemCategoryId as any)?.toString() || '',
-            inventory_status: row.inventoryStatus || 'Show',
-        });
+        if (type === 'inventory') {
+            setEditDialogForm({
+                ...emptyForm,
+                department: row.department || '',
+                department_head: row.departmentHead || '',
+                item_name: row.itemName || '',
+                uom: row.uom || '',
+                firm_name: row.firmName || '',
+                itemCategoryId: row.itemCategoryId?.toString() || '',
+            });
+        } else if (type === 'vendor') {
+            setEditDialogForm({
+                vendor_name: row.vendor_name || '',
+                vendor_gstin: row.vendor_gstin || '',
+                vendor_address: row.vendorAddress || row.vendor_address || '',
+                vendor_email: row.vendor_email || '',
+                payment_term: row.payment_term || '',
+                department: row.department || '',
+                department_head: row.departmentHead || row.department_head || '',
+                item_name: row.itemName || '',
+                uom: row.uom || '',
+                firm_name: row.firm_name || row.firmName || '',
+                contact_person: row.contact_person || '',
+                mobile: row.mobile || '',
+                pan_number: row.pan_number || '',
+                state: row.state || '',
+                pin_code: row.pin_code || '',
+                isActive: row.isActive !== false ? 'true' : 'false',
+                itemCategoryId: row.itemCategoryId?.toString() || '',
+                inventory_status: row.inventoryStatus || 'Show',
+                firm_gstin: '',
+                firm_address: '',
+                firm_email: '',
+            });
+        } else {
+            setEditDialogForm({
+                ...emptyForm,
+                firm_name: row.firm_name || '',
+                firm_gstin: row.firm_gstin || '',
+                firm_address: row.firm_address || '',
+                firm_email: row.firm_email || '',
+                contact_person: row.contact_person || '',
+                mobile: row.mobile || '',
+                pan_number: row.pan_number || '',
+                state: row.state || '',
+                pin_code: row.pin_code || '',
+                isActive: row.isActive !== false ? 'true' : 'false',
+            });
+        }
         setEditIsAddingUOM(false);
         setEditIsAddingFirm(false);
         setEditIsAddingDepartment(false);
@@ -328,18 +331,29 @@ export default function MasterData() {
         if (!editingId) return;
         setSubmitting(true);
         try {
-            const payload = editDialogType === 'inventory'
-                ? {
+            let result;
+            if (editDialogType === 'inventory') {
+                const selectedFirm = firms.find(f => f.firm_name === editDialogForm.firm_name);
+                const payload: any = {
                     id: editingId,
-                    department: editDialogForm.department.trim() || null,
-                    groupHead: editDialogForm.group_head.trim() || null,
-                    itemName: editDialogForm.item_name.trim() || null,
-                    itemCategoryId: editDialogForm.itemCategoryId ? parseInt(editDialogForm.itemCategoryId) : null,
-                    inventoryStatus: editDialogForm.inventory_status || 'Show',
-                    uom: editDialogForm.uom || null,
-                    isActive: editDialogForm.isActive === 'true',
+                    department: editDialogForm.department.trim() || '',
+                    departmentHead: editDialogForm.department_head.trim() || '',
+                    itemName: editDialogForm.item_name.trim(),
+                    uom: editDialogForm.uom || '',
+                    itemCategoryId: editDialogForm.itemCategoryId ? parseInt(editDialogForm.itemCategoryId) : undefined,
+                };
+                if (selectedFirm) payload.firm = selectedFirm.firm_id;
+                result = await postToSheet([payload], 'update', 'INVENTORY');
+                if (result.success) {
+                    toast.success('Updated successfully');
+                    setEditDialogOpen(false);
+                    setEditingId(null);
+                    fetchData();
+                } else {
+                    throw new Error('Failed to update');
                 }
-                : {
+            } else if (editDialogType === 'vendor') {
+                const payload = {
                     id: editingId,
                     vendor_name: editDialogForm.vendor_name.trim(),
                     vendor_gstin: editDialogForm.vendor_gstin.trim() || null,
@@ -354,16 +368,38 @@ export default function MasterData() {
                     pin_code: editDialogForm.pin_code.trim() || null,
                     isActive: editDialogForm.isActive === 'true',
                 };
-
-            const result = await postToSheet([payload], 'update', 'MASTER');
-            if (result.success) {
-                toast.success('Updated successfully');
-                setEditDialogOpen(false);
-                setEditingId(null);
-                fetchData();
+                result = await postToSheet([payload], 'update', 'MASTER');
+                if (result.success) {
+                    toast.success('Updated successfully');
+                    setEditDialogOpen(false);
+                    setEditingId(null);
+                    fetchData();
+                } else {
+                    throw new Error('Failed to update');
+                }
             } else {
-                throw new Error('Failed to update');
+                result = await updateFirm(editingId, {
+                    firm_name: editDialogForm.firm_name,
+                    firm_gstin: editDialogForm.firm_gstin,
+                    firm_address: editDialogForm.firm_address,
+                    firm_email: editDialogForm.firm_email,
+                    contact_person: editDialogForm.contact_person,
+                    mobile: editDialogForm.mobile,
+                    pan_number: editDialogForm.pan_number,
+                    state: editDialogForm.state,
+                    pin_code: editDialogForm.pin_code,
+                    isActive: editDialogForm.isActive === 'true',
+                });
+                if (result.success) {
+                    toast.success('Firm updated successfully');
+                    setEditDialogOpen(false);
+                    setEditingId(null);
+                    loadFirms();
+                } else {
+                    throw new Error(result.error || 'Failed to update firm');
+                }
             }
+
         } catch (err: any) {
             toast.error(err.message || 'Error updating');
         } finally {
@@ -371,7 +407,7 @@ export default function MasterData() {
         }
     }
 
-    const inventoryColumns = useMemo<ColumnDef<MasterRow>[]>(() => [
+    const inventoryColumns = useMemo<ColumnDef<any>[]>(() => [
         {
             id: 'actions',
             header: 'Actions',
@@ -387,22 +423,24 @@ export default function MasterData() {
             ),
         },
         {
+            accessorKey: 'itemName',
+            header: 'Item Name',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={200} />,
+        },
+        {
+            accessorKey: 'itemCategoryName',
+            header: 'Category',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={120} />,
+        },
+        {
             accessorKey: 'department',
             header: 'Department',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={120} />,
         },
         {
-            accessorKey: 'groupHead',
+            accessorKey: 'departmentHead',
             header: 'Department Head',
-            cell: ({ row }) => {
-                const val = row.original.groupHead || row.original.group_head || '';
-                return <TruncCell value={val} width={120} />;
-            },
-        },
-        {
-            accessorKey: 'itemName',
-            header: 'Item Names',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string | null} width={200} />,
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={120} />,
         },
         {
             accessorKey: 'uom',
@@ -410,37 +448,9 @@ export default function MasterData() {
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={80} />,
         },
         {
-            accessorKey: 'itemCategory',
-            header: 'Category',
-            cell: ({ row }) => {
-                const val = row.original.itemCategory;
-                const name = (val && typeof val === 'object') ? (val as any).product_category_name : val;
-                return <TruncCell value={name || ''} width={100} />;
-            },
-        },
-        {
-            accessorKey: 'inventoryStatus',
-            header: 'Inventory Status',
-            cell: ({ getValue }) => {
-                const val = (getValue() as string) || 'Show';
-                return (
-                    <Pill variant={val === 'Show' ? 'secondary' : 'default'}>
-                        {val}
-                    </Pill>
-                );
-            },
-        },
-        {
-            accessorKey: 'isActive',
-            header: 'Status',
-            cell: ({ getValue }) => {
-                const val = getValue() as boolean;
-                return (
-                    <Pill variant={val ? 'secondary' : 'reject'}>
-                        {val ? 'Active' : 'Inactive'}
-                    </Pill>
-                );
-            },
+            accessorKey: 'firmName',
+            header: 'Firm',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={140} />,
         },
     ], []);
 
@@ -468,7 +478,7 @@ export default function MasterData() {
             accessorKey: 'firm_name',
             header: 'Firm Name',
             cell: ({ row }) => {
-                const val = row.original.firm_name || row.original.firmName || '';
+                const val = row.original.firm_name || (row.original as any).firmName || '';
                 return <TruncCell value={val} width={160} />;
             },
         },
@@ -497,6 +507,53 @@ export default function MasterData() {
             header: 'Email',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
         },
+    ], []);
+
+    const firmColumns = useMemo<ColumnDef<FirmRow>[]>(() => [
+        {
+            id: 'actions',
+            header: 'Actions',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => openEditDialog(row.original, 'firm')}
+                >
+                    Edit
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'firm_name',
+            header: 'Firm Name',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
+        },
+        {
+            accessorKey: 'firm_gstin',
+            header: 'GSTIN',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={130} />,
+        },
+        {
+            accessorKey: 'pan_number',
+            header: 'PAN',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={120} />,
+        },
+        {
+            accessorKey: 'contact_person',
+            header: 'Contact',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={140} />,
+        },
+        {
+            accessorKey: 'mobile',
+            header: 'Mobile',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={120} />,
+        },
+        {
+            accessorKey: 'firm_email',
+            header: 'Email',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
+        },
         {
             accessorKey: 'isActive',
             header: 'Status',
@@ -515,20 +572,14 @@ export default function MasterData() {
     async function fetchData() {
         setDataLoading(true);
         try {
-            const data = await fetchFromSupabasePaginated(
-                'MASTER',
-                '*',
-                { column: 'id', options: { ascending: false } }
-            );
-
-            console.log("Fetched Firm Names:", (data || []).map((d: any) => ({
-                vendor: d.vendor_name || d.vendorName,
-                firm: d.firm_name || d.firmName
-            })));
-
-            setTableData(data || []);
+            const [masterData, invData] = await Promise.all([
+                fetchFromSupabasePaginated('MASTER', '*', { column: 'id', options: { ascending: false } }),
+                fetchFromSupabasePaginated('inventory', '*', { column: 'id', options: { ascending: false } }),
+            ]);
+            setTableData(masterData || []);
+            setInventoryTableData(Array.isArray(invData) ? invData : (invData?.items || []));
         } catch (err: any) {
-            console.error('Master data fetch exception:', err);
+            console.error('Master/Inventory data fetch exception:', err);
             toast.error('An unexpected error occurred while fetching data');
         } finally {
             setDataLoading(false);
@@ -550,11 +601,23 @@ export default function MasterData() {
         setProductCategories(data || []);
     }
 
+    async function loadDepartments() {
+        const data = await fetchDepartments();
+        setAllDepartments(data || []);
+    }
+
+    async function loadDepartmentHeads() {
+        const data = await fetchDepartmentHeads();
+        setAllDepartmentHeads(data || []);
+    }
+
     useEffect(() => {
         fetchData();
         loadUOMs();
         loadFirms();
         loadProductCategories();
+        loadDepartments();
+        loadDepartmentHeads();
     }, []);
 
     /* reset form when sheet closes */
@@ -573,54 +636,68 @@ export default function MasterData() {
     /* submit */
     async function handleItemSubmit(e: React.FormEvent) {
         e.preventDefault();
+        if (!form.item_name.trim()) {
+            toast.error('Item Name is required');
+            return;
+        }
+        if (!form.itemCategoryId) {
+            toast.error('Item Category is required');
+            return;
+        }
+        const selectedFirm = firms.find(f => f.firm_name === form.firm_name);
+        if (!selectedFirm) {
+            toast.error('Please select a Firm');
+            return;
+        }
         setSubmitting(true);
         try {
             const result = await postToSheet([{
-                department: form.department.trim() || null,
-                groupHead: form.group_head.trim() || null,
-                itemName: form.item_name.trim() || null,
-                itemCategoryId: form.itemCategoryId ? parseInt(form.itemCategoryId) : null,
-                inventoryStatus: form.inventory_status || 'Show',
-                uom: form.uom || null,
-                firm_name: form.firm_name.trim() || null,
-            }], 'insert', 'MASTER');
+                department: form.department.trim() || '',
+                departmentHead: form.department_head.trim() || '',
+                itemName: form.item_name.trim(),
+                uom: form.uom || '',
+                firm: selectedFirm.firm_name,
+                itemCategoryId: parseInt(form.itemCategoryId),
+            }], 'insert', 'INVENTORY');
 
-            if (!result.success) throw new Error('Failed to save item data');
-            toast.success('Item master data saved successfully!');
+            if (!result.success) throw new Error('Failed to save inventory item');
+            toast.success('Inventory item saved successfully!');
             setSheetOpen(false);
             fetchData();
         } catch (err: any) {
-            toast.error(err?.message ?? 'Failed to save item data');
+            toast.error(err?.message ?? 'Failed to save inventory item');
         } finally {
             setSubmitting(false);
         }
     }
 
-    async function handleVendorSubmit(e: React.FormEvent) {
+    async function handleFirmSubmit(e: React.FormEvent) {
         e.preventDefault();
+        if (!form.firm_name.trim()) {
+            toast.error('Firm Name is required');
+            return;
+        }
         setSubmitting(true);
         try {
-            const result = await postToSheet([{
-                vendor_name: form.vendor_name.trim(),
-                vendor_gstin: form.vendor_gstin.trim() || null,
-                vendor_address: form.vendor_address.trim() || null,
-                vendor_email: form.vendor_email.trim() || null,
-                ...(form.payment_term.trim() ? { payment_term: form.payment_term.trim() } : {}),
-                firm_name: form.firm_name.trim() || null,
+            const result = await postToFirm({
+                firm_name: form.firm_name.trim(),
+                firm_gstin: form.firm_gstin.trim() || null,
+                firm_address: form.firm_address.trim() || null,
+                firm_email: form.firm_email.trim() || null,
                 contact_person: form.contact_person.trim() || null,
                 mobile: form.mobile.trim() || null,
                 pan_number: form.pan_number.trim() || null,
                 state: form.state.trim() || null,
                 pin_code: form.pin_code.trim() || null,
                 isActive: form.isActive === 'true',
-            }], 'insert', 'MASTER');
+            });
 
-            if (!result.success) throw new Error('Failed to save vendor data');
-            toast.success('Vendor master data saved successfully!');
+            if (!result.success) throw new Error(result.error || 'Failed to save firm data');
+            toast.success('Firm data saved successfully!');
             setSheetOpen(false);
-            fetchData();
+            loadFirms();
         } catch (err: any) {
-            toast.error(err?.message ?? 'Failed to save vendor data');
+            toast.error(err?.message ?? 'Failed to save firm data');
         } finally {
             setSubmitting(false);
         }
@@ -665,6 +742,36 @@ export default function MasterData() {
             toast.error(error.message || 'Failed to add firm');
         } finally {
             setAddingFirm(false);
+        }
+    }
+
+    async function handleVendorSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        setSubmitting(true);
+        try {
+            const result = await postToSheet([{
+                vendor_name: form.vendor_name.trim(),
+                vendor_gstin: form.vendor_gstin.trim() || null,
+                vendor_address: form.vendor_address.trim() || null,
+                vendor_email: form.vendor_email.trim() || null,
+                ...(form.payment_term.trim() ? { payment_term: form.payment_term.trim() } : {}),
+                firm_name: form.firm_name.trim() || null,
+                contact_person: form.contact_person.trim() || null,
+                mobile: form.mobile.trim() || null,
+                pan_number: form.pan_number.trim() || null,
+                state: form.state.trim() || null,
+                pin_code: form.pin_code.trim() || null,
+                isActive: form.isActive === 'true',
+            }], 'insert', 'MASTER');
+
+            if (!result.success) throw new Error('Failed to save vendor data');
+            toast.success('Vendor master data saved successfully!');
+            setSheetOpen(false);
+            fetchData();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save vendor data');
+        } finally {
+            setSubmitting(false);
         }
     }
 
@@ -752,7 +859,73 @@ export default function MasterData() {
         }
     }
 
+    async function handleAddDept() {
+        if (!newDepartmentName.trim()) return;
+        setAddingDepartment(true);
+        try {
+            const result = await postDepartment(newDepartmentName.trim());
+            toast.success('Department added successfully');
+            setNewDepartmentName('');
+            setIsAddingDepartment(false);
+            loadDepartments();
+            setForm(prev => ({ ...prev, department: result.name }));
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to add department');
+        } finally {
+            setAddingDepartment(false);
+        }
+    }
 
+    async function handleAddHead() {
+        if (!newHeadName.trim()) return;
+        setAddingHead(true);
+        try {
+            const result = await postDepartmentHead(newHeadName.trim());
+            toast.success('Department head added successfully');
+            setNewHeadName('');
+            setIsAddingHead(false);
+            loadDepartmentHeads();
+            setForm(prev => ({ ...prev, department_head: result.name }));
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to add head');
+        } finally {
+            setAddingHead(false);
+        }
+    }
+
+    async function handleEditAddDept() {
+        if (!editNewDepartmentName.trim()) return;
+        setEditAddingDepartment(true);
+        try {
+            const result = await postDepartment(editNewDepartmentName.trim());
+            toast.success('Department added successfully');
+            setEditNewDepartmentName('');
+            setEditIsAddingDepartment(false);
+            loadDepartments();
+            setEditDialogForm(prev => ({ ...prev, department: result.name }));
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to add department');
+        } finally {
+            setEditAddingDepartment(false);
+        }
+    }
+
+    async function handleEditAddHead() {
+        if (!editNewHeadName.trim()) return;
+        setEditAddingHead(true);
+        try {
+            const result = await postDepartmentHead(editNewHeadName.trim());
+            toast.success('Department head added successfully');
+            setEditNewHeadName('');
+            setEditIsAddingHead(false);
+            loadDepartmentHeads();
+            setEditDialogForm(prev => ({ ...prev, department_head: result.name }));
+        } catch (error: any) {
+            toast.error(error.message || 'Failed to add head');
+        } finally {
+            setEditAddingHead(false);
+        }
+    }
     return (
         <div className="space-y-6 w-full overflow-x-hidden">
             <Heading
@@ -763,10 +936,11 @@ export default function MasterData() {
             </Heading>
 
             {/* ── Page Tabs ── */}
-            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor')}>
-                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-2 h-auto gap-1">
+            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor' | 'firm')}>
+                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-3 h-auto gap-1">
                     <TabsTrigger value="inventory">Inventory Info</TabsTrigger>
                     <TabsTrigger value="vendor">Vendor Info</TabsTrigger>
+                    <TabsTrigger value="firm">Firm Info</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="inventory">
@@ -779,16 +953,6 @@ export default function MasterData() {
                             pagination={true}
                             extraActions={
                                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                                    <Select value={inventoryFilter} onValueChange={setInventoryFilter}>
-                                        <SelectTrigger className="w-full sm:w-[180px] h-9">
-                                            <SelectValue placeholder="Shown Items" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="All">All Items</SelectItem>
-                                            <SelectItem value="Show">Shown Items</SelectItem>
-                                            <SelectItem value="Hide">Hidden Items</SelectItem>
-                                        </SelectContent>
-                                    </Select>
                                     <Button
                                         className="h-9 shrink-0"
                                         onClick={() => { setActiveTab('item'); setSheetOpen(true); }}
@@ -836,6 +1000,29 @@ export default function MasterData() {
                     </div>
                 </TabsContent>
 
+                <TabsContent value="firm">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={firms}
+                            columns={firmColumns}
+                            searchFields={['firm_name', 'firm_gstin', 'firm_email', 'contact_person', 'mobile', 'pan_number', 'state', 'pin_code']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <div className="flex items-center gap-2 w-full sm:w-auto">
+                                    <Button
+                                        className="h-9 shrink-0 whitespace-nowrap"
+                                        onClick={() => { setActiveTab('firm'); setSheetOpen(true); }}
+                                    >
+                                        <Plus className="mr-2 h-4 w-4" />
+                                        Add Firm Info
+                                    </Button>
+                                </div>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
             </Tabs>
 
             {/* ── Add Dialog ── */}
@@ -843,12 +1030,14 @@ export default function MasterData() {
                 <DialogContent className="w-full max-w-lg max-h-[85vh] flex flex-col">
                     <DialogHeader className="shrink-0 pb-3 border-b">
                         <DialogTitle>
-                            {activeTab === 'item' ? 'Add Inventory' : 'Add Vendor Info'}
+                            {activeTab === 'item' ? 'Add Inventory' : activeTab === 'vendor' ? 'Add Vendor Info' : 'Add Firm Info'}
                         </DialogTitle>
                         <DialogDescription>
                             {activeTab === 'item'
                                 ? 'Fill in the item and department details.'
-                                : 'Fill in the vendor contact and firm details.'}
+                                : activeTab === 'vendor'
+                                    ? 'Fill in the vendor contact and firm details.'
+                                    : 'Fill in the firm details.'}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -856,12 +1045,67 @@ export default function MasterData() {
                         <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
                             <form id="item-form" onSubmit={handleItemSubmit} className="space-y-4">
                                 <Field
-                                    label="Item Name"
+                                    label="Product Name"
                                     id="item_name"
                                     value={form.item_name}
                                     onChange={setField('item_name')}
                                     required
                                 />
+
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">
+                                        Product Category<span className="text-destructive ml-0.5">*</span>
+                                    </Label>
+                                    <div className="flex gap-2 items-end">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={form.itemCategoryId}
+                                                onValueChange={setField('itemCategoryId')}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder="Select Category" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {productCategories.map((c) => (
+                                                        <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
+                                                            {c.product_category_name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-10 w-10 shrink-0"
+                                            onClick={() => setIsAddingCategory(!isAddingCategory)}
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    {isAddingCategory && (
+                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
+                                            <Input
+                                                placeholder="New category name..."
+                                                value={newCategoryName}
+                                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                                className="h-9"
+                                                autoFocus
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={handleAddCategory}
+                                                disabled={addingCategory}
+                                                className="h-9 shrink-0"
+                                            >
+                                                {addingCategory ? <Loader size={14} color="white" /> : 'Add'}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
                                     <div className="flex gap-2 items-end">
@@ -910,7 +1154,7 @@ export default function MasterData() {
                                         </div>
                                     )}
                                 </div>
-                                <div className="flex flex-col gap-1.5">
+                                    <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department</Label>
                                     <div className="flex gap-2 items-end">
                                         <div className="flex-1">
@@ -918,7 +1162,6 @@ export default function MasterData() {
                                                 value={form.department} 
                                                 onValueChange={(val) => {
                                                     setField('department')(val);
-                                                    if (deptToHeadMap[val]) setField('group_head')(deptToHeadMap[val]);
                                                 }}
                                             >
                                                 <SelectTrigger className="w-full h-10">
@@ -965,17 +1208,11 @@ export default function MasterData() {
                                             <Button
                                                 type="button"
                                                 size="sm"
-                                                disabled={!newDepartmentName.trim()}
-                                                onClick={() => {
-                                                    const val = newDepartmentName.trim();
-                                                    setField('department')(val);
-                                                    if (deptToHeadMap[val]) setField('group_head')(deptToHeadMap[val]);
-                                                    setNewDepartmentName('');
-                                                    setIsAddingDepartment(false);
-                                                }}
+                                                disabled={addingDepartment || !newDepartmentName.trim()}
+                                                onClick={handleAddDept}
                                                 className="h-9 shrink-0"
                                             >
-                                                Add
+                                                {addingDepartment ? <Loader size={14} color="white" /> : 'Add'}
                                             </Button>
                                         </div>
                                     )}
@@ -986,10 +1223,9 @@ export default function MasterData() {
                                     <div className="flex gap-2 items-end">
                                         <div className="flex-1">
                                             <Select 
-                                                value={form.group_head} 
+                                                value={form.department_head} 
                                                 onValueChange={(val) => {
-                                                    setField('group_head')(val);
-                                                    if (headToDeptMap[val]) setField('department')(headToDeptMap[val]);
+                                                    setField('department_head')(val);
                                                 }}
                                             >
                                                 <SelectTrigger className="w-full h-10">
@@ -1036,17 +1272,11 @@ export default function MasterData() {
                                             <Button
                                                 type="button"
                                                 size="sm"
-                                                disabled={!newHeadName.trim()}
-                                                onClick={() => {
-                                                    const val = newHeadName.trim();
-                                                    setField('group_head')(val);
-                                                    if (headToDeptMap[val]) setField('department')(headToDeptMap[val]);
-                                                    setNewHeadName('');
-                                                    setIsAddingHead(false);
-                                                }}
+                                                disabled={addingHead || !newHeadName.trim()}
+                                                onClick={handleAddHead}
                                                 className="h-9 shrink-0"
                                             >
-                                                Add
+                                                {addingHead ? <Loader size={14} color="white" /> : 'Add'}
                                             </Button>
                                         </div>
                                     )}
@@ -1103,75 +1333,6 @@ export default function MasterData() {
                                     )}
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label className="text-sm font-medium">Item Category</Label>
-                                        <div className="flex gap-2 items-end">
-                                            <div className="flex-1">
-                                                <Select 
-                                                    value={form.itemCategoryId} 
-                                                    onValueChange={setField('itemCategoryId')}
-                                                >
-                                                    <SelectTrigger className="w-full h-10">
-                                                        <SelectValue placeholder="Select Category" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {productCategories.map((c) => (
-                                                            <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
-                                                                {c.product_category_name}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-10 w-10 shrink-0"
-                                                onClick={() => setIsAddingCategory(!isAddingCategory)}
-                                            >
-                                                <Plus className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                        {isAddingCategory && (
-                                            <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                                <Input
-                                                    placeholder="New category name..."
-                                                    value={newCategoryName}
-                                                    onChange={(e) => setNewCategoryName(e.target.value)}
-                                                    className="h-9"
-                                                    autoFocus
-                                                />
-                                                <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    onClick={handleAddCategory}
-                                                    disabled={addingCategory}
-                                                    className="h-9 shrink-0"
-                                                >
-                                                    {addingCategory ? <Loader size={14} color="white" /> : 'Add'}
-                                                </Button>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label className="text-sm font-medium">Inventory Status</Label>
-                                        <Select 
-                                            value={form.inventory_status} 
-                                            onValueChange={setField('inventory_status')}
-                                        >
-                                            <SelectTrigger className="w-full h-10">
-                                                <SelectValue placeholder="Select Status" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="Show">Show</SelectItem>
-                                                <SelectItem value="Hide">Hide</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-
                                 <div className="pt-4 flex gap-2">
                                     <Button
                                         type="submit"
@@ -1187,7 +1348,7 @@ export default function MasterData() {
 
                             </form>
                         </div>
-                    ) : (
+                    ) : activeTab === 'vendor' ? (
                         <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
                             <form id="vendor-form" onSubmit={handleVendorSubmit} className="space-y-4">
                                 <Field
@@ -1349,6 +1510,102 @@ export default function MasterData() {
 
                             </form>
                         </div>
+                    ) : (
+                        <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
+                            <form id="firm-form" onSubmit={handleFirmSubmit} className="space-y-4">
+                                <Field
+                                    label="Firm Name"
+                                    id="firm_name"
+                                    value={form.firm_name}
+                                    onChange={setField('firm_name')}
+                                    required
+                                />
+                                <Field
+                                    label="Firm GSTIN"
+                                    id="firm_gstin"
+                                    value={form.firm_gstin}
+                                    onChange={setField('firm_gstin')}
+                                    placeholder="e.g. 09AAAAA0000A1ZZ"
+                                />
+                                <Field
+                                    label="Firm Email"
+                                    id="firm_email"
+                                    type="email"
+                                    value={form.firm_email}
+                                    onChange={setField('firm_email')}
+                                />
+                                <Field
+                                    label="Firm Address"
+                                    id="firm_address"
+                                    value={form.firm_address}
+                                    onChange={setField('firm_address')}
+                                    textarea
+                                />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Field
+                                        label="Contact Person"
+                                        id="firm_contact_person"
+                                        value={form.contact_person}
+                                        onChange={setField('contact_person')}
+                                    />
+                                    <Field
+                                        label="Mobile"
+                                        id="firm_mobile"
+                                        type="number"
+                                        value={form.mobile}
+                                        onChange={setField('mobile')}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Field
+                                        label="PAN Number"
+                                        id="firm_pan_number"
+                                        value={form.pan_number}
+                                        onChange={setField('pan_number')}
+                                    />
+                                    <Field
+                                        label="State"
+                                        id="firm_state"
+                                        value={form.state}
+                                        onChange={setField('state')}
+                                    />
+                                </div>
+                                <Field
+                                    label="PIN Code"
+                                    id="firm_pin_code"
+                                    type="number"
+                                    value={form.pin_code}
+                                    onChange={setField('pin_code')}
+                                />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Is Active</Label>
+                                    <Select
+                                        value={form.isActive}
+                                        onValueChange={setField('isActive')}
+                                    >
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Select status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="true">True</SelectItem>
+                                            <SelectItem value="false">False</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="pt-4 flex gap-2">
+                                    <Button
+                                        type="submit"
+                                        disabled={submitting}
+                                        className="flex-1 h-11"
+                                    >
+                                        {submitting && (
+                                            <Loader size={16} color="white" className="mr-2" />
+                                        )}
+                                        {submitting ? 'Saving Firm…' : 'Save Firm Data'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
                     )}
 
                 </DialogContent>
@@ -1362,12 +1619,14 @@ export default function MasterData() {
                 <DialogContent className="w-full max-w-lg max-h-[85vh] flex flex-col">
                     <DialogHeader className="shrink-0 pb-3 border-b">
                         <DialogTitle>
-                            {editDialogType === 'inventory' ? 'Edit Inventory' : 'Edit Vendor Info'}
+                            {editDialogType === 'inventory' ? 'Edit Inventory' : editDialogType === 'vendor' ? 'Edit Vendor Info' : 'Edit Firm Info'}
                         </DialogTitle>
                         <DialogDescription>
                             {editDialogType === 'inventory'
                                 ? 'Update the item and department details.'
-                                : 'Update the vendor contact and firm details.'}
+                                : editDialogType === 'vendor'
+                                    ? 'Update the vendor contact and firm details.'
+                                    : 'Update the firm details.'}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1381,6 +1640,61 @@ export default function MasterData() {
                                     onChange={setEditDialogField('item_name')}
                                     required
                                 />
+
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">
+                                        Item Category<span className="text-destructive ml-0.5">*</span>
+                                    </Label>
+                                    <div className="flex gap-2 items-end">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={editDialogForm.itemCategoryId}
+                                                onValueChange={setEditDialogField('itemCategoryId')}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder="Select Category" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {productCategories.map((c) => (
+                                                        <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
+                                                            {c.product_category_name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-10 w-10 shrink-0"
+                                            onClick={() => setEditIsAddingCategory(!editIsAddingCategory)}
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    {editIsAddingCategory && (
+                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
+                                            <Input
+                                                placeholder="New category name..."
+                                                value={editNewCategoryName}
+                                                onChange={(e) => setEditNewCategoryName(e.target.value)}
+                                                className="h-9"
+                                                autoFocus
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                onClick={handleEditAddCategory}
+                                                disabled={editAddingCategory}
+                                                className="h-9 shrink-0"
+                                            >
+                                                {editAddingCategory ? <Loader size={14} color="white" /> : 'Add'}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
                                     <div className="flex gap-2 items-end">
@@ -1441,7 +1755,6 @@ export default function MasterData() {
                                                 value={editDialogForm.department} 
                                                 onValueChange={(val) => {
                                                     setEditDialogField('department')(val);
-                                                    if (deptToHeadMap[val]) setEditDialogField('group_head')(deptToHeadMap[val]);
                                                 }}
                                             >
                                                 <SelectTrigger className="w-full h-10">
@@ -1492,17 +1805,11 @@ export default function MasterData() {
                                             <Button
                                                 type="button"
                                                 size="sm"
-                                                disabled={!editNewDepartmentName.trim()}
-                                                onClick={() => {
-                                                    const val = editNewDepartmentName.trim();
-                                                    setEditDialogField('department')(val);
-                                                    if (deptToHeadMap[val]) setEditDialogField('group_head')(deptToHeadMap[val]);
-                                                    setEditNewDepartmentName('');
-                                                    setEditIsAddingDepartment(false);
-                                                }}
+                                                disabled={editAddingDepartment || !editNewDepartmentName.trim()}
+                                                onClick={handleEditAddDept}
                                                 className="h-9 shrink-0"
                                             >
-                                                Add
+                                                {editAddingDepartment ? <Loader size={14} color="white" /> : 'Add'}
                                             </Button>
                                         </div>
 
@@ -1515,10 +1822,9 @@ export default function MasterData() {
                                     <div className="flex gap-2 items-end">
                                         <div className="flex-1">
                                             <Select 
-                                                value={editDialogForm.group_head} 
+                                                value={editDialogForm.department_head} 
                                                 onValueChange={(val) => {
-                                                    setEditDialogField('group_head')(val);
-                                                    if (headToDeptMap[val]) setEditDialogField('department')(headToDeptMap[val]);
+                                                    setEditDialogField('department_head')(val);
                                                 }}
                                             >
                                                 <SelectTrigger className="w-full h-10">
@@ -1569,20 +1875,13 @@ export default function MasterData() {
                                             <Button
                                                 type="button"
                                                 size="sm"
-                                                disabled={!editNewHeadName.trim()}
-                                                onClick={() => {
-                                                    const val = editNewHeadName.trim();
-                                                    setEditDialogField('group_head')(val);
-                                                    if (headToDeptMap[val]) setEditDialogField('department')(headToDeptMap[val]);
-                                                    setEditNewHeadName('');
-                                                    setEditIsAddingHead(false);
-                                                }}
+                                                disabled={editAddingHead || !editNewHeadName.trim()}
+                                                onClick={handleEditAddHead}
                                                 className="h-9 shrink-0"
                                             >
-                                                Add
+                                                {editAddingHead ? <Loader size={14} color="white" /> : 'Add'}
                                             </Button>
                                         </div>
-
                                     )}
                                 </div>
 
@@ -1640,90 +1939,7 @@ export default function MasterData() {
 
                                     )}
                                 </div>
-                                <div className="flex flex-col gap-1.5">
-                                    <Label className="text-sm font-medium">Status</Label>
-                                    <Select
-                                        value={editDialogForm.isActive}
-                                        onValueChange={setEditDialogField('isActive')}
-                                    >
-                                        <SelectTrigger className="w-full h-10">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="true">Active</SelectItem>
-                                            <SelectItem value="false">Inactive</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label className="text-sm font-medium">Item Category</Label>
-                                        <div className="flex gap-2 items-end">
-                                            <div className="flex-1">
-                                                <Select 
-                                                    value={editDialogForm.itemCategoryId} 
-                                                    onValueChange={setEditDialogField('itemCategoryId')}
-                                                >
-                                                    <SelectTrigger className="w-full h-10">
-                                                        <SelectValue placeholder="Select Category" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {productCategories.map((c) => (
-                                                            <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
-                                                                {c.product_category_name}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-10 w-10 shrink-0"
-                                                onClick={() => setEditIsAddingCategory(!editIsAddingCategory)}
-                                            >
-                                                <Plus className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                        {editIsAddingCategory && (
-                                            <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                                <Input
-                                                    placeholder="New category name..."
-                                                    value={editNewCategoryName}
-                                                    onChange={(e) => setEditNewCategoryName(e.target.value)}
-                                                    className="h-9"
-                                                    autoFocus
-                                                />
-                                                <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    onClick={handleEditAddCategory}
-                                                    disabled={editAddingCategory}
-                                                    className="h-9 shrink-0"
-                                                >
-                                                    {editAddingCategory ? <Loader size={14} color="white" /> : 'Add'}
-                                                </Button>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label className="text-sm font-medium">Inventory Status</Label>
-                                        <Select 
-                                            value={editDialogForm.inventory_status} 
-                                            onValueChange={setEditDialogField('inventory_status')}
-                                        >
-                                            <SelectTrigger className="w-full h-10">
-                                                <SelectValue placeholder="Select Status" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="Show">Show</SelectItem>
-                                                <SelectItem value="Hide">Hide</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
                                 <div className="pt-4 flex gap-2">
                                     <Button
                                         onClick={handleSaveEditFromDialog}
@@ -1736,7 +1952,7 @@ export default function MasterData() {
                                 </div>
                             </div>
                         </div>
-                    ) : (
+                    ) : editDialogType === 'vendor' ? (
                         <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
                             <div className="space-y-4">
                                 <Field
@@ -1760,13 +1976,73 @@ export default function MasterData() {
                                     value={editDialogForm.vendor_email}
                                     onChange={setEditDialogField('vendor_email')}
                                 />
-                                <Field
-                                    label="Payment Term"
-                                    id="edit_payment_term"
-                                    value={editDialogForm.payment_term}
-                                    onChange={setEditDialogField('payment_term')}
-                                    placeholder="e.g. Net 30"
-                                />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Payment Term</Label>
+                                    <div className="flex gap-2 items-end">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={editDialogForm.payment_term}
+                                                onValueChange={setEditDialogField('payment_term')}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder="Select payment term" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {uniquePaymentTerms.map((t) => (
+                                                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-10 w-10 shrink-0"
+                                            onClick={() => setEditIsAddingPaymentTerm(!editIsAddingPaymentTerm)}
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    {editIsAddingPaymentTerm && (
+                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
+                                            <Input
+                                                placeholder="New payment term..."
+                                                value={editNewPaymentTermName}
+                                                onChange={(e) => setEditNewPaymentTermName(e.target.value)}
+                                                className="h-9"
+                                                autoFocus
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        const t = editNewPaymentTermName.trim();
+                                                        if (t) {
+                                                            setEditDialogField('payment_term')(t);
+                                                            setEditNewPaymentTermName('');
+                                                            setEditIsAddingPaymentTerm(false);
+                                                        }
+                                                    }
+                                                }}
+                                            />
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                disabled={!editNewPaymentTermName.trim()}
+                                                className="h-9 shrink-0"
+                                                onClick={() => {
+                                                    const t = editNewPaymentTermName.trim();
+                                                    if (t) {
+                                                        setEditDialogField('payment_term')(t);
+                                                        setEditNewPaymentTermName('');
+                                                        setEditIsAddingPaymentTerm(false);
+                                                    }
+                                                }}
+                                            >
+                                                Add
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Firm Name</Label>
                                     <div className="flex gap-2 items-end">
@@ -1888,7 +2164,45 @@ export default function MasterData() {
                                 </div>
                             </div>
                         </div>
-                    )}
+                    ) : (
+                            <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
+                                <div className="space-y-4">
+                                    <Field label="Firm Name" id="edit_firm_name" value={editDialogForm.firm_name} onChange={setEditDialogField('firm_name')} required />
+                                    <Field label="GSTIN" id="edit_firm_gstin" value={editDialogForm.firm_gstin} onChange={setEditDialogField('firm_gstin')} />
+                                    <Field label="PAN Number" id="edit_pan_number" value={editDialogForm.pan_number} onChange={setEditDialogField('pan_number')} />
+                                    <Field label="Contact Person" id="edit_contact_person" value={editDialogForm.contact_person} onChange={setEditDialogField('contact_person')} />
+                                    <Field label="Mobile" id="edit_mobile" value={editDialogForm.mobile} onChange={setEditDialogField('mobile')} />
+                                    <Field label="Email" id="edit_firm_email" value={editDialogForm.firm_email} onChange={setEditDialogField('firm_email')} />
+                                    <Field label="Address" id="edit_firm_address" value={editDialogForm.firm_address} onChange={setEditDialogField('firm_address')} textarea />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <Field label="State" id="edit_state" value={editDialogForm.state} onChange={setEditDialogField('state')} />
+                                        <Field label="Pin Code" id="edit_pin_code" value={editDialogForm.pin_code} onChange={setEditDialogField('pin_code')} />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label className="text-sm font-medium">Status</Label>
+                                        <Select value={editDialogForm.isActive} onValueChange={setEditDialogField('isActive')}>
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="true">Active</SelectItem>
+                                                <SelectItem value="false">Inactive</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="pt-4 flex gap-2">
+                                        <Button
+                                            onClick={handleSaveEditFromDialog}
+                                            disabled={submitting}
+                                            className="flex-1 h-11"
+                                        >
+                                            {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                            {submitting ? 'Saving…' : 'Save Changes'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                 </DialogContent>
             </Dialog>
         </div>

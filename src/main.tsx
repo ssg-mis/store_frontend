@@ -300,16 +300,32 @@ const routes: RouteAttributes[] = [
     {
         path: 'store-out-approval',
         gateKey: 'storeOutApprovalView',
-        name: 'Store Out Approval',
+        name: 'Store Out / Approval',
         icon: <PackageCheck size={20} />,
-        element: <StoreOutApproval />,
+        element: <StoreOutApproval mode="store-out" />,
         notifications: (data) => {
             const pendingIndents = new Set();
             data.indents.forEach((sheet) => {
-                const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(sheet.indentType);
-                
+                const isStoreOutType = ['Store Out', 'Store Out Return'].includes(sheet.indentType);
                 const isPending = (isStoreOutType && sheet.status === 'Approved') && (!sheet.actual6 || sheet.actual6 === '');
-                
+                if (isPending) {
+                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
+                }
+            });
+            return pendingIndents.size;
+        },
+    },
+    {
+        path: 'loan-out-approval',
+        gateKey: 'storeOutApprovalView',
+        name: 'Loan Out / Approval',
+        icon: <PackageCheck size={20} />,
+        element: <StoreOutApproval mode="loan" />,
+        notifications: (data) => {
+            const pendingIndents = new Set();
+            data.indents.forEach((sheet) => {
+                const isLoanType = ['Loan Out', 'Loan Out Return'].includes(sheet.indentType);
+                const isPending = (isLoanType && sheet.status === 'Approved') && (!sheet.actual6 || sheet.actual6 === '');
                 if (isPending) {
                     pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
                 }
@@ -356,7 +372,15 @@ const routes: RouteAttributes[] = [
     },
 ];
 
-createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root')!;
+
+// HMR guard: reuse the existing root on hot-reloads instead of creating a second one
+declare global { interface Window { __reactRoot?: ReturnType<typeof createRoot> } }
+if (!window.__reactRoot) {
+    window.__reactRoot = createRoot(rootElement);
+}
+
+window.__reactRoot.render(
     <StrictMode>
         <AuthProvider>
             <BrowserRouter>
@@ -378,7 +402,7 @@ createRoot(document.getElementById('root')!).render(
                                 key={`${path}-${index}`}
                                 path={path}
                                 element={<GatedRoute identifier={gateKey} roleKey={roleKey}>{element}</GatedRoute>}
-                            />
+                            />;
                         })}
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>

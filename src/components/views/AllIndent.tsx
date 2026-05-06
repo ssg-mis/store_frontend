@@ -23,7 +23,7 @@ interface AllIndentTableData {
     indentApproveBy: string;
     indentType: 'Purchase' | 'Store Out' | 'Store Out Return';
     department: string;
-    groupHead: string;
+    departmentHead: string;
     productName: string;
     quantity: number;
     uom: string;
@@ -83,7 +83,7 @@ export default () => {
                     indentApproveBy: record.indentApprovedBy || record.indent_approve_by || '',
                     indentType: (record.indentType || record.indent_type) as 'Purchase' | 'Store Out' | 'Store Out Return' || 'Purchase',
                     department: record.department || '',
-                    groupHead: record.groupHead || record.group_head || '',
+                    departmentHead: record.departmentHead || record.department_head || '',
                     productName: record.productName || record.product_name || '',
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
@@ -201,8 +201,8 @@ export default () => {
                 if (update.department !== originalRecord.department) {
                     updatePayload.department = update.department;
                 }
-                if (update.groupHead !== originalRecord.groupHead) {
-                    updatePayload.groupHead = update.groupHead;
+                if (update.departmentHead !== originalRecord.departmentHead) {
+                    updatePayload.departmentHead = update.departmentHead;
                 }
                 if (update.productName !== originalRecord.productName) {
                     updatePayload.productName = update.productName;
@@ -420,17 +420,17 @@ export default () => {
             size: 160,
         },
         {
-            accessorKey: 'groupHead',
+            accessorKey: 'departmentHead',
             header: 'Department Head',
             cell: ({ row }) => {
                 const indent = row.original;
                 const isSelected = selectedRows.has(indent.id);
-                const currentValue = bulkUpdates.get(indent.id)?.groupHead || indent.groupHead;
+                const currentValue = bulkUpdates.get(indent.id)?.departmentHead || indent.departmentHead;
 
                 return (
                     <Select
                         value={currentValue}
-                        onValueChange={(value) => handleBulkUpdate(indent.id, 'groupHead', value)}
+                        onValueChange={(value) => handleBulkUpdate(indent.id, 'departmentHead', value)}
                         disabled={!isSelected}
                     >
                         <SelectTrigger className={`w-36 text-xs sm:text-sm ${!isSelected ? 'opacity-50' : ''}`}>
@@ -466,18 +466,18 @@ export default () => {
             cell: ({ row }) => {
                 const indent = row.original;
                 const isSelected = selectedRows.has(indent.id);
-                const currentGroupHead = bulkUpdates.get(indent.id)?.groupHead || indent.groupHead;
+                const currentDepartmentHead = bulkUpdates.get(indent.id)?.departmentHead || indent.departmentHead;
                 const currentValue = bulkUpdates.get(indent.id)?.productName || indent.productName;
 
-                const availableProducts = master?.groupHeadItems?.[currentGroupHead] || [];
+                const availableProducts = master?.groupHeadItems?.[currentDepartmentHead] || [];
 
                 return (
                     <Select
                         value={currentValue}
                         onValueChange={(value) => handleBulkUpdate(indent.id, 'productName', value)}
-                        disabled={!isSelected || !currentGroupHead}
+                        disabled={!isSelected || !currentDepartmentHead}
                     >
-                        <SelectTrigger className={`w-52 text-xs sm:text-sm ${(!isSelected || !currentGroupHead) ? 'opacity-50' : ''}`}>
+                        <SelectTrigger className={`w-52 text-xs sm:text-sm ${(!isSelected || !currentDepartmentHead) ? 'opacity-50' : ''}`}>
                             <SelectValue placeholder="Product name" />
                         </SelectTrigger>
                         <SelectContent>
@@ -662,7 +662,7 @@ export default () => {
                     <DataTable
                         data={tableData}
                         columns={columns}
-                        searchFields={['indentNumber', 'indenterName', 'department', 'productName', 'groupHead']}
+                        searchFields={['indentNumber', 'indenterName', 'department', 'productName', 'departmentHead']}
                         dataLoading={indentLoading}
                         footer={
                             <div className="flex flex-col items-center gap-2 p-4 pt-0">

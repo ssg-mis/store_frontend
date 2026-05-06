@@ -75,7 +75,7 @@ interface HistoryData {
     indentType: string;
 }
 
-export default () => {
+export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
     const { user } = useAuth();
     const { updateIndentSheet, updateRelatedSheets } = useSheets();
     const [openDialog, setOpenDialog] = useState(false);
@@ -84,7 +84,11 @@ export default () => {
     const [selectedIndent, setSelectedIndent] = useState<StoreOutTableData | null>(null);
     const [rejecting, setRejecting] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [mainTab, setMainTab] = useState('store-out'); // 'store-out' or 'return'
+    const [mainTab, setMainTab] = useState(mode === 'loan' ? 'loan-out' : 'store-out');
+
+    useEffect(() => {
+        setMainTab(mode === 'loan' ? 'loan-out' : 'store-out');
+    }, [mode]);
 
     // Filter states (kept for FilterBar options)
     const [pendingFilters, setPendingFilters] = useState({
@@ -114,18 +118,12 @@ export default () => {
     const pendingAbortRef = useRef<AbortController | null>(null);
     const historyAbortRef = useRef<AbortController | null>(null);
 
-
-
-
-
-
-
-
-
     const getIndentTypeQuery = useCallback(() => {
-        return mainTab === 'store-out' 
-            ? ['Store Out', 'Loan Out'] 
-            : ['Store Out Return', 'Loan Out Return'];
+        if (mainTab === 'store-out') return ['Store Out'];
+        if (mainTab === 'store-out-return') return ['Store Out Return'];
+        if (mainTab === 'loan-out') return ['Loan Out'];
+        if (mainTab === 'loan-out-return') return ['Loan Out Return'];
+        return ['Store Out'];
     }, [mainTab]);
 
     const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
@@ -140,13 +138,13 @@ export default () => {
             const data: any = await fetchFromSupabasePaginated('indent', '*',
                 { column: 'createdAt', options: { ascending: true } },
                 undefined, undefined,
-                { 
-                    page: pageValue, 
-                    limit: 50, 
-                    search: searchQuery, 
-                    status: 'StoreOutPending', 
+                {
+                    page: pageValue,
+                    limit: 50,
+                    search: searchQuery,
+                    status: 'StoreOutPending',
                     indentType: getIndentTypeQuery(),
-                    abortSignal: controller.signal 
+                    abortSignal: controller.signal
                 }
             );
 
@@ -168,7 +166,12 @@ export default () => {
                     specifications: record.specifications || 'Not specified',
                     attachment: record.attachment || 'N/A',
                     validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
-                    indentType: record.indentType || (mainTab === 'store-out' ? 'Store Out' : 'Store Out Return'),
+                    indentType: record.indentType || (
+                        mainTab === 'store-out' ? 'Store Out'
+                        : mainTab === 'store-out-return' ? 'Store Out Return'
+                        : mainTab === 'loan-out' ? 'Loan Out'
+                        : 'Loan Out Return'
+                    ),
                 }));
                 const normalizedData = mappedData;
                 setTableData(prev => append ? [...prev, ...normalizedData] : normalizedData);
@@ -198,13 +201,13 @@ export default () => {
             const data: any = await fetchFromSupabasePaginated('indent', '*',
                 { column: 'createdAt', options: { ascending: true } },
                 undefined, undefined,
-                { 
-                    page: pageValue, 
-                    limit: 50, 
-                    search: searchQuery, 
-                    status: 'StoreOutHistory', 
+                {
+                    page: pageValue,
+                    limit: 50,
+                    search: searchQuery,
+                    status: 'StoreOutHistory',
                     indentType: getIndentTypeQuery(),
-                    abortSignal: controller.signal 
+                    abortSignal: controller.signal
                 }
             );
 
@@ -227,7 +230,12 @@ export default () => {
                     issuedStatus: record.issue_status || '',
                     issueApprovedBy: record.issue_approved_by || '',
                     validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
-                    indentType: record.indentType || (mainTab === 'store-out' ? 'Store Out' : 'Store Out Return'),
+                    indentType: record.indentType || (
+                        mainTab === 'store-out' ? 'Store Out'
+                        : mainTab === 'store-out-return' ? 'Store Out Return'
+                        : mainTab === 'loan-out' ? 'Loan Out'
+                        : 'Loan Out Return'
+                    ),
                 }));
                 const normalizedData = mappedData;
                 setHistoryData(prev => append ? [...prev, ...normalizedData] : normalizedData);
@@ -257,7 +265,7 @@ export default () => {
         setHistoryInitialLoading(true);
         setPendingPage(1);
         setHistoryPage(1);
-        
+
         fetchData();
         return () => {
             pendingAbortRef.current?.abort();
@@ -283,14 +291,11 @@ export default () => {
         [fetchHistoryData]
     );
 
-    // Add this function inside your component, before the return statement
     const onDownloadClick = async () => {
         setLoading(true);
         try {
-            // Create a new workbook
             const workbook = XLSX.utils.book_new();
 
-            // Convert table data to worksheet format
             const worksheetData = tableData.map(item => ({
                 'Indent No.': item.indentNo,
                 'Indenter': item.indenter,
@@ -305,19 +310,13 @@ export default () => {
                 'Attachment': item.attachment || 'No attachment'
             }));
 
-            // Create worksheet from data
             const worksheet = XLSX.utils.json_to_sheet(worksheetData);
-
-            // Add worksheet to workbook
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Store Out Pending');
 
-            // Generate filename with current date
             const currentDate = new Date().toISOString().split('T')[0];
             const filename = `Store_Out_Pending_${currentDate}.xlsx`;
 
-            // Write and download the file
             XLSX.writeFile(workbook, filename);
-
             toast.success('Excel file downloaded successfully!');
         } catch (error) {
             console.error('Download error:', error);
@@ -346,17 +345,21 @@ export default () => {
             (historyFilters.product === 'All' || item.product === historyFilters.product);
     });
 
-    const displayPendingData = filteredTableData.filter(item => 
-        mainTab === 'store-out' 
-            ? ['Store Out', 'Loan Out'].includes(item.indentType) 
-            : ['Store Out Return', 'Loan Out Return'].includes(item.indentType)
-    );
+    const displayPendingData = filteredTableData.filter(item => {
+        if (mainTab === 'store-out') return item.indentType === 'Store Out';
+        if (mainTab === 'store-out-return') return item.indentType === 'Store Out Return';
+        if (mainTab === 'loan-out') return item.indentType === 'Loan Out';
+        if (mainTab === 'loan-out-return') return item.indentType === 'Loan Out Return';
+        return false;
+    });
 
-    const displayHistoryData = filteredHistoryData.filter(item => 
-        mainTab === 'store-out' 
-            ? ['Store Out', 'Loan Out'].includes(item.indentType) 
-            : ['Store Out Return', 'Loan Out Return'].includes(item.indentType)
-    );
+    const displayHistoryData = filteredHistoryData.filter(item => {
+        if (mainTab === 'store-out') return item.indentType === 'Store Out';
+        if (mainTab === 'store-out-return') return item.indentType === 'Store Out Return';
+        if (mainTab === 'loan-out') return item.indentType === 'Loan Out';
+        if (mainTab === 'loan-out-return') return item.indentType === 'Loan Out Return';
+        return false;
+    });
 
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -463,22 +466,14 @@ export default () => {
 
 
     const historyColumns: ColumnDef<HistoryData>[] = [
-
-
         { accessorKey: "indentNo", header: "Indent No." },
         { accessorKey: "firm", header: "Firm" },
         { accessorKey: "indenter", header: "Indenter" },
         { accessorKey: "department", header: "Department" },
         { accessorKey: "product", header: "Product" },
         { accessorKey: "uom", header: "UOM" },
-
-        // 👇 Issued Quantity editable banaya
-
-
         { accessorKey: "quantity", header: "Issued Quantity" },
         { accessorKey: "requestedQuantity", header: "Requested Quantity" },
-
-
         { accessorKey: "issueApprovedBy", header: "Issue Approved By" },
         { accessorKey: "date", header: "Request Date" },
         { accessorKey: "approvalDate", header: "Approval Date" },
@@ -547,7 +542,7 @@ export default () => {
             const timestamp = now.toISOString();
 
             const updateData = {
-                id: selectedIndent?.id, // Fix for 404 error - ID is required for PUT /api/indents/:id
+                id: selectedIndent?.id,
                 indentNumber: selectedIndent?.indentNo,
                 actual_6: timestamp,
                 issueApprovedBy: values.issueApprovedBy,
@@ -558,7 +553,6 @@ export default () => {
             const result = await postToSheet([updateData], 'update', 'INDENT');
 
             if (result.success) {
-                // Also insert into STORE OUT APPROVAL table
                 const delay = calculateStoreOutDelay(selectedIndent?.planned || null);
                 const plannedDate = selectedIndent?.planned ? new Date(selectedIndent.planned) : null;
 
@@ -570,20 +564,26 @@ export default () => {
                     delay: delay,
                     planned: plannedDate,
                 };
-                const approvalResult = await postToSheet([approvalData], 'insert', 'STORE OUT APPROVAL');
+                const sheetName = selectedIndent?.indentType === 'Loan Out' ? 'LOAN' : 'STORE OUT APPROVAL';
+                const approvalResult = await postToSheet([approvalData], 'insert', sheetName);
 
                 if (!approvalResult.success) {
                     console.error('Failed to insert store out approval record:', approvalResult.error);
                 }
 
-                toast.success(`Updated store out approval status of ${selectedIndent?.indentNo}`);
-                updateIndentSheet(); // Update context for sidebars
+                toast.success(`Updated ${
+                    mainTab === 'loan-out' ? 'loan out'
+                    : mainTab === 'loan-out-return' ? 'loan out return'
+                    : mainTab === 'store-out-return' ? 'store out return'
+                    : 'store out'
+                } approval status of ${selectedIndent?.indentNo}`);
+                updateIndentSheet();
                 updateRelatedSheets();
                 setOpenDialog(false);
                 form.reset();
                 fetchData();
             } else {
-                toast.error('Failed to update status');
+                toast.error((result.error as any)?.message || 'Failed to update status');
             }
         } catch (error) {
             console.error('Update error:', error);
@@ -597,14 +597,22 @@ export default () => {
         toast.error(firstError?.message || 'Please fill all required fields');
     }
 
-
     return (
         <Dialog open={openDialog} onOpenChange={setOpenDialog}>
             <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
                 <div className="px-5 pt-4">
                     <TabsList className="grid w-full grid-cols-2 shadow-sm border">
-                        <TabsTrigger value="store-out">Store Out Approval</TabsTrigger>
-                        <TabsTrigger value="return">Store Out Return Approval</TabsTrigger>
+                        {mode === 'store-out' ? (
+                            <>
+                                <TabsTrigger value="store-out">Store Out</TabsTrigger>
+                                <TabsTrigger value="store-out-return">Store Out Return</TabsTrigger>
+                            </>
+                        ) : (
+                            <>
+                                <TabsTrigger value="loan-out">Loan Out</TabsTrigger>
+                                <TabsTrigger value="loan-out-return">Loan Out Return</TabsTrigger>
+                            </>
+                        )}
                     </TabsList>
                 </div>
 
@@ -622,21 +630,14 @@ export default () => {
                                 isSearching={pendingSearching}
                                 totalCount={pendingTotal}
                                 currentPage={pendingPage}
-                                onPageChange={(page) => {
-                                    setPendingPage(page);
-                                    fetchPendingData(page, pendingSearch, false);
-                                }}
+                                onPageChange={(page) => { setPendingPage(page); fetchPendingData(page, pendingSearch, false); }}
                                 onSearchChange={debouncedPendingSearch}
                                 pagination={true}
                                 pageSize={50}
                                 extraActions={
                                     <div className="flex items-center gap-2">
                                         <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
-                                        <Button
-                                            variant="default"
-                                            onClick={onDownloadClick}
-                                            className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8"
-                                        >
+                                        <Button variant="default" onClick={onDownloadClick} className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8">
                                             <DownloadOutlined />
                                             {loading ? "Downloading..." : "Download"}
                                         </Button>
@@ -653,22 +654,17 @@ export default () => {
                                 isSearching={historySearching}
                                 totalCount={historyTotal}
                                 currentPage={historyPage}
-                                onPageChange={(page) => {
-                                    setHistoryPage(page);
-                                    fetchHistoryData(page, historySearch, false);
-                                }}
+                                onPageChange={(page) => { setHistoryPage(page); fetchHistoryData(page, historySearch, false); }}
                                 onSearchChange={debouncedHistorySearch}
                                 pagination={true}
                                 pageSize={50}
-                                extraActions={
-                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
-                                }
+                                extraActions={<FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />}
                             />
                         </TabsContent>
                     </Tabs>
                 </TabsContent>
 
-                <TabsContent value="return">
+                <TabsContent value="store-out-return">
                     <Tabs defaultValue="pending">
                         <Heading heading="Store Out Return" subtext="Manage returned items" tabs>
                             <PackageCheck size={50} className="text-primary" />
@@ -682,21 +678,14 @@ export default () => {
                                 isSearching={pendingSearching}
                                 totalCount={pendingTotal}
                                 currentPage={pendingPage}
-                                onPageChange={(page) => {
-                                    setPendingPage(page);
-                                    fetchPendingData(page, pendingSearch, false);
-                                }}
+                                onPageChange={(page) => { setPendingPage(page); fetchPendingData(page, pendingSearch, false); }}
                                 onSearchChange={debouncedPendingSearch}
                                 pagination={true}
                                 pageSize={50}
                                 extraActions={
                                     <div className="flex items-center gap-2">
                                         <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
-                                        <Button
-                                            variant="default"
-                                            onClick={onDownloadClick}
-                                            className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8"
-                                        >
+                                        <Button variant="default" onClick={onDownloadClick} className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8">
                                             <DownloadOutlined />
                                             {loading ? "Downloading..." : "Download"}
                                         </Button>
@@ -713,16 +702,107 @@ export default () => {
                                 isSearching={historySearching}
                                 totalCount={historyTotal}
                                 currentPage={historyPage}
-                                onPageChange={(page) => {
-                                    setHistoryPage(page);
-                                    fetchHistoryData(page, historySearch, false);
-                                }}
+                                onPageChange={(page) => { setHistoryPage(page); fetchHistoryData(page, historySearch, false); }}
                                 onSearchChange={debouncedHistorySearch}
                                 pagination={true}
                                 pageSize={50}
+                                extraActions={<FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />}
+                            />
+                        </TabsContent>
+                    </Tabs>
+                </TabsContent>
+
+                <TabsContent value="loan-out">
+                    <Tabs defaultValue="pending">
+                        <Heading heading="Loan Out" subtext="Manage loan out requests" tabs>
+                            <PackageCheck size={50} className="text-primary" />
+                        </Heading>
+                        <TabsContent value="pending">
+                            <DataTable
+                                data={displayPendingData}
+                                columns={columns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
+                                dataLoading={pendingInitialLoading}
+                                isSearching={pendingSearching}
+                                totalCount={pendingTotal}
+                                currentPage={pendingPage}
+                                onPageChange={(page) => { setPendingPage(page); fetchPendingData(page, pendingSearch, false); }}
+                                onSearchChange={debouncedPendingSearch}
+                                pagination={true}
+                                pageSize={50}
                                 extraActions={
-                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                                    <div className="flex items-center gap-2">
+                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                                        <Button variant="default" onClick={onDownloadClick} className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8">
+                                            <DownloadOutlined />
+                                            {loading ? "Downloading..." : "Download"}
+                                        </Button>
+                                    </div>
                                 }
+                            />
+                        </TabsContent>
+                        <TabsContent value="history">
+                            <DataTable
+                                data={displayHistoryData}
+                                columns={historyColumns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
+                                dataLoading={historyInitialLoading}
+                                isSearching={historySearching}
+                                totalCount={historyTotal}
+                                currentPage={historyPage}
+                                onPageChange={(page) => { setHistoryPage(page); fetchHistoryData(page, historySearch, false); }}
+                                onSearchChange={debouncedHistorySearch}
+                                pagination={true}
+                                pageSize={50}
+                                extraActions={<FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />}
+                            />
+                        </TabsContent>
+                    </Tabs>
+                </TabsContent>
+
+                <TabsContent value="loan-out-return">
+                    <Tabs defaultValue="pending">
+                        <Heading heading="Loan Out Return" subtext="Manage loan out returns" tabs>
+                            <PackageCheck size={50} className="text-primary" />
+                        </Heading>
+                        <TabsContent value="pending">
+                            <DataTable
+                                data={displayPendingData}
+                                columns={columns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'uom', 'specifications']}
+                                dataLoading={pendingInitialLoading}
+                                isSearching={pendingSearching}
+                                totalCount={pendingTotal}
+                                currentPage={pendingPage}
+                                onPageChange={(page) => { setPendingPage(page); fetchPendingData(page, pendingSearch, false); }}
+                                onSearchChange={debouncedPendingSearch}
+                                pagination={true}
+                                pageSize={50}
+                                extraActions={
+                                    <div className="flex items-center gap-2">
+                                        <FilterBar filters={pendingFilters} setFilters={setPendingFilters} data={tableData} />
+                                        <Button variant="default" onClick={onDownloadClick} className="bg-gradient-to-r from-green-600 to-green-800 border-none rounded-lg px-4 font-bold shadow-md flex items-center gap-2 h-8">
+                                            <DownloadOutlined />
+                                            {loading ? "Downloading..." : "Download"}
+                                        </Button>
+                                    </div>
+                                }
+                            />
+                        </TabsContent>
+                        <TabsContent value="history">
+                            <DataTable
+                                data={displayHistoryData}
+                                columns={historyColumns}
+                                searchFields={['indentNo', 'product', 'department', 'indenter', 'date', 'areaOfUse', 'quantity', 'requestedQuantity', 'uom', 'approvalDate', 'issuedStatus']}
+                                dataLoading={historyInitialLoading}
+                                isSearching={historySearching}
+                                totalCount={historyTotal}
+                                currentPage={historyPage}
+                                onPageChange={(page) => { setHistoryPage(page); fetchHistoryData(page, historySearch, false); }}
+                                onSearchChange={debouncedHistorySearch}
+                                pagination={true}
+                                pageSize={50}
+                                extraActions={<FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />}
                             />
                         </TabsContent>
                     </Tabs>
@@ -733,9 +813,23 @@ export default () => {
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit, onError)} className="space-y-5">
                             <DialogHeader className="space-y-1">
-                                <DialogTitle>Approve Store Out Request</DialogTitle>
+                                <DialogTitle>
+                                    {mainTab === 'loan-out'
+                                        ? 'Loan Out Request'
+                                        : mainTab === 'loan-out-return'
+                                            ? 'Loan Out Return Request'
+                                            : mainTab === 'store-out-return'
+                                                ? 'Store Out Return Request'
+                                                : 'Approve Store Out Request'}
+                                </DialogTitle>
                                 <DialogDescription>
-                                    Approve Store Out Request{' '}
+                                    {mainTab === 'loan-out'
+                                        ? 'Approve Loan Out Request'
+                                        : mainTab === 'loan-out-return'
+                                            ? 'Approve Loan Out Return Request'
+                                            : mainTab === 'store-out-return'
+                                                ? 'Approve Store Out Return Request'
+                                                : 'Approve Store Out Request'}{' '}
                                     <span className="font-medium">{selectedIndent.indentNo}</span>
                                 </DialogDescription>
                             </DialogHeader>
@@ -815,6 +909,7 @@ export default () => {
                                                     type="number"
                                                     placeholder="Enter quantity"
                                                     {...field}
+                                                    disabled={mainTab === 'loan-out'}
                                                     onChange={(e) => field.onChange(Number(e.target.value))}
                                                 />
                                             </FormControl>

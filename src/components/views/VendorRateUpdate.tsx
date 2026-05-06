@@ -42,7 +42,7 @@ interface VendorUpdateData {
     indenter: string;
     department: string;
     areaOfUse?: string;
-    groupHead?: string;
+    departmentHead?: string;
     indentApprovedBy?: string;
     product: string;
     productCode: string | null;
@@ -95,7 +95,7 @@ interface PendingGroup {
     indenter: string;
     department: string;
     areaOfUse?: string;
-    groupHead?: string;
+    departmentHead?: string;
     indentApprovedBy?: string;
     requestDate: string;
     approvalDate: string;
@@ -197,7 +197,7 @@ export default () => {
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     areaOfUse: record.areaOfUse || '',
-                    groupHead: record.groupHead || '',
+                    departmentHead: record.departmentHead || '',
                     indentApprovedBy: record.indentApprovedBy || '',
                     product: record.productName || '',
                     productCode: record.productCode || null,
@@ -525,7 +525,7 @@ export default () => {
                     indenter: first.indenter,
                     department: first.department,
                     areaOfUse: first.areaOfUse,
-                    groupHead: first.groupHead,
+                    departmentHead: first.departmentHead,
                     indentApprovedBy: first.indentApprovedBy,
                     requestDate: first.requestDate,
                     approvalDate: first.approvalDate,
@@ -804,6 +804,9 @@ export default () => {
         paymentTerm1: z.string().nonempty('Payment term required'),
         paymentTerm2: z.string().nonempty('Payment term required'),
         paymentTerm3: z.string().nonempty('Payment term required'),
+        deliveryTime1: z.coerce.number().int().min(1, 'Required'),
+        deliveryTime2: z.coerce.number().int().min(1, 'Required'),
+        deliveryTime3: z.coerce.number().int().min(1, 'Required'),
         comparisonSheet1: z.instanceof(File, { message: 'Comparison sheet 1 is required' }),
         comparisonSheet2: z.instanceof(File, { message: 'Comparison sheet 2 is required' }),
         comparisonSheet3: z.instanceof(File, { message: 'Comparison sheet 3 is required' }),
@@ -819,6 +822,7 @@ export default () => {
         defaultValues: {
             vendorName1: '', vendorName2: '', vendorName3: '',
             paymentTerm1: '', paymentTerm2: '', paymentTerm3: '',
+            deliveryTime1: 0, deliveryTime2: 0, deliveryTime3: 0,
             products: [],
         },
     });
@@ -833,6 +837,7 @@ export default () => {
             threePartyForm.reset({
                 vendorName1: '', vendorName2: '', vendorName3: '',
                 paymentTerm1: '', paymentTerm2: '', paymentTerm3: '',
+                deliveryTime1: 0, deliveryTime2: 0, deliveryTime3: 0,
                 products: selectedGroup.items.map(() => ({ rate1: 0, rate2: 0, rate3: 0 })),
             });
         }
@@ -851,9 +856,9 @@ export default () => {
                 const payload: any = {
                     indent_number: item.indentNo,
                     product_code: item.productCode,
-                    vendorName1: values.vendorName1, rate1: values.products[i].rate1, paymentTerm1: values.paymentTerm1,
-                    vendorName2: values.vendorName2, rate2: values.products[i].rate2, paymentTerm2: values.paymentTerm2,
-                    vendorName3: values.vendorName3, rate3: values.products[i].rate3, paymentTerm3: values.paymentTerm3,
+                    vendorName1: values.vendorName1, rate1: values.products[i].rate1, paymentTerm1: values.paymentTerm1, deliveryTime1: values.deliveryTime1,
+                    vendorName2: values.vendorName2, rate2: values.products[i].rate2, paymentTerm2: values.paymentTerm2, deliveryTime2: values.deliveryTime2,
+                    vendorName3: values.vendorName3, rate3: values.products[i].rate3, paymentTerm3: values.paymentTerm3, deliveryTime3: values.deliveryTime3,
                     planned: new Date().toISOString(),
                 };
                 if (url1) payload.comparisonSheet = url1;
@@ -1123,7 +1128,7 @@ export default () => {
                                                     { label: 'Indenter', value: group.indenter },
                                                     { label: 'Department', value: group.department },
                                                     { label: 'Area of Use', value: group.areaOfUse },
-                                                    { label: 'Group Head', value: group.groupHead },
+                                                    { label: 'Department Head', value: group.departmentHead },
                                                     { label: 'Approved By', value: group.indentApprovedBy },
                                                     { label: 'Created Date', value: group.date },
                                                     { label: 'Validity Date', value: group.validityDate },
@@ -1360,6 +1365,39 @@ export default () => {
                                                                             {fieldState.error && (
                                                                                 <p className="text-[10px] text-red-500 mt-0.5">{fieldState.error.message}</p>
                                                                             )}
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                            </TableCell>
+                                                        ))}
+                                                    </TableRow>
+                                                    {/* Actual Time To Receive Material row */}
+                                                    <TableRow>
+                                                        <TableCell className="text-xs font-medium text-muted-foreground">
+                                                            Actual Time To Receive Material <span className="text-red-500">*</span>
+                                                        </TableCell>
+                                                        {([1, 2, 3] as const).map(n => (
+                                                            <TableCell key={n} className="min-w-[180px]">
+                                                                <FormField
+                                                                    control={threePartyForm.control}
+                                                                    name={`deliveryTime${n}`}
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <FormControl>
+                                                                                    <Input
+                                                                                        type="number"
+                                                                                        step="1"
+                                                                                        min="1"
+                                                                                        placeholder="e.g. 7"
+                                                                                        className="h-8 text-xs w-24"
+                                                                                        onFocus={(e) => e.target.select()}
+                                                                                        {...field}
+                                                                                    />
+                                                                                </FormControl>
+                                                                                <span className="text-[11px] text-muted-foreground">days</span>
+                                                                            </div>
+                                                                            <FormMessage className="text-[10px]" />
                                                                         </FormItem>
                                                                     )}
                                                                 />

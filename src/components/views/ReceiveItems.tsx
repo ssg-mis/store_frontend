@@ -50,6 +50,7 @@ interface RecieveItemsData {
     quotationNo?: string;
     quotationDate?: string;
     transportType?: string;
+    approvedActualTime?: number | null;
 }
 
 interface HistoryData {
@@ -63,9 +64,11 @@ interface HistoryData {
     orderQuantity: number;
     receivedDate: string;
     receivedQuantity: number;
+    purchaseReturn: number;
     damagedQuantity: number;
     remainingQty?: number;
     createdAtRaw?: string;
+    grnNumber?: string;
     photoOfProduct: string;
     billStatus: string;
     billNumber: string;
@@ -165,6 +168,7 @@ const ReceiveItems = () => {
                         quotationNo: po.quotationNumber || 'N/A',
                         quotationDate: po.quotationDate || '',
                         transportType: po.transportationType || 'N/A',
+                        approvedActualTime: indent.approvedActualTime ?? null,
                     };
                 });
 
@@ -216,7 +220,9 @@ const ReceiveItems = () => {
                         createdAtRaw: receivedRecord.createdAt || '',
                         receivedDate: receivedRecord.createdAt ? formatDate(new Date(receivedRecord.createdAt)) : '',
                         receivedQuantity: Number(receivedRecord.receivedQuantity) || 0,
+                        purchaseReturn: Number(receivedRecord.purchaseReturn) || 0,
                         damagedQuantity: Number(receivedRecord.damagedQuantity) || 0,
+                        grnNumber: receivedRecord.grnNumber || '',
                         photoOfProduct: receivedRecord.photoOfProduct || '',
                         billStatus: receivedRecord.billStatus || '',
                         billNumber: receivedRecord.billNumber || '',
@@ -380,6 +386,15 @@ const ReceiveItems = () => {
             ),
         },
         { accessorKey: 'poNumber', header: 'PO Number' },
+        {
+            header: 'GRN Number',
+            cell: ({ row }) => {
+                const grn = row.original.items?.[0]?.grnNumber;
+                return grn
+                    ? <span className="font-mono text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{grn}</span>
+                    : <span className="text-muted-foreground text-xs">—</span>;
+            }
+        },
         { accessorKey: 'vendor', header: 'Vendor' },
         { accessorKey: 'receivedDate', header: 'Date' },
         {
@@ -431,15 +446,29 @@ const ReceiveItems = () => {
     });
 
     // Local state for item quantities — avoids RHF dynamic array registration issues
-    const [itemRows, setItemRows] = useState<Array<{ indentId: number; indentNumber: string; quantity: number; damagedQuantity: number; error?: string }>>([]);
+    const [itemRows, setItemRows] = useState<Array<{ indentId: number; indentNumber: string; quantity: number; purchaseReturn: number; damagedQuantity: number; error?: string }>>([]);
 
-    const updateItemRow = (indentId: number, field: 'quantity' | 'damagedQuantity', value: number) => {
+    const updateItemRow = (indentId: number, field: 'quantity' | 'purchaseReturn' | 'damagedQuantity', value: number) => {
         setItemRows(prev => prev.map((row) => {
             if (row.indentId !== indentId) return row;
             const updated = { ...row, [field]: value };
-            const qty = field === 'quantity' ? value : updated.quantity;
-            const dmg = field === 'damagedQuantity' ? value : updated.damagedQuantity;
-            updated.error = dmg > qty ? 'Damaged qty cannot exceed received qty' : undefined;
+
+            // Auto-calculate receive qty when purchase return or damaged changes
+            if (field === 'purchaseReturn' || field === 'damagedQuantity') {
+                const pendingQty = matchingIndents.find(i => i.id === indentId)?.remainingQty || 0;
+                updated.quantity = Math.max(0, pendingQty - updated.purchaseReturn - updated.damagedQuantity);
+            }
+
+            const totalDeducted = updated.purchaseReturn + updated.damagedQuantity;
+            const pendingQty = matchingIndents.find(i => i.id === indentId)?.remainingQty || 0;
+            if (totalDeducted > pendingQty) {
+                updated.error = 'Purchase return + damaged cannot exceed pending qty';
+            } else if (updated.damagedQuantity > updated.quantity) {
+                updated.error = 'Damaged qty cannot exceed received qty';
+            } else {
+                updated.error = undefined;
+            }
+
             return updated;
         }));
     };
@@ -482,6 +511,7 @@ const ReceiveItems = () => {
                     indentId: indent.id,
                     indentNumber: indent.indentNumber,
                     quantity: indent.remainingQty || 0,
+                    purchaseReturn: 0,
                     damagedQuantity: 0,
                 }));
             });
@@ -500,7 +530,7 @@ const ReceiveItems = () => {
             toast.error('Fix quantity errors before submitting');
             return;
         }
-        const itemsToReceive = itemRows.filter(item => item.quantity > 0);
+        const itemsToReceive = itemRows.filter(item => item.quantity > 0 || item.purchaseReturn > 0);
 
         if (itemsToReceive.length === 0) {
             toast.error('Please enter quantity for at least one item');
@@ -536,6 +566,7 @@ const ReceiveItems = () => {
                     product: originalItem?.product || '',
                     uom: originalItem?.uom || '',
                     receivedQuantity: goodQuantity,
+                    purchaseReturn: item.purchaseReturn || 0,
                     damagedQuantity: item.damagedQuantity || 0,
                     photoOfProduct: itemPhotoUrl,
                     billStatus: values.billStatus,
@@ -764,6 +795,12 @@ const ReceiveItems = () => {
                                             <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">Firm</p>
                                             <p className="text-sm font-bold text-slate-800">{selectedIndent.firm}</p>
                                         </div>
+                                        {selectedIndent.approvedActualTime != null && (
+                                            <div className="space-y-1">
+                                                <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">Approved Delivery Time</p>
+                                                <p className="text-sm font-bold text-slate-800">{selectedIndent.approvedActualTime} days</p>
+                                            </div>
+                                        )}
                                         <div className="space-y-1 flex flex-col items-start md:items-end">
                                             <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider mb-1">Documents</p>
                                             {selectedIndent.poCopy ? (
@@ -801,13 +838,14 @@ const ReceiveItems = () => {
                                                     <th className="px-4 py-2 text-center">UOM</th>
                                                     <th className="px-4 py-2 text-center">Pending</th>
                                                     <th className="px-4 py-2 text-right w-[120px]">Receive Qty</th>
+                                                    <th className="px-4 py-2 text-right w-[130px]">Purchase Return</th>
                                                     <th className="px-4 py-2 text-right w-[120px]">Damaged Qty</th>
                                                     <th className="px-4 py-2 text-right w-[100px]">Okay Qty</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
                                                 {matchingIndents.map((indent, index) => {
-                                                    const row = itemRows.find(r => r.indentId === indent.id) || { quantity: 0, damagedQuantity: 0, error: undefined as string | undefined };
+                                                    const row = itemRows.find(r => r.indentId === indent.id) || { quantity: 0, purchaseReturn: 0, damagedQuantity: 0, error: undefined as string | undefined };
                                                     return (
                                                         <tr key={indent.id} className="hover:bg-muted/30 transition-colors">
 
@@ -823,8 +861,18 @@ const ReceiveItems = () => {
                                                                     max={indent.remainingQty}
                                                                     min={0}
                                                                     value={row.quantity}
+                                                                    onFocus={e => e.target.select()}
                                                                     onChange={e => updateItemRow(indent.id, 'quantity', Number(e.target.value) || 0)}
-
+                                                                />
+                                                            </td>
+                                                            <td className="px-4 py-3 text-right">
+                                                                <Input
+                                                                    type="number"
+                                                                    className="h-8 text-right text-orange-700"
+                                                                    min={0}
+                                                                    value={row.purchaseReturn}
+                                                                    onFocus={e => e.target.select()}
+                                                                    onChange={e => updateItemRow(indent.id, 'purchaseReturn', Number(e.target.value) || 0)}
                                                                 />
                                                             </td>
                                                             <td className="px-4 py-3 text-right">
@@ -833,6 +881,7 @@ const ReceiveItems = () => {
                                                                     className={`h-8 text-right ${row.error ? 'border-red-500' : ''}`}
                                                                     min={0}
                                                                     value={row.damagedQuantity}
+                                                                    onFocus={e => e.target.select()}
                                                                     onChange={e => updateItemRow(indent.id, 'damagedQuantity', Number(e.target.value) || 0)}
 
                                                                 />
@@ -1081,7 +1130,16 @@ const ReceiveItems = () => {
                         <DialogTitle>Received Items — {historyViewGroup?.poNumber}</DialogTitle>
                     </DialogHeader>
 
+                    {/* GRN Badge */}
                     <div className="space-y-6 py-2">
+                    {historyViewGroup?.items[0]?.grnNumber && (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                            <div className="flex flex-col">
+                                <span className="text-[10px] uppercase tracking-wider text-emerald-600 font-bold">GRN Number</span>
+                                <span className="font-mono text-base font-bold text-emerald-800">{historyViewGroup.items[0].grnNumber}</span>
+                            </div>
+                        </div>
+                    )}
                         {(() => {
                             const first = historyViewGroup?.items[0];
                             return (
@@ -1137,6 +1195,7 @@ const ReceiveItems = () => {
                                         <TableHead className="text-xs text-right">PO Qty</TableHead>
                                         <TableHead className="text-xs">UOM</TableHead>
                                         <TableHead className="text-xs text-right">Received Qty</TableHead>
+                                        <TableHead className="text-xs text-right text-orange-600">Purchase Return</TableHead>
                                         <TableHead className="text-xs text-right">Damaged Qty</TableHead>
                                         <TableHead className="text-xs text-right">Okay Qty</TableHead>
                                         <TableHead className="text-xs text-right text-orange-600 font-semibold">Remaining Qty</TableHead>
@@ -1170,6 +1229,7 @@ const ReceiveItems = () => {
                                                     <TableCell className="text-xs text-right font-medium">{item.orderQuantity || '—'}</TableCell>
                                                     <TableCell className="text-xs">{item.uom}</TableCell>
                                                     <TableCell className="text-xs text-right">{grossReceived}</TableCell>
+                                                    <TableCell className="text-xs text-right font-medium text-orange-600">{item.purchaseReturn}</TableCell>
                                                     <TableCell className="text-xs text-right">{item.damagedQuantity}</TableCell>
                                                     <TableCell className="text-xs text-right font-semibold text-green-700">
                                                         {okayQty}

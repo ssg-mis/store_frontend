@@ -38,7 +38,7 @@ interface RateApprovalProduct {
     product: string;
     quantity: number;
     uom: string;
-    vendors: [string, string, string][]; // [name, rate, term]
+    vendors: [string, string, string, number?][]; // [name, rate, term, deliveryTime?]
 }
 
 interface GroupedRateApprovalData {
@@ -145,10 +145,10 @@ export default () => {
                     if (seenProductIds.has(r.indentId)) return;
                     seenProductIds.add(r.indentId);
 
-                    const productVendors: [string, string, string][] = [
-                        [r.vendorName1 || '', String(r.rate1 || 0), r.paymentTerm1 || ''],
-                        [r.vendorName2 || '', String(r.rate2 || 0), r.paymentTerm2 || ''],
-                        [r.vendorName3 || '', String(r.rate3 || 0), r.paymentTerm3 || ''],
+                    const productVendors: [string, string, string, number?][] = [
+                        [r.vendorName1 || '', String(r.rate1 || 0), r.paymentTerm1 || '', r.deliveryTime1 ?? undefined],
+                        [r.vendorName2 || '', String(r.rate2 || 0), r.paymentTerm2 || '', r.deliveryTime2 ?? undefined],
+                        [r.vendorName3 || '', String(r.rate3 || 0), r.paymentTerm3 || '', r.deliveryTime3 ?? undefined],
                     ];
 
                     grouped[indentNo].products.push({
@@ -392,7 +392,7 @@ export default () => {
             cell: ({ row }) => {
                 const indent = row.original;
 
-                const handleDownload = async () => {
+                const handleViewPdf = async () => {
                     try {
                         const vendorNames = Object.keys(indent.vendorTotals);
                         const pdfProducts = indent.products.map(p => ({
@@ -421,13 +421,7 @@ export default () => {
                         ).toBlob();
 
                         const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `Comparison-${indent.indentNo}.pdf`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        setTimeout(() => URL.revokeObjectURL(url), 100);
+                        window.open(url, '_blank');
                     } catch (err: any) {
                         console.error('PDF generation error:', err);
                         toast.error('Failed to generate PDF');
@@ -438,10 +432,10 @@ export default () => {
                     <Button
                         size="sm"
                         className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-700 text-white"
-                        onClick={handleDownload}
+                        onClick={handleViewPdf}
                     >
                         <FileDown className="h-3 w-3" />
-                        Download PDF
+                        View PDF
                     </Button>
                 );
             },
@@ -597,6 +591,7 @@ export default () => {
                     approvedVendorName: selectedVendorName,
                     approvedRate: vendorOffer ? vendorOffer[1] : 0,
                     approvedPaymentTerm: vendorOffer ? vendorOffer[2] : '',
+                    approvedActualTime: vendorOffer?.[3] ?? null,
                     remarks: !isLowest ? values.remarks : undefined,
                 };
             });
@@ -800,7 +795,8 @@ export default () => {
                                                                 {Object.entries(selectedIndent.vendorTotals).map(
                                                                     ([vendorName, total]) => {
                                                                         const isLowest = total === minTotal;
-                                                                        
+                                                                        const deliveryTime = selectedIndent.products[0]?.vendors.find(v => v[0] === vendorName)?.[3];
+
                                                                         return (
                                                                             <FormItem key={vendorName}>
                                                                                 <FormLabel className={`flex flex-col items-center gap-2 border hover:bg-accent p-4 rounded-lg cursor-pointer transition-all ${isLowest ? 'border-green-500 bg-green-50/30 ring-1 ring-green-500' : ''} ${field.value === vendorName ? 'border-primary ring-2 ring-primary bg-primary/5' : ''}`}>
@@ -815,6 +811,11 @@ export default () => {
                                                                                         <p className={`text-lg font-black mt-1 ${isLowest ? 'text-green-700' : 'text-primary'}`}>
                                                                                             ₹{total.toLocaleString()}
                                                                                         </p>
+                                                                                        {deliveryTime != null && (
+                                                                                            <p className="text-[11px] text-muted-foreground mt-1">
+                                                                                                {deliveryTime} day{deliveryTime !== 1 ? 's' : ''} delivery
+                                                                                            </p>
+                                                                                        )}
                                                                                         {isLowest && (
                                                                                             <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-widest mt-2 block">
                                                                                                 L1 Decision

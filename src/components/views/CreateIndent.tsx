@@ -37,7 +37,7 @@ export default () => {
     const [master, setMaster] = useState<any>(null);
     const [users, setUsers] = useState<{ id: number; name: string; username: string }[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [searchTermGroupHead, setSearchTermGroupHead] = useState('');
+    const [searchTermDepartmentHead, setSearchTermDepartmentHead] = useState('');
     const [searchTermProductName, setSearchTermProductName] = useState('');
     const [uoms, setUoms] = useState<{ uom_id: number; uom_name: string }[]>([]);
     const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string }[]>([]);
@@ -73,7 +73,7 @@ export default () => {
             .array(
                 z.object({
                     department: z.string().nonempty(),
-                    createGroupHead: z.string().nonempty(),
+                    departmentHead: z.string().nonempty(),
                     productName: z.string().nonempty(),
                     quantity: z.coerce.number().gt(0, 'Must be greater than 0'),
                     uom: z.string().nonempty(),
@@ -102,7 +102,7 @@ export default () => {
                     specifications: '',
                     quantity: 1,
                     areaOfUse: '',
-                    createGroupHead: '',
+                    departmentHead: '',
                     department: '',
                 },
             ],
@@ -116,21 +116,21 @@ export default () => {
         name: 'products',
     });
 
-    const getStock = (itemName: string, groupHead: string) => {
+    const getStock = (itemName: string, departmentHead: string) => {
         const item = inventorySheet?.find(
             (i) =>
                 i.itemName?.toLowerCase().trim() === itemName?.toLowerCase().trim() &&
-                (!groupHead || i.groupHead?.toLowerCase().trim() === groupHead?.toLowerCase().trim())
+                (!departmentHead || i.departmentHead?.toLowerCase().trim() === departmentHead?.toLowerCase().trim())
         );
         return Number(item?.current || 0);
     };
 
-    const getLastPurchaseInfo = (itemName: string, groupHead: string) => {
+    const getLastPurchaseInfo = (itemName: string, departmentHead: string) => {
         if (!itemName || !receivedSheet) return null;
         const latest = [...receivedSheet]
             .filter(r => 
                 (r.product || '').toLowerCase().trim() === itemName.toLowerCase().trim() &&
-                ((r as any).indent?.groupHead || '').toLowerCase().trim() === (groupHead || '').toLowerCase().trim()
+                ((r as any).indent?.departmentHead || '').toLowerCase().trim() === (departmentHead || '').toLowerCase().trim()
             )
             .sort((a, b) => {
                 const dateA = new Date((a as any).createdAt || a.timestamp || 0).getTime();
@@ -153,29 +153,29 @@ export default () => {
             qty: latest.receivedQuantity,
             uom: (latest as any).uom || 'Qty',
             rate,
-            date
+            date,
+            vendor: latest.vendor || null
         };
     };
 
-    // Auto-set indent type based on stock availability
+    // Automatic Indent Type switching removed per user request to allow manual control.
+    // Stock validation is still performed in onSubmit and on the Backend.
+
+    // Force quantity to 1 for Loan Out
     useEffect(() => {
-        const filled = products.filter(p => p.productName);
-        if (filled.length === 0) return;
-
-        const allInStock = filled.every(p => {
-            const stock = getStock(p.productName, p.createGroupHead);
-            return stock >= Number(p.quantity || 0);
-        });
-
-        form.setValue('indentType', allInStock ? 'Store Out' : 'Purchase');
-    }, [products, inventorySheet]);
+        if (indentType === 'Loan Out') {
+            products.forEach((_, index) => {
+                form.setValue(`products.${index}.quantity` as any, 1);
+            });
+        }
+    }, [indentType, products.length]);
 
     // Sync Department, Department Head, Area of Use from product[0] to all subsequent products
     useEffect(() => {
         const subscription = form.watch((value, { name }) => {
             if (
                 name === 'products.0.department' ||
-                name === 'products.0.createGroupHead' ||
+                name === 'products.0.departmentHead' ||
                 name === 'products.0.areaOfUse'
             ) {
                 const first = value.products?.[0];
@@ -183,7 +183,7 @@ export default () => {
                 const total = value.products?.length || 0;
                 for (let i = 1; i < total; i++) {
                     form.setValue(`products.${i}.department` as any, first.department || '');
-                    form.setValue(`products.${i}.createGroupHead` as any, first.createGroupHead || '');
+                    form.setValue(`products.${i}.departmentHead` as any, first.departmentHead || '');
                     form.setValue(`products.${i}.areaOfUse` as any, first.areaOfUse || '');
                 }
             }
@@ -193,16 +193,59 @@ export default () => {
 
     // Auto-fill UOM when productName changes
     useEffect(() => {
-        const subscription = form.watch((value, { name }) => {
+        const subscription = form.watch(async (value, { name }) => {
+            // Trigger check if productName changes OR if indentType changes to 'Loan Out'
+            const isLoanTypeChange = name === 'indentType' && value.indentType === 'Loan Out';
+            const isProductChange = name?.endsWith('.productName');
+
+            if (value.indentType === 'Loan Out' && (isProductChange || isLoanTypeChange)) {
+                const checkProduct = async (pn: string) => {
+                    if (!pn || !(user as any)?.id) return;
+                    try {
+                        const url = `${import.meta.env.VITE_API_BASE_URL}/loans/check-eligibility?userId=${(user as any).id}&productName=${encodeURIComponent(pn)}`;
+                        const stored = localStorage.getItem('auth');
+                        const token = stored ? JSON.parse(stored).token : '';
+                        
+                        const response = await fetch(url, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        const data = await response.json();
+                        
+                        if (data && data.eligible === false) {
+                            toast.warning(data.message, { 
+                                duration: 15000,
+                                action: {
+                                    label: 'Deduct from Pay',
+                                    onClick: () => console.log('User acknowledged deduction')
+                                }
+                            });
+                        }
+                    } catch (err) {
+                        console.error('Error checking loan eligibility:', err);
+                    }
+                };
+
+                if (isProductChange) {
+                    const parts = name.split('.');
+                    const index = parseInt(parts[1]);
+                    const pn = value.products?.[index]?.productName;
+                    if (pn) await checkProduct(pn);
+                } else if (isLoanTypeChange) {
+                    // Check all products
+                    for (const p of (value.products || [])) {
+                        if (p.productName) await checkProduct(p.productName);
+                    }
+                }
+            }
+
             if (name?.endsWith('.productName')) {
                 const parts = name.split('.');
                 const index = parseInt(parts[1]);
                 if (!isNaN(index)) {
-                    const product = value.products?.[index];
-                    const gh = product?.createGroupHead;
-                    const pn = product?.productName;
-                    if (gh && pn && master?.uomLookup) {
-                        const uom = master.uomLookup[gh]?.[pn];
+                    const dh = products[index]?.departmentHead;
+                    const pn = products[index]?.productName;
+                    if (dh && pn && master?.uomLookup) {
+                        const uom = master.uomLookup[dh]?.[pn];
                         if (uom) {
                             form.setValue(`products.${index}.uom` as any, uom);
                         }
@@ -211,7 +254,7 @@ export default () => {
             }
         });
         return () => subscription.unsubscribe();
-    }, [form, master]);
+    }, [form, master, user]);
 
     const getNextIndentNumber = async () => {
         try {
@@ -245,16 +288,21 @@ export default () => {
             const shortProducts = data.products
                 .filter(p => p.productName)
                 .filter(p => {
-                    const stock = getStock(p.productName, p.createGroupHead);
+                    const stock = getStock(p.productName, p.departmentHead);
                     return stock < Number(p.quantity || 0);
                 });
 
             if (shortProducts.length > 0) {
                 const messages = shortProducts.map(p => {
-                    const stock = getStock(p.productName, p.createGroupHead);
-                    return `${p.productName}: need ${p.quantity}, available ${stock}`;
+                    const stock = getStock(p.productName, p.departmentHead);
+                    return `${p.productName} (Available: ${stock})`;
                 });
-                toast.error(`Insufficient stock for ${data.indentType}, ${messages.join(' | ')}. Please change Indent Type to "Purchase" instead of "${data.indentType}".`);
+                
+                if (data.indentType === 'Loan Out' || data.indentType === 'Loan Out Return') {
+                    toast.error(`You cannot create a Loan for items that are out of stock: ${messages.join(', ')}.`);
+                } else {
+                    toast.error(`Insufficient stock for ${data.indentType}: ${messages.join(', ')}. Please change Indent Type to "Purchase" instead of "${data.indentType}".`);
+                }
                 return;
             }
         }
@@ -285,7 +333,7 @@ export default () => {
                     indenterName: data.indenterName,
                     department: product.department,
                     areaOfUse: product.areaOfUse,
-                    groupHead: product.createGroupHead,
+                    departmentHead: product.departmentHead,
                     productName: product.productName,
                     productCategory: product.productCategory || null,
                     quantity: product.quantity,
@@ -328,7 +376,7 @@ export default () => {
                         specifications: '',
                         quantity: 1,
                         areaOfUse: '',
-                        createGroupHead: '',
+                        departmentHead: '',
                         department: '',
                     },
                 ],
@@ -452,7 +500,7 @@ export default () => {
                                     const lastProduct = products[products.length - 1] || {};
                                     append({
                                         department: lastProduct.department || '',
-                                        createGroupHead: lastProduct.createGroupHead || '',
+                                        departmentHead: lastProduct.departmentHead || '',
                                         productName: '',
                                         productCategory: lastProduct.productCategory || '',
                                         quantity: 1,
@@ -469,9 +517,9 @@ export default () => {
 
                         {fields.map((field, index) => {
 
-                            const createGroupHead = products[index]?.createGroupHead;
+                            const departmentHead = products[index]?.departmentHead;
 
-                            const productOptions = master?.groupHeadItems?.[createGroupHead] || [];
+                            const productOptions = master?.groupHeadItems?.[departmentHead] || [];
 
                             return (
                                 <div
@@ -506,9 +554,9 @@ export default () => {
                                                             <Select
                                                                 onValueChange={(value) => {
                                                                     field.onChange(value);
-                                                                    const gh = master?.departmentToGroupHead?.[value];
-                                                                    if (gh) {
-                                                                        form.setValue(`products.0.createGroupHead` as any, gh);
+                                                                    const dh = master?.departmentToGroupHead?.[value];
+                                                                    if (dh) {
+                                                                        form.setValue(`products.0.departmentHead` as any, dh);
                                                                     }
                                                                 }}
                                                                 value={field.value}
@@ -546,7 +594,7 @@ export default () => {
                                             />
                                             <FormField
                                                 control={form.control}
-                                                name={`products.${index}.createGroupHead`}
+                                                name={`products.${index}.departmentHead`}
                                                 render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel>
@@ -574,22 +622,22 @@ export default () => {
                                                                         <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                                                                         <input
                                                                             placeholder="Search categories..."
-                                                                            value={searchTermGroupHead}
-                                                                            onChange={(e) => setSearchTermGroupHead(e.target.value)}
+                                                                            value={searchTermDepartmentHead}
+                                                                            onChange={(e) => setSearchTermDepartmentHead(e.target.value)}
                                                                             onKeyDown={(e) => e.stopPropagation()}
                                                                             className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
                                                                         />
                                                                     </div>
                                                                     <div className="max-h-[300px] overflow-y-auto">
-                                                                        {master?.createGroupHeads?.filter((gh: string) => gh.toLowerCase().includes(searchTermGroupHead.toLowerCase())).map((gh: string, i: number) => (
-                                                                            <SelectItem key={i} value={gh}>{gh}</SelectItem>
+                                                                        {master?.createGroupHeads?.filter((dh: string) => dh.toLowerCase().includes(searchTermDepartmentHead.toLowerCase())).map((dh: string, i: number) => (
+                                                                            <SelectItem key={i} value={dh}>{dh}</SelectItem>
                                                                         ))}
                                                                     </div>
                                                                 </SelectContent>
                                                             </Select>
                                                         ) : (
                                                             <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground cursor-not-allowed">
-                                                                {products[0]?.createGroupHead || '—'}
+                                                                {products[0]?.departmentHead || '—'}
                                                             </div>
                                                         )}
                                                     </FormItem>
@@ -656,7 +704,7 @@ export default () => {
                                                 control={form.control}
                                                 name={`products.${index}.productName`}
                                                 render={({ field }) => {
-                                                    const stock = getStock(field.value, createGroupHead);
+                                                    const stock = getStock(field.value, departmentHead);
                                                     return (
                                                         <FormItem>
                                                             <FormLabel>
@@ -669,7 +717,7 @@ export default () => {
                                                                 <Select
                                                                     onValueChange={(value) => {
                                                                         field.onChange(value);
-                                                                        const uom = master?.uomLookup?.[createGroupHead]?.[value];
+                                                                        const uom = master?.uomLookup?.[departmentHead]?.[value];
                                                                         if (uom) {
                                                                             form.setValue(`products.${index}.uom` as any, uom);
                                                                         }
@@ -680,7 +728,7 @@ export default () => {
                                                                         }
                                                                     }}
                                                                     value={field.value}
-                                                                    disabled={!createGroupHead}
+                                                                    disabled={!departmentHead}
                                                                 >
                                                                     <FormControl>
                                                                         <SelectTrigger className="w-full">
@@ -708,7 +756,7 @@ export default () => {
                                                                                     return searchMatch && categoryMatch;
                                                                                 })
                                                                                 .map((dep: string, i: number) => {
-                                                                                    const depStock = getStock(dep, createGroupHead);
+                                                                                    const depStock = getStock(dep, departmentHead);
                                                                                     return (
                                                                                         <SelectItem
                                                                                             key={i}
@@ -734,11 +782,14 @@ export default () => {
                                                                                     {stock}
                                                                                 </span>
                                                                             </p>
-                                                                            {getLastPurchaseInfo(field.value, createGroupHead) && (
-                                                                                <p className="text-[10px] text-yellow-600 font-medium bg-background/80 backdrop-blur-sm rounded-sm px-1">
-                                                                                    Last Purchased: {getLastPurchaseInfo(field.value, createGroupHead)?.qty} {getLastPurchaseInfo(field.value, createGroupHead)?.uom} @ ₹{getLastPurchaseInfo(field.value, createGroupHead)?.rate} on {getLastPurchaseInfo(field.value, createGroupHead)?.date}
-                                                                                </p>
-                                                                            )}
+                                                                            {(() => {
+                                                                                const lp = getLastPurchaseInfo(field.value, departmentHead);
+                                                                                return lp ? (
+                                                                                    <p className="text-[10px] text-yellow-600 font-medium bg-background/80 backdrop-blur-sm rounded-sm px-1">
+                                                                                        Last Purchased: {lp.qty} {lp.uom} @ ₹{lp.rate} on {lp.date}{lp.vendor ? ` from ${lp.vendor}` : ''}
+                                                                                    </p>
+                                                                                ) : null;
+                                                                            })()}
                                                                         </div>
                                                                     </div>
                                                                 )}
@@ -797,7 +848,7 @@ export default () => {
                                                             <Input
                                                                 type="number"
                                                                 {...field}
-                                                                disabled={!createGroupHead}
+                                                                disabled={!departmentHead || indentType === 'Loan Out'}
                                                             />
                                                         </FormControl>
                                                     </FormItem>

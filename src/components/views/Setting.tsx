@@ -1,7 +1,7 @@
 import { Eye, EyeClosed, MoreHorizontal, Pencil, Settings, Trash, UserPlus } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState } from 'react';
-import { fetchSheet, postToSheet } from '@/lib/fetchers';
+import { fetchFirms, fetchSheet, postToSheet } from '@/lib/fetchers';
 import { allPermissionKeys, type UserPermissions } from '@/types/sheets';
 import type { ColumnDef } from '@tanstack/react-table';
 import DataTable from '../element/DataTable';
@@ -41,6 +41,7 @@ interface UsersTableData {
     password: string;
     role: string;
     permissions: string[];
+    firmAccess: string[];
 }
 
 function camelToTitleCase(str: string): string {
@@ -57,6 +58,7 @@ export default () => {
     const [openDialog, setOpenDialog] = useState(false);
     const [selectedUser, setSelectedUser] = useState<UsersTableData | null>(null);
     const [showPassword, setShowPassword] = useState(false);
+    const [firmsList, setFirmsList] = useState<string[]>([]);
 
     useEffect(() => {
         if (!openDialog) {
@@ -68,12 +70,19 @@ export default () => {
         setDataLoading(true);
         fetchSheet('USER').then((res) => {
             setTableData(
-                (res as UserPermissions[]).map((user) => {
+                (res as any[]).map((user) => {
                     const permissionKeys = Object.keys(user).filter(
-                        (key): key is keyof UserPermissions =>
-                            !['username', 'password', 'name', 'rowIndex', 'role'].includes(key) &&
-                            (user as any)[key] === true
+                        (key) => allPermissionKeys.includes(key as any) && (user[key] === true || user[key] === 'TRUE')
                     );
+
+                    let extractedFirmAccess = [];
+                    if (Array.isArray(user.firmAccess)) extractedFirmAccess = user.firmAccess;
+                    else if (typeof user.firmAccess === 'string') {
+                        try { extractedFirmAccess = JSON.parse(user.firmAccess); } catch (e) {}
+                    } else if (Array.isArray(user.firms)) extractedFirmAccess = user.firms;
+                    else if (typeof user.firms === 'string') {
+                        try { extractedFirmAccess = JSON.parse(user.firms); } catch (e) {}
+                    }
 
                     return {
                         id: user.id,
@@ -82,6 +91,7 @@ export default () => {
                         password: user.password,
                         role: user.role || 'USER',
                         permissions: permissionKeys,
+                        firmAccess: extractedFirmAccess,
                     };
                 })
             );
@@ -91,6 +101,7 @@ export default () => {
 
     useEffect(() => {
         fetchUser();
+        fetchFirms().then(res => setFirmsList(res.map(f => f.firm_name)));
     }, []);
 
     const columns: ColumnDef<UsersTableData>[] = [
@@ -109,26 +120,21 @@ export default () => {
             accessorKey: 'permissions',
             header: 'Permissions',
             cell: ({ row }) => {
-                const permissions = row.original.permissions;
+                const user = row.original;
                 return (
                     <div className="grid place-items-center">
-                        <div className="flex flex-wrap gap-1">
-                            {permissions.slice(0, 2).map((perm, i) => (
-                                <Pill key={i}>{camelToTitleCase(perm)}</Pill>
-                            ))}
-                            {permissions.length > 2 && (
-                                <HoverCard>
-                                    <HoverCardTrigger>
-                                        <Pill>...</Pill>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent className="min-w-4 max-w-100 flex flex-wrap gap-1 bg-background">
-                                        {permissions.map((perm, i) => (
-                                            <Pill key={i}>{camelToTitleCase(perm)}</Pill>
-                                        ))}
-                                    </HoverCardContent>
-                                </HoverCard>
-                            )}
-                        </div>
+                        <Button 
+                            variant="secondary" 
+                            size="sm" 
+                            className="h-7 text-xs"
+                            onClick={() => {
+                                setSelectedUser(user);
+                                setOpenDialog(true);
+                            }}
+                        >
+                            <Eye className="w-3 h-3 mr-1.5" />
+                            View Permissions
+                        </Button>
                     </div>
                 );
             },
@@ -187,6 +193,7 @@ export default () => {
         password: z.string().nonempty(),
         role: z.string().default('USER'),
         permissions: z.array(z.string()),
+        firmAccess: z.array(z.string()).default([]),
     });
 
     const form = useForm({ resolver: zodResolver(schema) });
@@ -199,6 +206,7 @@ export default () => {
                 password: selectedUser.password,
                 role: selectedUser.role || 'USER',
                 permissions: selectedUser.permissions,
+                firmAccess: selectedUser.firmAccess || [],
             });
             return;
         }
@@ -208,6 +216,7 @@ export default () => {
             password: '',
             role: 'USER',
             permissions: [],
+            firmAccess: [],
         });
     }, [selectedUser]);
 
@@ -221,19 +230,22 @@ export default () => {
         }
         if (selectedUser) {
             try {
-                const row: Partial<UserPermissions> = {
+                const pageAccess: any = {};
+                allPermissionKeys.forEach((perm) => {
+                    pageAccess[perm] = value.permissions.includes(perm);
+                });
+
+                const payload = {
                     id: selectedUser.id,
                     username: value.username,
                     name: value.name,
                     password: value.password,
                     role: value.role,
+                    pageAccess,
+                    firmAccess: value.firmAccess,
                 };
 
-                allPermissionKeys.forEach((perm) => {
-                    (row as any)[perm] = value.permissions.includes(perm);
-                });
-
-                await postToSheet([row], 'update', 'USER');
+                await postToSheet([payload as any], 'update', 'USER');
                 setOpenDialog(false);
                 setTimeout(fetchUser, 1000);
                 toast.success('Updated user settings');
@@ -243,18 +255,21 @@ export default () => {
             return;
         }
         try {
-            const row: Partial<UserPermissions> = {
+            const pageAccess: any = {};
+            allPermissionKeys.forEach((perm) => {
+                pageAccess[perm] = value.permissions.includes(perm);
+            });
+
+            const payload = {
                 username: value.username,
                 name: value.name,
                 password: value.password,
                 role: value.role,
+                pageAccess,
+                firmAccess: value.firmAccess,
             };
 
-            allPermissionKeys.forEach((perm) => {
-                (row as any)[perm] = value.permissions.includes(perm);
-            });
-
-            await postToSheet([row], 'insert', 'USER');
+            await postToSheet([payload as any], 'insert', 'USER');
             setOpenDialog(false);
             setTimeout(fetchUser, 1000);
             toast.success('Created user successfully');
@@ -393,7 +408,25 @@ export default () => {
                                 name="permissions"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-md">Permissions</FormLabel>
+                                        <div className="flex justify-between items-end">
+                                            <FormLabel className="text-md">Permissions</FormLabel>
+                                            <div className="flex items-center gap-2 pb-1">
+                                                <Checkbox
+                                                    id="select-all"
+                                                    checked={field.value?.length === allPermissionKeys.length}
+                                                    onCheckedChange={(checked) => {
+                                                        if (checked) {
+                                                            field.onChange([...allPermissionKeys]);
+                                                        } else {
+                                                            field.onChange([]);
+                                                        }
+                                                    }}
+                                                />
+                                                <label htmlFor="select-all" className="text-sm font-bold cursor-pointer">
+                                                    Select All
+                                                </label>
+                                            </div>
+                                        </div>
                                         <div className="grid md:grid-cols-3 gap-4 p-4 border rounded-sm max-h-[300px] overflow-y-auto">
                                             {allPermissionKeys.map((perm) => (
                                                 <FormField
@@ -439,7 +472,58 @@ export default () => {
                                     </FormItem>
                                 )}
                             />
-                            <DialogFooter>
+
+                        <FormField
+                            control={form.control}
+                            name="firmAccess"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <div className="flex justify-between items-end">
+                                        <FormLabel className="text-md">Firms Access</FormLabel>
+                                        <div className="flex items-center gap-2 pb-1">
+                                            <Checkbox
+                                                id="select-all-firms"
+                                                checked={field.value?.length === firmsList.length && firmsList.length > 0}
+                                                onCheckedChange={(checked) => {
+                                                    if (checked) {
+                                                        field.onChange([...firmsList]);
+                                                    } else {
+                                                        field.onChange([]);
+                                                    }
+                                                }}
+                                            />
+                                            <label htmlFor="select-all-firms" className="text-sm font-bold cursor-pointer">
+                                                Select All
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div className="grid md:grid-cols-3 gap-4 p-4 border rounded-sm max-h-[200px] overflow-y-auto">
+                                        {firmsList.map((firm) => (
+                                            <FormItem key={firm} className="flex gap-2">
+                                                <FormControl>
+                                                    <Checkbox
+                                                        id={`firm-${firm}`}
+                                                        checked={field.value?.includes(firm)}
+                                                        onCheckedChange={(checked) => {
+                                                            const values = field.value || [];
+                                                            checked
+                                                                ? field.onChange([...values, firm])
+                                                                : field.onChange(values.filter((f: string) => f !== firm));
+                                                        }}
+                                                    />
+                                                </FormControl>
+                                                <FormLabel
+                                                    className="font-light cursor-pointer"
+                                                    htmlFor={`firm-${firm}`}
+                                                >
+                                                    {firm}
+                                                </FormLabel>
+                                            </FormItem>
+                                        ))}
+                                    </div>
+                                </FormItem>
+                            )}
+                        />    <DialogFooter>
                                 <DialogClose asChild>
                                     <Button variant="outline">Close</Button>
                                 </DialogClose>

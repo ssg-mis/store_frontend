@@ -20,42 +20,61 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        setLoading(true);
-        const stored = localStorage.getItem('auth');
-        if (stored) {
-            try {
-                const { user, token } = JSON.parse(stored);
-                
-                // Check token expiration
-                const isExpired = (t: string) => {
-                    try {
-                        const payload = JSON.parse(atob(t.split('.')[1]));
-                        return payload.exp * 1000 < Date.now();
-                    } catch {
-                        return true;
-                    }
-                };
-
-                if (user && token && !isExpired(token)) {
-                    const permissions = user.permissions || {};
-                    const camelPermissions = toCamelCase(permissions);
-                    const flattenedUser = { 
-                        ...user, 
-                        ...permissions, 
-                        ...camelPermissions 
+        const restoreSession = async () => {
+            setLoading(true);
+            const stored = localStorage.getItem('auth');
+            if (stored) {
+                try {
+                    const { token } = JSON.parse(stored);
+                    
+                    const isExpired = (t: string) => {
+                        try {
+                            const payload = JSON.parse(atob(t.split('.')[1]));
+                            return payload.exp * 1000 < Date.now();
+                        } catch { return true; }
                     };
-                    setUserPermissions(flattenedUser);
-                    setLoggedIn(true);
-                } else if (isExpired(token)) {
-                    console.warn('Session expired, logging out.');
+
+                    if (token && !isExpired(token)) {
+                        // Fetch latest data from server to ensure "Real-time" permissions
+                        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+                        const response = await fetch(`${API_BASE_URL}/me`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+
+                        if (response.ok) {
+                            const latestUser = await response.json();
+                            const pageAccess = latestUser.pageAccess || {};
+                            const camelPermissions = toCamelCase(pageAccess);
+                            
+                            const userData = {
+                                ...toCamelCase(latestUser),
+                                ...pageAccess,
+                                ...camelPermissions,
+                                firmAccess: latestUser.firmAccess || [],
+                                row_index: latestUser.id
+                            } as UserPermissions;
+
+                            localStorage.setItem('auth', JSON.stringify({ user: userData, token }));
+                            setUserPermissions(userData);
+                            setLoggedIn(true);
+                        } else {
+                            // Token invalid or user deleted
+                            localStorage.removeItem('auth');
+                            setLoggedIn(false);
+                        }
+                    } else if (isExpired(token)) {
+                        localStorage.removeItem('auth');
+                        setLoggedIn(false);
+                    }
+                } catch (error) {
+                    console.error('Session Restoration Error:', error);
                     localStorage.removeItem('auth');
                 }
-            } catch (error) {
-                console.error('Session Restoration Error:', error);
-                localStorage.removeItem('auth');
             }
-        }
-        setLoading(false);
+            setLoading(false);
+        };
+
+        restoreSession();
     }, []);
 
     async function login(username: string, password: string) {
@@ -73,13 +92,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
             if (data.success) {
                 // Manually flatten and ensure both cases are supported for the Sidebar mapping
-                const permissions = data.user.permissions || {};
-                const camelPermissions = toCamelCase(permissions);
+                const pageAccess = data.user.pageAccess || {};
+                const camelPermissions = toCamelCase(pageAccess);
                 
                 const userData = {
                     ...toCamelCase(data.user),
-                    ...permissions, // keeping snake_case as fallback
+                    ...pageAccess, // keeping snake_case as fallback
                     ...camelPermissions, // ensuring camelCase for Sidebar
+                    firmAccess: data.user.firmAccess || [],
                     row_index: data.user.id
                 } as UserPermissions;
 

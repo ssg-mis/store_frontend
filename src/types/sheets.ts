@@ -1,4 +1,4 @@
-export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT' | 'GET_PURCHASE' | 'GET PURCHASE';
+export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT' | 'GET_PURCHASE' | 'GET PURCHASE' | 'LOAN';
 
 export type IndentSheet = {
     id: number;
@@ -8,7 +8,7 @@ export type IndentSheet = {
     firm: string;
     department: string;
     areaOfUse: string;
-    groupHead: string;
+    departmentHead: string;
     productName: string;
     quantity: number;
     uom: string;
@@ -116,15 +116,15 @@ export type ReceivedSheet = {
 export type InventorySheet = {
     inventoryId: number | null;
     itemName: string;
-    groupHead: string;
+    departmentHead: string;
+    department?: string;
     uom: string;
-    maxLevel: number;
-    opening: number;
     individualRate: number;
     indented: number;
     approved: number;
     purchaseQuantity: number;
     storeOut: number;
+    loanOut: number;
     current: number;
     totalPrice: number;
     colorCode: string;
@@ -182,7 +182,7 @@ export type MasterDataRow = {
     vendorEmail?: string | null;
     paymentTerm?: string | null;
     department?: string | null;
-    groupHead?: string | null;
+    departmentHead?: string | null;
     itemName?: string | null;
     uom?: string | null;
     firmName?: string | null;
@@ -194,7 +194,7 @@ export type MasterDataRow = {
     vendor_address?: string | null;
     vendor_email?: string | null;
     payment_term?: string | null;
-    group_head?: string | null;
+    department_head?: string | null;
     firm_name?: string | null;
     uom_name?: string | null;
     contact_person?: string | null;
@@ -211,7 +211,7 @@ export type MasterConfigSheet = {
     vendors: Vendor[];
     paymentTerms: string[];
     departments: string[];
-    groupHeads: Record<string, string[]>; // category: items[]
+    groupHeads: Record<string, string[]>; // category -> items[] (legacy key, kept for compatibility)
     companyName: string;
     companyAddress: string;
     companyGstin: string;
@@ -220,6 +220,15 @@ export type MasterConfigSheet = {
     companyPan: string;
     destinationAddress: string;
     defaultTerms: string[];
+
+    // Department / Department Head driven fields
+    createGroupHeads?: string[];                         // List of department head names (from DepartmentHead table)
+    groupHeadItems?: Record<string, string[]>;           // departmentHead -> itemNames[]
+    uomLookup?: Record<string, Record<string, string>>; // departmentHead -> itemName -> uom
+    firms?: string[];
+    departmentToGroupHead?: Record<string, string>;      // department -> departmentHead
+    groupHeadToDepartment?: Record<string, string>;      // departmentHead -> department
+    itemToCategory?: Record<string, string>;             // itemName -> categoryName
 };
 
 export type UserPermissions = {
@@ -253,6 +262,7 @@ export type UserPermissions = {
     dashboard: boolean;
     inventory: boolean;
     setting: boolean;
+    firmAccess?: string[];
 };
 
 export const allPermissionKeys = [

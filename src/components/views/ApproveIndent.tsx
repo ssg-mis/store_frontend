@@ -35,7 +35,7 @@ interface ApproveTableData {
     indenter: string;
     department: string;
     areaOfUse: string;
-    groupHead: string;
+    departmentHead: string;
     indentApprovedBy: string;
     product: string;
     productCode: string | null;
@@ -138,7 +138,7 @@ export default () => {
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     areaOfUse: record.areaOfUse || '',
-                    groupHead: record.groupHead || '',
+                    departmentHead: record.departmentHead || '',
                     indentApprovedBy: record.indentApprovedBy || '',
                     product: record.productName || '',
                     productCode: record.productCode || null,
@@ -270,7 +270,7 @@ export default () => {
                     const newUpdates = new Map(prevUpdates);
                     indentItems.forEach(item => {
                         newUpdates.set(item.id, {
-                            vendorType: 'Select',
+                            vendorType: item.indentType === 'Purchase' ? 'Select' : 'N/A',
                             quantity: item.quantity,
                             product: item.product,
                             plannedDate: new Date().toISOString().split('T')[0],
@@ -298,7 +298,7 @@ export default () => {
             const newUpdates = new Map<number, any>();
             pendingItems.forEach(item => {
                 newUpdates.set(item.id, {
-                    vendorType: 'Select',
+                    vendorType: item.indentType === 'Purchase' ? 'Select' : 'N/A',
                     quantity: item.quantity,
                     product: item.product,
                     plannedDate: new Date().toISOString().split('T')[0],
@@ -334,13 +334,13 @@ export default () => {
             .filter(item => selectedIndents.has(item.indentNo))
             .map(item => item.id);
 
-        // Validation: every product must have Regular or Three Party
+        // Validation: Purchase indents must have Regular or Three Party vendor type
         const invalidIndentNos: string[] = [];
         selectedProductIds.forEach(id => {
             const vendorType = bulkUpdates.get(id)?.vendorType;
             if (vendorType !== 'Regular' && vendorType !== 'Three Party') {
                 const item = pendingItems.find(i => i.id === id);
-                if (item && !invalidIndentNos.includes(item.indentNo)) {
+                if (item && item.indentType === 'Purchase' && !invalidIndentNos.includes(item.indentNo)) {
                     invalidIndentNos.push(item.indentNo);
                 }
             }
@@ -490,7 +490,7 @@ export default () => {
                 indenter: first.indenter,
                 department: first.department,
                 areaOfUse: first.areaOfUse,
-                groupHead: first.groupHead,
+                departmentHead: first.departmentHead,
                 indentApprovedBy: first.indentApprovedBy,
                 date: first.date,
                 validityDate: first.validityDate,
@@ -751,7 +751,7 @@ export default () => {
                                             { label: 'Indenter',         value: group.indenter },
                                             { label: 'Department',       value: group.department },
                                             { label: 'Area of Use',      value: group.areaOfUse },
-                                            { label: 'Group Head',       value: group.groupHead },
+                                            { label: 'Department Head',       value: group.departmentHead },
                                             { label: 'Approved By',      value: group.indentApprovedBy },
                                             { label: 'Created Date',     value: group.date },
                                             { label: 'Validity Date',    value: group.validityDate },
@@ -777,7 +777,7 @@ export default () => {
                                                     <TableHead className="text-xs">UOM</TableHead>
                                                     <TableHead className="text-xs">Specifications</TableHead>
                                                     <TableHead className="text-xs">Attachment</TableHead>
-                                                    <TableHead className="text-xs">Vendor Type</TableHead>
+                                                    {group.indentType === 'Purchase' && <TableHead className="text-xs">Vendor Type</TableHead>}
                                                     <TableHead className="text-xs">Firm</TableHead>
                                                 </TableRow>
                                             </TableHeader>
@@ -815,21 +815,23 @@ export default () => {
                                                                     : <span className="text-muted-foreground">—</span>
                                                                 }
                                                             </TableCell>
-                                                            <TableCell>
-                                                                <Select
-                                                                    value={currentVendorType}
-                                                                    onValueChange={(val) => handleBulkUpdate(item.id, 'vendorType', val)}
-                                                                >
-                                                                    <SelectTrigger className="w-32 h-8 text-xs">
-                                                                        <SelectValue placeholder="Select" />
-                                                                    </SelectTrigger>
-                                                                    <SelectContent>
-                                                                        <SelectItem value="Select">Select</SelectItem>
-                                                                        <SelectItem value="Regular">Regular</SelectItem>
-                                                                        <SelectItem value="Three Party">Three Party</SelectItem>
-                                                                    </SelectContent>
-                                                                </Select>
-                                                            </TableCell>
+                                                            {group.indentType === 'Purchase' && (
+                                                                <TableCell>
+                                                                    <Select
+                                                                        value={currentVendorType}
+                                                                        onValueChange={(val) => handleBulkUpdate(item.id, 'vendorType', val)}
+                                                                    >
+                                                                        <SelectTrigger className="w-32 h-8 text-xs">
+                                                                            <SelectValue placeholder="Select" />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="Select">Select</SelectItem>
+                                                                            <SelectItem value="Regular">Regular</SelectItem>
+                                                                            <SelectItem value="Three Party">Three Party</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                </TableCell>
+                                                            )}
                                                             <TableCell>
                                                                 <Select
                                                                     value={bulkUpdates.get(item.id)?.firm || item.firm || 'N/A'}
