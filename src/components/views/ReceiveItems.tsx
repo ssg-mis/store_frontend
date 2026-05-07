@@ -51,6 +51,7 @@ interface RecieveItemsData {
     quotationDate?: string;
     transportType?: string;
     approvedActualTime?: number | null;
+    leadTime?: string | null;
 }
 
 interface HistoryData {
@@ -147,7 +148,7 @@ const ReceiveItems = () => {
                     const po = indent.poMasters?.[0] || {};
                     const poQty = Number(po.quantity) || 0;
                     const receivedRecords = indent.received || [];
-                    const totalReceived = receivedRecords.reduce((sum: number, r: any) => sum + Number(r.receivedQuantity || 0) + Number(r.damagedQuantity || 0), 0);
+                    const totalReceived = receivedRecords.reduce((sum: number, r: any) => sum + Number(r.receivedQuantity || 0) + Number(r.damagedQuantity || 0) + Number(r.purchaseReturn || 0), 0);
                     const remainingQty = poQty - totalReceived;
 
                     return {
@@ -169,10 +170,12 @@ const ReceiveItems = () => {
                         quotationDate: po.quotationDate || '',
                         transportType: po.transportationType || 'N/A',
                         approvedActualTime: indent.approvedActualTime ?? null,
+                        leadTime: po.leadTime || po.lead_time || null,
                     };
                 });
 
-                setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
+                const filteredData = mappedData.filter(item => item.remainingQty > 0);
+                setTableData(prev => append ? [...prev, ...filteredData] : filteredData);
                 setPendingTotal(indentData.total);
             }
         } catch (error: any) {
@@ -453,18 +456,24 @@ const ReceiveItems = () => {
             if (row.indentId !== indentId) return row;
             const updated = { ...row, [field]: value };
 
-            // Auto-calculate receive qty when purchase return or damaged changes
-            if (field === 'purchaseReturn' || field === 'damagedQuantity') {
-                const pendingQty = matchingIndents.find(i => i.id === indentId)?.remainingQty || 0;
-                updated.quantity = Math.max(0, pendingQty - updated.purchaseReturn - updated.damagedQuantity);
+            const pendingQty = matchingIndents.find(i => i.id === indentId)?.remainingQty || 0;
+
+            // When purchaseReturn changes, auto-adjust quantity so total stays within pendingQty
+            if (field === 'purchaseReturn') {
+                updated.quantity = Math.max(0, pendingQty - updated.purchaseReturn);
             }
 
-            const totalDeducted = updated.purchaseReturn + updated.damagedQuantity;
-            const pendingQty = matchingIndents.find(i => i.id === indentId)?.remainingQty || 0;
-            if (totalDeducted > pendingQty) {
-                updated.error = 'Purchase return + damaged cannot exceed pending qty';
+            // Cap receive qty: quantity + purchaseReturn must not exceed pending
+            if (updated.quantity + updated.purchaseReturn > pendingQty) {
+                updated.quantity = Math.max(0, pendingQty - updated.purchaseReturn);
+            }
+
+            if (updated.purchaseReturn > pendingQty) {
+                updated.error = `Purchase return (${updated.purchaseReturn}) cannot exceed pending qty (${pendingQty})`;
+            } else if (updated.quantity + updated.purchaseReturn > pendingQty) {
+                updated.error = `Received (${updated.quantity}) + returned (${updated.purchaseReturn}) cannot exceed pending qty (${pendingQty})`;
             } else if (updated.damagedQuantity > updated.quantity) {
-                updated.error = 'Damaged qty cannot exceed received qty';
+                updated.error = `Damaged qty (${updated.damagedQuantity}) cannot exceed received qty (${updated.quantity})`;
             } else {
                 updated.error = undefined;
             }
@@ -500,7 +509,12 @@ const ReceiveItems = () => {
             );
             
             setMatchingIndents(matching);
-            
+
+            // Pre-fill lead time from saved PO value
+            if (selectedIndent.leadTime) {
+                form.setValue('leadTime', selectedIndent.leadTime);
+            }
+
             // Only set itemRows if they are empty or for a different PO to avoid resets while typing
             setItemRows(prev => {
                 const firstRow = prev[0];
@@ -772,24 +786,33 @@ const ReceiveItems = () => {
                             >
                                 <DialogHeader className="space-y-1">
                                     <DialogTitle>Receive & Bill Items</DialogTitle>
-                                    <DialogDescription>
-                                        Process receiving and billing for PO Number{' '}
-                                        <span className="font-medium text-primary">
-                                            {selectedIndent.poNumber}
-                                        </span>
-                                    </DialogDescription>
+                                    <div className="flex items-center">
+                                        <DialogDescription>
+                                            Process receiving and billing for PO Number{' '}
+                                            <span className="font-medium text-primary">
+                                                {selectedIndent.poNumber}
+                                            </span>
+                                        </DialogDescription>
+                                        {selectedIndent.poCopy && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="ml-8 h-7 shrink-0 text-[11px] font-bold flex items-center gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 shadow-sm"
+                                                onClick={() => window.open(selectedIndent.poCopy, '_blank')}
+                                            >
+                                                <DownloadOutlined style={{ fontSize: '11px' }} /> View PO Copy
+                                            </Button>
+                                        )}
+                                    </div>
                                 </DialogHeader>
 
-                                {/* PO Info Summary (Simplified as requested) */}
+                                {/* PO Info Summary */}
                                 <div className="bg-[#f0f7ff]/50 border border-blue-100/50 p-6 rounded-xl shadow-sm">
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-4 items-center">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-4">
                                         <div className="space-y-1">
                                             <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">Vendor</p>
                                             <p className="text-sm font-bold text-slate-800 truncate" title={selectedIndent.vendor}>{selectedIndent.vendor}</p>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">PO Number</p>
-                                            <p className="text-sm font-bold text-slate-800">{selectedIndent.poNumber}</p>
                                         </div>
                                         <div className="space-y-1">
                                             <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">Firm</p>
@@ -801,93 +824,85 @@ const ReceiveItems = () => {
                                                 <p className="text-sm font-bold text-slate-800">{selectedIndent.approvedActualTime} days</p>
                                             </div>
                                         )}
-                                        <div className="space-y-1 flex flex-col items-start md:items-end">
-                                            <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider mb-1">Documents</p>
-                                            {selectedIndent.poCopy ? (
-                                                <Button 
-                                                    type="button"
-                                                    variant="outline" 
-                                                    size="sm" 
-                                                    className="h-8 text-[11px] font-bold flex items-center gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 shadow-sm transition-all hover:scale-105 active:scale-95"
-                                                    onClick={() => window.open(selectedIndent.poCopy, '_blank')}
-                                                >
-                                                    <DownloadOutlined style={{ fontSize: '12px' }} /> View PO Copy
-                                                </Button>
-                                            ) : (
-                                                <span className="text-[10px] text-muted-foreground italic">No Attachment</span>
-                                            )}
-                                        </div>
+                                        {selectedIndent.leadTime && (
+                                            <div className="space-y-1">
+                                                <p className="text-muted-foreground/70 text-[10px] font-bold uppercase tracking-wider">Lead Time To Receive</p>
+                                                <p className="text-sm font-bold text-slate-800">{selectedIndent.leadTime}</p>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
                                 {/* Item Receiving Table */}
                                 <div className="border rounded-lg overflow-hidden shadow-sm">
-                                    <div className="bg-muted px-4 py-2 border-b">
+                                    <div className="bg-muted px-4 py-2 border-b flex items-center justify-between">
                                         <h3 className="text-sm font-semibold flex items-center gap-2">
                                             <Truck size={16} /> Items to Receive
                                         </h3>
+                                        <span className="text-xs text-muted-foreground">
+                                            Indent: <span className="font-mono font-semibold text-primary">{matchingIndents[0]?.indentNumber}</span>
+                                        </span>
                                     </div>
-                                    
+
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm">
                                             <thead className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider">
                                                 <tr>
-                                                    <th className="px-4 py-2 text-left">Indent No.</th>
                                                     <th className="px-4 py-2 text-left">Product Code</th>
                                                     <th className="px-4 py-2 text-left">Item Name</th>
                                                     <th className="px-4 py-2 text-center">UOM</th>
                                                     <th className="px-4 py-2 text-center">Pending</th>
-                                                    <th className="px-4 py-2 text-right w-[120px]">Receive Qty</th>
-                                                    <th className="px-4 py-2 text-right w-[130px]">Purchase Return</th>
-                                                    <th className="px-4 py-2 text-right w-[120px]">Damaged Qty</th>
-                                                    <th className="px-4 py-2 text-right w-[100px]">Okay Qty</th>
+                                                    <th className="px-4 py-2 text-center w-[110px]">Receive Qty</th>
+                                                    <th className="px-4 py-2 text-center w-[120px]">Purchase Return</th>
+                                                    <th className="px-4 py-2 text-center w-[110px]">Damaged Qty</th>
+                                                    <th className="px-4 py-2 text-center w-[90px]">Okay Qty</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
-                                                {matchingIndents.map((indent, index) => {
+                                                {matchingIndents.map((indent) => {
                                                     const row = itemRows.find(r => r.indentId === indent.id) || { quantity: 0, purchaseReturn: 0, damagedQuantity: 0, error: undefined as string | undefined };
                                                     return (
                                                         <tr key={indent.id} className="hover:bg-muted/30 transition-colors">
-
-                                                            <td className="px-4 py-3 font-mono text-xs">{indent.indentNumber}</td>
                                                             <td className="px-4 py-3 text-xs text-muted-foreground">{indent.productCode || '-'}</td>
-                                                            <td className="px-4 py-3 max-w-[200px] truncate">{indent.product}</td>
+                                                            <td className="px-4 py-3 max-w-[180px] truncate">{indent.product}</td>
                                                             <td className="px-4 py-3 text-center text-xs">{indent.uom}</td>
                                                             <td className="px-4 py-3 text-center font-medium text-blue-600">{indent.remainingQty}</td>
-                                                            <td className="px-4 py-3 text-right">
+                                                            <td className="px-3 py-3">
                                                                 <Input
                                                                     type="number"
-                                                                    className="h-8 text-right font-semibold"
+                                                                    className="h-8 w-full text-center font-semibold"
                                                                     max={indent.remainingQty}
                                                                     min={0}
                                                                     value={row.quantity}
-                                                                    onFocus={e => e.target.select()}
+
+
                                                                     onChange={e => updateItemRow(indent.id, 'quantity', Number(e.target.value) || 0)}
                                                                 />
                                                             </td>
-                                                            <td className="px-4 py-3 text-right">
+                                                            <td className="px-3 py-3">
                                                                 <Input
                                                                     type="number"
-                                                                    className="h-8 text-right text-orange-700"
+                                                                    className="h-8 w-full text-center text-orange-700"
                                                                     min={0}
                                                                     value={row.purchaseReturn}
-                                                                    onFocus={e => e.target.select()}
+
+
                                                                     onChange={e => updateItemRow(indent.id, 'purchaseReturn', Number(e.target.value) || 0)}
                                                                 />
                                                             </td>
-                                                            <td className="px-4 py-3 text-right">
+                                                            <td className="px-3 py-3">
                                                                 <Input
                                                                     type="number"
-                                                                    className={`h-8 text-right ${row.error ? 'border-red-500' : ''}`}
+                                                                    className={`h-8 w-full text-center ${row.error ? 'border-red-500' : ''}`}
                                                                     min={0}
                                                                     value={row.damagedQuantity}
-                                                                    onFocus={e => e.target.select()}
-                                                                    onChange={e => updateItemRow(indent.id, 'damagedQuantity', Number(e.target.value) || 0)}
 
+
+                                                                    onChange={e => updateItemRow(indent.id, 'damagedQuantity', Number(e.target.value) || 0)}
                                                                 />
-                                                                {row.error && <p className="text-xs text-red-500 text-right mt-0.5">{row.error}</p>}
+                                                                {row.error && <p className="text-[10px] text-red-500 text-center mt-0.5 leading-tight">{row.error}</p>}
                                                             </td>
-                                                            <td className="px-4 py-3 text-right font-semibold text-green-700">
+                                                            <td className="px-4 py-3 text-center font-semibold text-green-700">
                                                                 {Math.max(0, row.quantity - row.damagedQuantity)}
                                                             </td>
                                                         </tr>
@@ -1214,11 +1229,12 @@ const ReceiveItems = () => {
                                         return sortedItems.map((item, i) => {
                                             const code = item.productCode || item.product || 'unknown';
                                             
-                                            // Backend receives goodQuantity as receivedQuantity.
+                                            // receivedQuantity stored in DB = okay qty (good only)
                                             const okayQty = item.receivedQuantity;
                                             const grossReceived = item.receivedQuantity + item.damagedQuantity;
-                                            
-                                            runningTotals[code] = (runningTotals[code] || 0) + okayQty;
+
+                                            // Remaining = PO Qty − (gross received + purchase return), matching pending view formula
+                                            runningTotals[code] = (runningTotals[code] || 0) + grossReceived + (item.purchaseReturn || 0);
                                             
                                             const remainingQty = Math.max(0, item.orderQuantity - runningTotals[code]);
                                             

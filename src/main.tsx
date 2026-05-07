@@ -175,15 +175,7 @@ const routes: RouteAttributes[] = [
         name: 'Approve Indent',
         icon: <ClipboardCheck size={20} />,
         element: <ApproveIndent />,
-        notifications: (data) => {
-            const pendingIndents = new Set();
-            data.indents.forEach((sheet) => {
-                if (sheet.indentType === 'Purchase' && sheet.status === 'Pending') {
-                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
-                }
-            });
-            return pendingIndents.size;
-        },
+        notifications: () => 0,
     },
     {
         path: 'vendor-rate-update',
@@ -191,15 +183,7 @@ const routes: RouteAttributes[] = [
         name: 'Vendor Rate Update',
         icon: <UserCheck size={20} />,
         element: <VendorRateUpdate />,
-        notifications: (data) => {
-            const pendingIndents = new Set();
-            data.approvedIndents.forEach((sheet) => {
-                if (!(sheet.hasRateUpdate || sheet.hasThreeParty)) {
-                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
-                }
-            });
-            return pendingIndents.size;
-        },
+        notifications: () => 0,
     },
     {
         path: 'three-party-approval',
@@ -207,22 +191,7 @@ const routes: RouteAttributes[] = [
         name: 'Three Party Approval',
         icon: <Users size={20} />,
         element: <ThreePartyApproval />,
-        notifications: (data) => {
-            const approvedIds = new Set(data.threePartyApprovals.map((r: any) => String(r.indentId || r.indent_id || '').trim()));
-            
-            const pendingIndents = new Set();
-            data.rateUpdates.forEach((r: any) => {
-                const indentId = String(r.indentId || r.indent_id || '').trim();
-                const indentNum = String(r.indentNumber || r.indent_number || '').trim();
-                const indent = data.indents.find((i: any) => String(i.id) === indentId);
-                
-                // Only count for Purchase indents
-                if (indent?.indentType === 'Purchase' && !approvedIds.has(indentId)) {
-                    pendingIndents.add(indentNum);
-                }
-            });
-            return pendingIndents.size;
-        },
+        notifications: () => 0,
     },
     {
         path: 'pending-pos',
@@ -230,15 +199,7 @@ const routes: RouteAttributes[] = [
         name: 'Pending POs',
         icon: <ListTodo size={20} />,
         element: <PendingPOs />,
-        notifications: (data) => {
-            const pendingIndents = new Set();
-            data.indents.forEach((sheet: any) => {
-                if (sheet.indentType === 'Purchase' && (sheet.planned4 && sheet.planned4 !== '') && (!sheet.actual4 || sheet.actual4 === '')) {
-                    pendingIndents.add(String(sheet.indentNumber || sheet.indent_number || '').trim());
-                }
-            });
-            return pendingIndents.size;
-        },
+        notifications: () => 0,
     },
     {
         path: 'create-po',
@@ -371,6 +332,20 @@ const routes: RouteAttributes[] = [
         notifications: () => 0,
     },
 ];
+
+// Globally disable mouse-wheel scroll changing number input values
+document.addEventListener('wheel', () => {
+    if (document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'number') {
+        document.activeElement.blur();
+    }
+}, { passive: true });
+
+// Globally select-all on focus for number inputs so existing value is replaced on type
+document.addEventListener('focusin', (e) => {
+    if (e.target instanceof HTMLInputElement && e.target.type === 'number') {
+        e.target.select();
+    }
+});
 
 const rootElement = document.getElementById('root')!;
 

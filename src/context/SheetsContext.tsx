@@ -1,4 +1,4 @@
-import { fetchSheet } from '@/lib/fetchers';
+import { fetchSheet, type BadgeCounts } from '@/lib/fetchers';
 import type { IndentSheet, InventorySheet, MasterConfigSheet, PoMasterSheet, ReceivedSheet } from '@/types/sheets';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -14,6 +14,8 @@ interface SheetsState {
     updateThreePartyApprovalSheet: () => void;
     updateApprovedIndentSheet: () => void;
     updateRateUpdateSheet: () => void;
+    updateCounts: () => void;
+    badgeCounts: BadgeCounts;
 
     indentSheet: IndentSheet[];
     poMasterSheet: PoMasterSheet[];
@@ -33,6 +35,107 @@ interface SheetsState {
 
 const SheetsContext = createContext<SheetsState | null>(null);
 
+const EMPTY_BADGE_COUNTS: BadgeCounts = {
+    approveIndent: 0,
+    vendorRateUpdate: 0,
+    threePartyApproval: 0,
+    pendingPOs: 0,
+    receiveItems: 0,
+    storeOut: 0,
+    loanOut: 0,
+};
+
+const normalizeKey = (value: unknown) => String(value ?? '').trim();
+const hasRows = (value: unknown) => Array.isArray(value) && value.length > 0;
+const hasValue = (value: unknown) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string') return value.trim() !== '';
+    return true;
+};
+
+const getIndentKey = (indent: Partial<IndentSheet> & Record<string, any>) =>
+    normalizeKey(indent.indentNumber ?? indent.indent_number ?? indent.indentNo ?? indent.id);
+
+function computeBadgeCounts(indentSheet: IndentSheet[], receivedSheet: ReceivedSheet[], poMasterSheet: PoMasterSheet[]): BadgeCounts {
+    const approveIndent = new Set<string>();
+    const vendorRateUpdate = new Set<string>();
+    const threePartyApproval = new Set<string>();
+    const pendingPOs = new Set<string>();
+    const receiveItems = new Set<string>();
+    const storeOut = new Set<string>();
+    const loanOut = new Set<string>();
+
+    const receivedTotals = new Map<string, number>();
+    receivedSheet.forEach((record: Record<string, any>) => {
+        const key = normalizeKey(record.indentId ?? record.indent_id);
+        if (!key) return;
+        const totalForRecord =
+            (Number(record.receivedQuantity ?? record.received_quantity) || 0) +
+            (Number(record.damagedQuantity ?? record.damaged_quantity) || 0) +
+            (Number(record.purchaseReturn ?? record.purchase_return) || 0);
+        receivedTotals.set(key, (receivedTotals.get(key) || 0) + totalForRecord);
+    });
+
+    const poTotals = new Map<string, number>();
+    poMasterSheet.forEach((record: Record<string, any>) => {
+        const key = normalizeKey(record.indentId ?? record.indent_id);
+        if (!key) return;
+        poTotals.set(key, (poTotals.get(key) || 0) + (Number(record.quantity) || 0));
+    });
+
+    indentSheet.forEach((indent: IndentSheet & Record<string, any>) => {
+        const key = getIndentKey(indent);
+        if (!key) return;
+
+        const isPurchase = indent.indentType === 'Purchase';
+        const isApproved = indent.status === 'Approved' || hasRows(indent.approvedIndents);
+        const actual6 = indent.actual6 ?? indent.actual_6;
+        const planned4 = indent.planned4 ?? indent.planned_4;
+        const actual4 = indent.actual4 ?? indent.actual_4;
+
+        if (isPurchase && !hasRows(indent.approvedIndents)) {
+            approveIndent.add(key);
+        }
+
+        if (isPurchase && hasRows(indent.approvedIndents) && !hasRows(indent.vendorRateUpdates) && !hasRows(indent.threePartyApproval)) {
+            vendorRateUpdate.add(key);
+        }
+
+        if (isPurchase && hasRows(indent.vendorRateUpdates) && !hasRows(indent.threePartyApproval)) {
+            threePartyApproval.add(key);
+        }
+
+        if (isPurchase && hasValue(planned4) && !hasValue(actual4)) {
+            pendingPOs.add(key);
+        }
+
+        const indentIdKey = normalizeKey(indent.id);
+        const poQty = poTotals.get(indentIdKey) || 0;
+        const receivedQty = receivedTotals.get(indentIdKey) || 0;
+        if (isPurchase && poQty > receivedQty) {
+            receiveItems.add(key);
+        }
+
+        if (['Store Out', 'Store Out Return'].includes(indent.indentType) && isApproved && !hasValue(actual6)) {
+            storeOut.add(key);
+        }
+
+        if (['Loan Out', 'Loan Out Return'].includes(indent.indentType) && isApproved && !hasValue(actual6)) {
+            loanOut.add(key);
+        }
+    });
+
+    return {
+        approveIndent: approveIndent.size,
+        vendorRateUpdate: vendorRateUpdate.size,
+        threePartyApproval: threePartyApproval.size,
+        pendingPOs: pendingPOs.size,
+        receiveItems: receiveItems.size,
+        storeOut: storeOut.size,
+        loanOut: loanOut.size,
+    };
+}
+
 export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
     const [indentSheet, setIndentSheet] = useState<IndentSheet[]>([]);
     const [receivedSheet, setReceivedSheet] = useState<ReceivedSheet[]>([]);
@@ -42,6 +145,7 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
     const [rateUpdateSheet, setRateUpdateSheet] = useState<any[]>([]);
     const [threePartyApprovalSheet, setThreePartyApprovalSheet] = useState<any[]>([]);
     const [approvedIndentSheet, setApprovedIndentSheet] = useState<any[]>([]);
+    const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>(EMPTY_BADGE_COUNTS);
 
     const [indentLoading, setIndentLoading] = useState(true);
     const [poMasterLoading, setPoMasterLoading] = useState(true);
@@ -90,6 +194,10 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         fetchSheet('VENDOR_RATE_UPDATE').then((res) => setRateUpdateSheet(res as any[]));
     }
 
+    function updateCounts() {
+        setBadgeCounts(computeBadgeCounts(indentSheet, receivedSheet, poMasterSheet));
+    }
+
     function updateThreePartyApprovalSheet() {
         fetchSheet('THREE_PARTY_APPROVAL').then((res) => setThreePartyApprovalSheet(res as any[]));
     }
@@ -100,12 +208,14 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Refresh all relational badge sheets at once (call after mutations)
     function updateRelatedSheets() {
+        updateIndentSheet();
         updateRateUpdateSheet();
         updateThreePartyApprovalSheet();
         updateApprovedIndentSheet();
         updateReceivedSheet();
         updatePoMasterSheet();
-        updateInventorySheet(true); // Ensure stock counts refresh
+        updateInventorySheet(true);
+        updateCounts();
     }
 
     function updateAll() {
@@ -115,14 +225,16 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         updateIndentSheet();
         updatePoMasterSheet();
         updateInventorySheet();
-        
-        // Fetch additional sheets silently
         updateRateUpdateSheet();
         updateThreePartyApprovalSheet();
         updateApprovedIndentSheet();
-
+        updateCounts();
         setAllLoading(false);
     }
+
+    useEffect(() => {
+        setBadgeCounts(computeBadgeCounts(indentSheet, receivedSheet, poMasterSheet));
+    }, [indentSheet, receivedSheet, poMasterSheet]);
 
     useEffect(() => {
         try {
@@ -146,6 +258,8 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
                 updateRelatedSheets,
                 updateApprovedIndentSheet,
                 updateRateUpdateSheet,
+                updateCounts,
+                badgeCounts,
                 updateThreePartyApprovalSheet,
                 indentSheet,
                 poMasterSheet,

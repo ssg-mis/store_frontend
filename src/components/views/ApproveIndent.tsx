@@ -396,7 +396,11 @@ export default () => {
 
             const errors = approvalResults.filter(r => !r.success);
             if (errors.length > 0) {
-                toast.warning(`Approved ${approvalResults.length - errors.length}, but ${errors.length} failed.`);
+                const messages = [...new Set(errors.map((r: any) => r.error).filter(Boolean))];
+                messages.forEach(msg => toast.error(msg));
+                if (approvalResults.length - errors.length > 0) {
+                    toast.warning(`${approvalResults.length - errors.length} approved, ${errors.length} failed.`);
+                }
             } else {
                 toast.success(`Approved ${updatesToProcess.length} products successfully`);
             }

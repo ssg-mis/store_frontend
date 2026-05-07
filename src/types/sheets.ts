@@ -1,4 +1,4 @@
-export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT' | 'GET_PURCHASE' | 'GET PURCHASE' | 'LOAN';
+export type Sheet = 'INDENT' | 'RECEIVED' | 'MASTER' | 'USER' | 'PO MASTER' | 'PO_MASTER' | 'INVENTORY' | 'QUOTATION HISTORY' | 'MASTER_DATA' | 'STORE OUT APPROVAL' | 'THREE_PARTY_APPROVAL' | 'VENDOR_RATE_UPDATE' | 'APPROVED_INDENT' | 'LOAN';
 
 export type IndentSheet = {
     id: number;
@@ -162,6 +162,7 @@ export type PoMasterSheet = {
     term_8: string | null;
     term_9: string | null;
     term_10: string | null;
+    leadTime?: string | null;
     email_send_status?: boolean | null;
     created_at?: string | null;
     updated_at?: string | null;

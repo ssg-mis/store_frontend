@@ -261,7 +261,6 @@ export async function fetchFromSupabasePaginated(
         'received': '/received',
         'inventory': '/inventory',
         'store_out_approval': '/store-out-approvals',
-        'get_purchase': '/get-purchases',
         'master_data': '/masters',
         'vendor_rate_update': '/vendor-rate-updates',
         'three_party_approvals': '/three-party-approvals',
@@ -476,11 +475,6 @@ export async function fetchSheet(
         return toCamelCase(data) as InventorySheet[];
     }
 
-    if (sheetName === 'GET_PURCHASE' || sheetName === 'GET PURCHASE') {
-        const data = await fetchFromSupabasePaginated('get_purchase');
-        return toCamelCase(data);
-    }
-
     if (sheetName === 'VENDOR_RATE_UPDATE') {
         const data = await fetchFromSupabasePaginated('vendor_rate_update', '*', undefined, undefined, undefined, { limit: 5000 });
         return toCamelCase(data);
@@ -542,6 +536,26 @@ export async function postToQuotationHistory(rows: any[]) {
         dataStore.quotation_history.push({ ...row, id: getNextId() });
     });
     return { success: true };
+}
+
+export interface BadgeCounts {
+    approveIndent: number;
+    vendorRateUpdate: number;
+    threePartyApproval: number;
+    pendingPOs: number;
+    receiveItems: number;
+    storeOut: number;
+    loanOut: number;
+}
+
+export async function fetchCounts(): Promise<BadgeCounts | null> {
+    try {
+        const res = await apiFetch(`${API_BASE_URL}/counts`);
+        if (!res.ok) return null;
+        return res.json();
+    } catch {
+        return null;
+    }
 }
 
 export async function fetchVendors() {
@@ -645,11 +659,14 @@ export async function approveIndent(id: string | number, data: any) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP error! status: ${response.status}`);
+        }
         return await response.json();
-    } catch (error) {
+    } catch (error: any) {
         console.error(`Error approving indent ${id}:`, error);
-        return { success: false, error };
+        return { success: false, error: error.message };
     }
 }
 

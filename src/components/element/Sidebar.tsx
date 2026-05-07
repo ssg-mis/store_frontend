@@ -20,16 +20,17 @@ import { useMemo } from 'react';
 
 export default ({ items, variant, collapsible }: { items: RouteAttributes[]; variant?: 'sidebar' | 'floating' | 'inset'; collapsible?: 'offcanvas' | 'icon' | 'none' }) => {
     const navigate = useNavigate();
-    const { 
-        indentSheet, 
-        poMasterSheet,
-        receivedSheet,
-        rateUpdateSheet,
-        threePartyApprovalSheet,
-        approvedIndentSheet,
-        updateAll, 
-        allLoading 
-    } = useSheets();
+    const { badgeCounts, updateAll, allLoading } = useSheets();
+
+    const countKeyMap: Record<string, keyof typeof badgeCounts> = {
+        'approve-indent':       'approveIndent',
+        'vendor-rate-update':   'vendorRateUpdate',
+        'three-party-approval': 'threePartyApproval',
+        'pending-pos':          'pendingPOs',
+        'receive-items':        'receiveItems',
+        'store-out-approval':   'storeOut',
+        'loan-out-approval':    'loanOut',
+    };
     const { user, logout } = useAuth();
 
     // The logic to check if a user has permission for a specific route item
@@ -142,25 +143,15 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
                                     <span className="group-data-[collapsible=icon]:hidden truncate">
                                         {item.name}
                                     </span>
-                                    {item.notifications && item.notifications({
-                                        indents: indentSheet || [],
-                                        poMasters: poMasterSheet || [],
-                                        received: receivedSheet || [],
-                                        rateUpdates: rateUpdateSheet || [],
-                                        threePartyApprovals: threePartyApprovalSheet || [],
-                                        approvedIndents: approvedIndentSheet || []
-                                    }) !== 0 && (
-                                        <div className="ml-auto group-data-[collapsible=icon]:hidden bg-destructive text-secondary w-[1.3rem] h-[1.3rem] rounded-full text-xs grid place-items-center text-center">
-                                            {item.notifications({
-                                                indents: indentSheet || [],
-                                                poMasters: poMasterSheet || [],
-                                                received: receivedSheet || [],
-                                                rateUpdates: rateUpdateSheet || [],
-                                                threePartyApprovals: threePartyApprovalSheet || [],
-                                                approvedIndents: approvedIndentSheet || []
-                                            })}
-                                        </div>
-                                    )}
+                                    {(() => {
+                                        const key = countKeyMap[item.path];
+                                        const count = key ? (badgeCounts[key] ?? 0) : 0;
+                                        return count > 0 ? (
+                                            <div className="ml-auto group-data-[collapsible=icon]:hidden bg-destructive text-secondary w-[1.3rem] h-[1.3rem] rounded-full text-xs grid place-items-center text-center">
+                                                {count}
+                                            </div>
+                                        ) : null;
+                                    })()}
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}

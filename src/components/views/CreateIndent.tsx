@@ -78,7 +78,7 @@ export default () => {
                     quantity: z.coerce.number().gt(0, 'Must be greater than 0'),
                     uom: z.string().nonempty(),
                     areaOfUse: z.string().nonempty(),
-                    productCategory: z.string().optional(),
+                    productCategory: z.string().nonempty('Product category is required'),
                     attachment: z.instanceof(File).optional(),
                     specifications: z.string().optional(),
                 })
@@ -669,7 +669,7 @@ export default () => {
                                                 name={`products.${index}.productCategory`}
                                                 render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel>Product Category</FormLabel>
+                                                        <FormLabel>Product Category <span className="text-red-500">*</span></FormLabel>
                                                         <Select
                                                             onValueChange={(val) => {
                                                                 field.onChange(val);

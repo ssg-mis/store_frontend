@@ -514,8 +514,27 @@ export default () => {
                 }
             }
             form.setValue('terms', terms);
+
+            // Auto-fill Lead Time: prefer saved value on the PO, fall back to three-party approval
+            const savedLeadTime = po.leadTime || po.lead_time;
+            if (savedLeadTime) {
+                form.setValue('leadTime', savedLeadTime);
+            } else {
+                const firstPoItem = poMasterSheetData.find(
+                    (p: any) => (p.poNumber || p.po_number) === (po.poNumber || po.po_number)
+                );
+                if (firstPoItem) {
+                    const indentNum = firstPoItem.internalCode || firstPoItem.internal_code || firstPoItem.indent_number || '';
+                    const approval = approvalsData.find(
+                        (a: any) => (a.indentNumber || a.indent_number) === indentNum
+                    );
+                    if (approval?.approvedActualTime != null) {
+                        form.setValue('leadTime', `${approval.approvedActualTime} days`);
+                    }
+                }
+            }
         }
-    }, [poNumber, poMasterSheetData, vendorsData, mode]);
+    }, [poNumber, poMasterSheetData, vendorsData, approvalsData, mode]);
 
     const handleDestinationEdit = () => {
         setIsEditingDestination(true);
@@ -543,13 +562,30 @@ export default () => {
     };
 
     async function onSubmit(values: FormData) {
+        // Approved Quantity Validation
+        if (mode !== 'revise') {
+            const qtyErrors: string[] = [];
+            values.indents.forEach((itemRow) => {
+                const indent = indentSheetData.find(i => i.indentNumber === itemRow.indentNumber);
+                const approvedQty = Number(indent?.approvedQuantity || indent?.approved_quantity || 0);
+                if (approvedQty > 0 && itemRow.quantity > approvedQty) {
+                    const name = indent?.productName || indent?.product_name || itemRow.indentNumber;
+                    qtyErrors.push(`Qty (${itemRow.quantity}) exceeds approved qty (${approvedQty}) for ${name}.`);
+                }
+            });
+            if (qtyErrors.length > 0) {
+                qtyErrors.forEach(err => toast.error(err));
+                return;
+            }
+        }
+
         // Stock Validation (skipped in revise mode — already checked at PO creation)
         const stockErrors: string[] = [];
         if (mode !== 'revise') values.indents.forEach((itemRow) => {
             const indent = indentSheetData.find(i => i.indentNumber === itemRow.indentNumber);
             const itemName = indent?.productName || indent?.product_name || '';
             const departmentHead = indent?.departmentHead || '';
-            
+
             const inventoryItem = inventoryData.find(
                 i => i.itemName?.toLowerCase().trim() === itemName.toLowerCase().trim() &&
                     (!departmentHead || i.departmentHead?.toLowerCase().trim() === departmentHead.toLowerCase().trim())
@@ -784,6 +820,7 @@ export default () => {
                     term10: values.terms[9] || null,
                     discountPercent: v.discount || 0,
                     gstPercent: v.gst,
+                    leadTime: values.leadTime || null,
                     indent_number: v.indentNumber
                 };
             });
@@ -792,7 +829,7 @@ export default () => {
 
             // Insert each PO record into the database using API
             const poResult = await postToSheet(poData, 'insert', 'PO_MASTER');
-            if (!poResult.success) throw new Error('Failed to save PO records');
+            if (!poResult.success) throw new Error((poResult.error as any)?.message || 'Failed to save PO records');
 
             // Update corresponding indent records to sync with Receive Items and Get Purchase stages
             const indentUpdates: any[] = values.indents.map((v) => {
@@ -841,7 +878,7 @@ export default () => {
     }
 
     return (
-        <div className="grid place-items-center w-full overflow-x-hidden bg-gradient-to-br from-blue-100 via-purple-50 to-blue-50 rounder-md">
+        <div className="grid place-items-center w-full min-w-0 bg-gradient-to-br from-blue-100 via-purple-50 to-blue-50 rounder-md">
             <div className="flex justify-between items-center w-full p-5">
                 <div className="flex gap-2 items-center">
                     <FilePlus2 size={50} className="text-primary" />
@@ -894,8 +931,8 @@ export default () => {
                             <h2 className="text-center font-bold text-lg">Purchase Order</h2>
                             <hr />
 
-                            <div className="grid gap-5 px-4 py-2 text-foreground/80">
-                                <div className="grid grid-cols-2 gap-x-5">
+                            <div className="grid gap-4 px-4 py-2 text-foreground/80">
+                                <div className="grid grid-cols-2 gap-4">
                                     <FormField
                                         control={form.control}
                                         name="poNumber"
@@ -991,7 +1028,7 @@ export default () => {
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-4 gap-x-5">
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                     {mode === 'create' && (
                                         <FormField
                                             control={form.control}
@@ -1568,7 +1605,7 @@ export default () => {
 
                             <hr />
 
-                            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 px-4">
+                            <div className="grid grid-cols-2 xl:grid-cols-5 gap-4 px-4">
                                 <FormField
                                     control={form.control}
                                     name="transportationType"

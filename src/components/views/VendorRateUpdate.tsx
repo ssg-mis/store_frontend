@@ -87,6 +87,9 @@ interface HistoryData {
     comparisonSheet?: string;
     rate?: number;
     vendorName?: string;
+    deliveryTime1?: number;
+    deliveryTime2?: number;
+    deliveryTime3?: number;
 }
 
 interface PendingGroup {
@@ -283,6 +286,9 @@ export default () => {
                         requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                         approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
                         comparisonSheet: record.comparisonSheet || '',
+                        deliveryTime1: record.deliveryTime1 || 0,
+                        deliveryTime2: record.deliveryTime2 || 0,
+                        deliveryTime3: record.deliveryTime3 || 0,
                     });
                 });
             }
@@ -563,11 +569,14 @@ export default () => {
                         seenProducts.set(key, {
                             ...item,
                             rate1: item.rate1 || existing.rate1,
-                        rate2: item.rate2 || existing.rate2,
-                        rate3: item.rate3 || existing.rate3,
-                        vendorName1: item.vendorName1 || existing.vendorName1,
+                            rate2: item.rate2 || existing.rate2,
+                            rate3: item.rate3 || existing.rate3,
+                            vendorName1: item.vendorName1 || existing.vendorName1,
                             vendorName2: item.vendorName2 || existing.vendorName2,
                             vendorName3: item.vendorName3 || existing.vendorName3,
+                            deliveryTime1: item.deliveryTime1 || existing.deliveryTime1,
+                            deliveryTime2: item.deliveryTime2 || existing.deliveryTime2,
+                            deliveryTime3: item.deliveryTime3 || existing.deliveryTime3,
                         });
                     } else if (existing.source === 'three_party') {
                         // Current is rate_update, existing is three_party: update existing with our vendor names
@@ -576,6 +585,9 @@ export default () => {
                             vendorName1: existing.vendorName1 || item.vendorName1,
                             vendorName2: existing.vendorName2 || item.vendorName2,
                             vendorName3: existing.vendorName3 || item.vendorName3,
+                            deliveryTime1: existing.deliveryTime1 || item.deliveryTime1,
+                            deliveryTime2: existing.deliveryTime2 || item.deliveryTime2,
+                            deliveryTime3: existing.deliveryTime3 || item.deliveryTime3,
                         });
                     }
                 }
@@ -596,6 +608,9 @@ export default () => {
                     rate1: first.rate1,
                     rate2: first.rate2,
                     rate3: first.rate3,
+                    deliveryTime1: first.deliveryTime1,
+                    deliveryTime2: first.deliveryTime2,
+                    deliveryTime3: first.deliveryTime3,
                     vendorType: first.vendorType,
                     date: first.date,
                     requestDate: first.requestDate,
@@ -713,6 +728,15 @@ export default () => {
         {
             accessorKey: 'date',
             header: 'Date',
+        },
+        {
+            header: 'Delivery Time',
+            cell: ({ row }) => {
+                if (row.original.vendorType !== 'Three Party') return '—';
+                const { deliveryTime1, deliveryTime2, deliveryTime3 } = row.original;
+                const parts = [deliveryTime1, deliveryTime2, deliveryTime3].map(t => t ? `${t}d` : '—');
+                return parts.join(' / ');
+            },
         },
         {
             accessorKey: 'vendorType',
@@ -1622,6 +1646,16 @@ export default () => {
                                     )}
                                 </div>
                             </div>
+                            {viewingHistoryGroup?.vendorType === 'Three Party' && (
+                                <div>
+                                    <p className="text-xs text-muted-foreground">Actual Time To Receive Material</p>
+                                    <div className="text-sm font-medium space-y-1 mt-1">
+                                        <div className="flex items-center gap-2"><span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded border border-primary/20 font-bold">V1</span> {viewingHistoryGroup?.deliveryTime1 ? `${viewingHistoryGroup.deliveryTime1} days` : '—'}</div>
+                                        <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V2</span> {viewingHistoryGroup?.deliveryTime2 ? `${viewingHistoryGroup.deliveryTime2} days` : '—'}</div>
+                                        <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V3</span> {viewingHistoryGroup?.deliveryTime3 ? `${viewingHistoryGroup.deliveryTime3} days` : '—'}</div>
+                                    </div>
+                                </div>
+                            )}
                             <div>
                                 <p className="text-xs text-muted-foreground">Vendor Type</p>
                                 <p className="text-sm font-medium">{viewingHistoryGroup?.vendorType}</p>

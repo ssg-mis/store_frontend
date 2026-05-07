@@ -55,8 +55,12 @@ interface HistoryProduct {
     id: number;
     indentId: number;
     product: string;
+    quantity: number;
+    uom: string;
     approvedVendor: string;
     approvedRate: number;
+    approvedPaymentTerm: string;
+    approvedActualTime?: number;
 }
 
 interface GroupedHistoryData {
@@ -231,8 +235,12 @@ export default () => {
                         id: r.id,
                         indentId: r.indentId,
                         product: r.productName || '',
+                        quantity: r.approvedQuantity || r.quantity || 0,
+                        uom: r.uom || '',
                         approvedVendor: r.approvedVendorName,
-                        approvedRate: r.approvedRate
+                        approvedRate: r.approvedRate,
+                        approvedPaymentTerm: r.approvedPaymentTerm || '',
+                        approvedActualTime: r.approvedActualTime ?? undefined,
                     });
 
                     grouped[indentNo].vendorTotals[r.approvedVendorName] = (grouped[indentNo].vendorTotals[r.approvedVendorName] || 0) + (r.approvedRate || 0);
@@ -402,7 +410,8 @@ export default () => {
                             offers: p.vendors.map(v => ({
                                 vendorName: v[0],
                                 rate: parseFloat(v[1]),
-                                paymentTerm: v[2]
+                                paymentTerm: v[2],
+                                deliveryTime: v[3],
                             })).filter(v => v.vendorName)
                         }));
 
@@ -473,21 +482,16 @@ export default () => {
 
                 const handleView = async () => {
                     try {
-                        // For history, we might need more data to show the full comparison matrix.
-                        // But since we only have approved products in history grouped by indent, 
-                        // we'll show what we have. 
-                        // Note: To show the FULL comparison (including rejected vendors) in history, 
-                        // we'd need to fetch from vendor_rate_update too.
-                        
                         const vendorNames = Object.keys(indent.vendorTotals);
                         const pdfProducts = indent.products.map(p => ({
                             name: p.product,
-                            quantity: 1, // Quantity might be missing in history mapping, let's assume 1 if not found
-                            uom: 'Units',
+                            quantity: p.quantity,
+                            uom: p.uom,
                             offers: [{
                                 vendorName: p.approvedVendor,
                                 rate: p.approvedRate,
-                                paymentTerm: 'Approved'
+                                paymentTerm: p.approvedPaymentTerm || '',
+                                deliveryTime: p.approvedActualTime,
                             }]
                         }));
 

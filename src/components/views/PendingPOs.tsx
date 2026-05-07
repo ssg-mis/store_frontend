@@ -10,10 +10,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 interface PendingIndentsData {
     date: string;
+    validityDate: string;
     indentNo: string;
     firm: string;
     indenter: string;
     department: string;
+    areaOfUse: string;
+    departmentHead: string;
+    indentApprovedBy: string;
     product: string;
     productCode: string;
     quantity: number;
@@ -21,7 +25,9 @@ interface PendingIndentsData {
     uom: string;
     vendorName: string;
     paymentTerm: string;
+    approvedActualTime: number | null;
     specifications: string;
+    attachment: string;
     remarks: string;
 }
 
@@ -33,7 +39,12 @@ export default () => {
     const [page, setPage] = useState(1);
     const [search, setSearch] = useState('');
     const abortRef = useRef<AbortController | null>(null);
-    const [viewGroup, setViewGroup] = useState<{ indentNo: string; items: PendingIndentsData[] } | null>(null);
+    const [viewGroup, setViewGroup] = useState<{
+        indentNo: string; firm: string; indenter: string; department: string;
+        areaOfUse: string; departmentHead: string; indentApprovedBy: string;
+        date: string; validityDate: string; vendorName: string; paymentTerm: string;
+        approvedActualTime: number | null; remarks: string; items: PendingIndentsData[];
+    } | null>(null);
 
     const fetchData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
         if (abortRef.current) abortRef.current.abort();
@@ -55,10 +66,14 @@ export default () => {
             if (data && data.items) {
                 const mappedData = data.items.map((record: any) => ({
                     date: formatDate(new Date(record.createdAt)),
+                    validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '',
                     indentNo: record.indentNumber || '',
                     firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
                     department: record.department || '',
+                    areaOfUse: record.areaOfUse || '',
+                    departmentHead: record.departmentHead || '',
+                    indentApprovedBy: record.indentApprovedBy || '',
                     product: record.productName || '',
                     productCode: record.productCode || '',
                     quantity: record.approvedQuantity || record.quantity || 0,
@@ -66,7 +81,9 @@ export default () => {
                     uom: record.uom || '',
                     vendorName: record.approvedVendorName || '',
                     paymentTerm: record.approvedPaymentTerm || '',
+                    approvedActualTime: record.approvedActualTime ?? null,
                     specifications: record.specifications || '',
+                    attachment: record.attachment || '',
                     remarks: record.remarks || '',
                 }));
                 setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
@@ -110,10 +127,15 @@ export default () => {
                 firm: first.firm,
                 indenter: first.indenter,
                 department: first.department,
+                areaOfUse: first.areaOfUse,
+                departmentHead: first.departmentHead,
+                indentApprovedBy: first.indentApprovedBy,
                 date: first.date,
+                validityDate: first.validityDate,
                 vendorName: first.vendorName,
                 rate: first.rate,
                 paymentTerm: first.paymentTerm,
+                approvedActualTime: first.approvedActualTime,
                 remarks: first.remarks,
                 items,
             };
@@ -181,7 +203,7 @@ export default () => {
                                                 variant="outline"
                                                 size="sm"
                                                 className="h-7 text-xs px-3"
-                                                onClick={() => setViewGroup({ indentNo: group.indentNo, items: group.items })}
+                                                onClick={() => setViewGroup(group)}
                                             >
                                                 View
                                             </Button>
@@ -229,35 +251,77 @@ export default () => {
         </div>
 
         <Dialog open={!!viewGroup} onOpenChange={(open) => { if (!open) setViewGroup(null); }}>
-            <DialogContent className="sm:max-w-5xl">
+            <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>Products — {viewGroup?.indentNo}</DialogTitle>
+                    <DialogTitle>Indent Details — {viewGroup?.indentNo}</DialogTitle>
                 </DialogHeader>
-                <div className="overflow-x-auto">
+
+                {/* ── Details grid ── */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 bg-muted/30 rounded-lg px-4 py-3 border">
+                    {[
+                        { label: 'Firm',              value: viewGroup?.firm },
+                        { label: 'Indenter',          value: viewGroup?.indenter },
+                        { label: 'Department',        value: viewGroup?.department },
+                        { label: 'Area of Use',       value: viewGroup?.areaOfUse },
+                        { label: 'Department Head',   value: viewGroup?.departmentHead },
+                        { label: 'Indent Approved By',value: viewGroup?.indentApprovedBy },
+                        { label: 'Request Date',      value: viewGroup?.date },
+                        { label: 'Validity Date',     value: viewGroup?.validityDate },
+                        { label: 'Vendor Name',       value: viewGroup?.vendorName },
+                        { label: 'Payment Term',      value: viewGroup?.paymentTerm },
+                        {
+                            label: 'Actual Time To Receive',
+                            value: viewGroup?.approvedActualTime != null
+                                ? `${viewGroup.approvedActualTime} days`
+                                : null,
+                        },
+                        { label: 'Remarks',           value: viewGroup?.remarks },
+                    ].map(({ label, value }) =>
+                        value ? (
+                            <div key={label} className="flex flex-col">
+                                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+                                <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
+                            </div>
+                        ) : null
+                    )}
+                </div>
+
+                {/* ── Products table ── */}
+                <div className="overflow-x-auto rounded-md border">
                     <Table>
                         <TableHeader>
-                            <TableRow>
-                                <TableHead>#</TableHead>
-                                <TableHead>Product Code</TableHead>
-                                <TableHead>Product</TableHead>
-                                <TableHead>Qty</TableHead>
-                                <TableHead>UOM</TableHead>
-                                <TableHead>Rate</TableHead>
-                                <TableHead>Specifications</TableHead>
-                                <TableHead>Remarks</TableHead>
+                            <TableRow className="bg-muted/20">
+                                <TableHead className="text-xs">#</TableHead>
+                                <TableHead className="text-xs">Product Code</TableHead>
+                                <TableHead className="text-xs">Product</TableHead>
+                                <TableHead className="text-xs">Qty</TableHead>
+                                <TableHead className="text-xs">UOM</TableHead>
+                                <TableHead className="text-xs">Rate</TableHead>
+                                <TableHead className="text-xs">Specifications</TableHead>
+                                <TableHead className="text-xs">Attachment</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {viewGroup?.items.map((item, idx) => (
                                 <TableRow key={idx}>
-                                    <TableCell className="text-xs">{idx + 1}</TableCell>
-                                    <TableCell className="text-xs font-medium">{item.productCode || '-'}</TableCell>
-                                    <TableCell className="text-xs">{item.product}</TableCell>
+                                    <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                    <TableCell>
+                                        {item.productCode
+                                            ? <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">{item.productCode}</span>
+                                            : <span className="text-muted-foreground text-xs">—</span>
+                                        }
+                                    </TableCell>
+                                    <TableCell className="text-xs font-medium">{item.product}</TableCell>
                                     <TableCell className="text-xs">{item.quantity}</TableCell>
                                     <TableCell className="text-xs">{item.uom}</TableCell>
-                                    <TableCell className="text-xs">&#8377;{item.rate}</TableCell>
-                                    <TableCell className="text-xs text-muted-foreground max-w-[200px] break-words whitespace-normal">{item.specifications || '-'}</TableCell>
-                                    <TableCell className="text-xs text-muted-foreground max-w-[200px] break-words whitespace-normal">{item.remarks || '-'}</TableCell>
+                                    <TableCell className="text-xs font-semibold">&#8377;{item.rate.toLocaleString()}</TableCell>
+                                    <TableCell className="text-xs text-muted-foreground max-w-[180px] break-words whitespace-normal">{item.specifications || '—'}</TableCell>
+                                    <TableCell className="text-xs">
+                                        {item.attachment
+                                            ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
+                                            : <span className="text-muted-foreground">—</span>
+                                        }
+                                    </TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>

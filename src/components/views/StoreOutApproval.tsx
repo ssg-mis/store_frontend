@@ -568,7 +568,8 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
                 const approvalResult = await postToSheet([approvalData], 'insert', sheetName);
 
                 if (!approvalResult.success) {
-                    console.error('Failed to insert store out approval record:', approvalResult.error);
+                    toast.error(`Inventory update failed: ${(approvalResult.error as any)?.message || 'Could not save approval record'}`);
+                    return;
                 }
 
                 toast.success(`Updated ${

@@ -93,6 +93,7 @@ export interface ComparisonVendorOffer {
     vendorName: string;
     rate: number;
     paymentTerm: string;
+    deliveryTime?: number;
 }
 
 export interface ComparisonProduct {
@@ -209,6 +210,9 @@ export default ({
                                                 <>
                                                     <Text style={[styles.cellText, { textAlign: 'center', fontFamily: 'Helvetica-Bold' }]}>₹{offer.rate.toLocaleString()}</Text>
                                                     <Text style={[styles.cellText, { textAlign: 'center', fontSize: 6, color: '#666' }]}>{offer.paymentTerm}</Text>
+                                                    {offer.deliveryTime != null && (
+                                                        <Text style={[styles.cellText, { textAlign: 'center', fontSize: 6, color: '#666' }]}>{offer.deliveryTime} days</Text>
+                                                    )}
                                                 </>
                                             ) : (
                                                 <Text style={[styles.cellText, { textAlign: 'center', color: '#ccc' }]}>-</Text>
