@@ -455,25 +455,16 @@ const ReceiveItems = () => {
         setItemRows(prev => prev.map((row) => {
             if (row.indentId !== indentId) return row;
             const updated = { ...row, [field]: value };
-
             const pendingQty = matchingIndents.find(i => i.id === indentId)?.remainingQty || 0;
+            const usableQty = updated.quantity - updated.purchaseReturn;
 
-            // When purchaseReturn changes, auto-adjust quantity so total stays within pendingQty
-            if (field === 'purchaseReturn') {
-                updated.quantity = Math.max(0, pendingQty - updated.purchaseReturn);
-            }
-
-            // Cap receive qty: quantity + purchaseReturn must not exceed pending
-            if (updated.quantity + updated.purchaseReturn > pendingQty) {
-                updated.quantity = Math.max(0, pendingQty - updated.purchaseReturn);
-            }
-
-            if (updated.purchaseReturn > pendingQty) {
-                updated.error = `Purchase return (${updated.purchaseReturn}) cannot exceed pending qty (${pendingQty})`;
-            } else if (updated.quantity + updated.purchaseReturn > pendingQty) {
-                updated.error = `Received (${updated.quantity}) + returned (${updated.purchaseReturn}) cannot exceed pending qty (${pendingQty})`;
-            } else if (updated.damagedQuantity > updated.quantity) {
-                updated.error = `Damaged qty (${updated.damagedQuantity}) cannot exceed received qty (${updated.quantity})`;
+            // Validate — each field is a subset of the one above it
+            if (updated.quantity > pendingQty) {
+                updated.error = `Received qty (${updated.quantity}) cannot exceed pending qty (${pendingQty})`;
+            } else if (updated.purchaseReturn > updated.quantity) {
+                updated.error = `Purchase return (${updated.purchaseReturn}) cannot exceed received qty (${updated.quantity})`;
+            } else if (updated.damagedQuantity > usableQty) {
+                updated.error = `Damaged qty (${updated.damagedQuantity}) cannot exceed usable qty after return (${usableQty})`;
             } else {
                 updated.error = undefined;
             }
@@ -571,7 +562,7 @@ const ReceiveItems = () => {
             const receivedRows = itemsToReceive.map((item) => {
                 const originalItem = matchingIndents.find(i => i.id === item.indentId)
                     ?? matchingIndents[itemRows.indexOf(item)];
-                const goodQuantity = item.quantity - (item.damagedQuantity || 0);
+                const goodQuantity = item.quantity - (item.purchaseReturn || 0) - (item.damagedQuantity || 0);
 
                 return {
                     indent_id: item.indentId,
@@ -903,7 +894,7 @@ const ReceiveItems = () => {
                                                                 {row.error && <p className="text-[10px] text-red-500 text-center mt-0.5 leading-tight">{row.error}</p>}
                                                             </td>
                                                             <td className="px-4 py-3 text-center font-semibold text-green-700">
-                                                                {Math.max(0, row.quantity - row.damagedQuantity)}
+                                                                {Math.max(0, row.quantity - row.purchaseReturn - row.damagedQuantity)}
                                                             </td>
                                                         </tr>
                                                     );
