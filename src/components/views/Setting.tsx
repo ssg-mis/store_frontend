@@ -44,11 +44,30 @@ interface UsersTableData {
     firmAccess: string[];
 }
 
-function camelToTitleCase(str: string): string {
-    return str
-        .replace(/([a-z])([A-Z])/g, '$1 $2') // insert space before capitals
-        .replace(/^./, (char) => char.toUpperCase()); // capitalize first letter
-}
+const permissionLabels: Record<(typeof allPermissionKeys)[number], string> = {
+    administrate: 'Administration',
+    createIndent: 'Create Indent',
+    allIndent: 'All Indent',
+    createPo: 'Create PO',
+    indentApprovalView: 'Approve Indent',
+    indentApprovalAction: 'Approve Indent - Action',
+    updateVendorView: 'Vendor Rate Update',
+    updateVendorAction: 'Vendor Rate Update - Action',
+    threePartyApprovalView: 'Three Party Approval',
+    threePartyApprovalAction: 'Three Party Approval - Action',
+    receiveItemView: 'Receive Items',
+    receiveItemAction: 'Receive Items - Action',
+    storeOutApprovalView: 'Store Out / Approval',
+    storeOutApprovalAction: 'Store Out / Approval - Action',
+    quotation: 'Quotation',
+    pendingIndentsView: 'Pending POs',
+    ordersView: 'PO History',
+    poMaster: 'PO Master',
+    dashboard: 'Dashboard',
+    inventory: 'Inventory',
+    masterData: 'Master Data',
+    setting: 'Setting',
+};
 
 export default () => {
     const { user: currentUser } = useAuth();
@@ -462,7 +481,7 @@ export default () => {
                                                                 className="font-light cursor-pointer"
                                                                 htmlFor={perm}
                                                             >
-                                                                {camelToTitleCase(perm)}
+                                                                {permissionLabels[perm]}
                                                             </FormLabel>
                                                         </FormItem>
                                                     )}

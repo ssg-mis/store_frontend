@@ -31,6 +31,7 @@ import { useEffect, useState } from 'react';
 export default () => {
     const { user } = useAuth();
     const isAdmin = (user as any)?.role === 'ADMIN';
+    const userFirmAccess = Array.isArray((user as any)?.firmAccess) ? (user as any).firmAccess : [];
 
     const { indentSheet: sheet, updateIndentSheet, inventorySheet, updateInventorySheet, receivedSheet, poMasterSheet } = useSheets();
     const [indentSheet, setIndentSheet] = useState<IndentSheet[]>([]);
@@ -283,6 +284,11 @@ export default () => {
 
 
     async function onSubmit(data: z.infer<typeof schema>) {
+        if (!isAdmin && !userFirmAccess.includes(data.firm)) {
+            toast.error('You do not have access to create indents for this firm');
+            return;
+        }
+
         const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType);
         if (isStoreOutType) {
             const shortProducts = data.products
@@ -416,7 +422,9 @@ export default () => {
                                             </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
-                                            {master?.firms?.map((firm: string, i: number) => (
+                                            {(master?.firms || [])
+                                                .filter((firm: string) => isAdmin || userFirmAccess.includes(firm))
+                                                .map((firm: string, i: number) => (
                                                 <SelectItem key={i} value={firm}>
                                                     {firm}
                                                 </SelectItem>

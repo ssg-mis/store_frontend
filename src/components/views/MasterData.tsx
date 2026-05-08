@@ -1,7 +1,7 @@
 import { Database, Plus, Search } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
-import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, fetchDepartments, postDepartment, fetchDepartmentHeads, postDepartmentHead } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -177,14 +177,20 @@ export default function MasterData() {
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm'>('item');
-    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm'>('inventory');
+    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'uom' | 'department' | 'departmentHead'>('item');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'uom' | 'department' | 'departmentHead'>('productCategory');
 
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editDialogType, setEditDialogType] = useState<'inventory' | 'vendor' | 'firm'>('inventory');
     const [editDialogForm, setEditDialogForm] = useState<MasterForm>(emptyForm);
     const [editingId, setEditingId] = useState<number | null>(null);
+    const [simpleEditOpen, setSimpleEditOpen] = useState(false);
+    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'uom' | 'department' | 'departmentHead'>('productCategory');
+    const [simpleEditId, setSimpleEditId] = useState<number | null>(null);
+    const [simpleEditName, setSimpleEditName] = useState('');
+    const [simpleEditActive, setSimpleEditActive] = useState('true');
+    const [postAddReturn, setPostAddReturn] = useState<'item' | 'editInventory' | null>(null);
 
     const [isAddingDepartment, setIsAddingDepartment] = useState(false);
     const [newDepartmentName, setNewDepartmentName] = useState('');
@@ -199,7 +205,7 @@ export default function MasterData() {
     const [searchTermDept, setSearchTermDept] = useState('');
     const [searchTermHead, setSearchTermHead] = useState('');
 
-    const [uoms, setUoms] = useState<{ uom_id: number, uom_name: string }[]>([]);
+    const [uoms, setUoms] = useState<{ uom_id: number, uom_name: string, isActive?: boolean }[]>([]);
     const [isAddingUOM, setIsAddingUOM] = useState(false);
     const [newUOMName, setNewUOMName] = useState('');
     const [addingUOM, setAddingUOM] = useState(false);
@@ -207,13 +213,13 @@ export default function MasterData() {
     const [isAddingFirm, setIsAddingFirm] = useState(false);
     const [newFirmName, setNewFirmName] = useState('');
     const [addingFirm, setAddingFirm] = useState(false);
-    const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string }[]>([]);
+    const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string, isActive?: boolean }[]>([]);
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [addingCategory, setAddingCategory] = useState(false);
 
-    const [allDepartments, setAllDepartments] = useState<{ id: number, name: string }[]>([]);
-    const [allDepartmentHeads, setAllDepartmentHeads] = useState<{ id: number, name: string }[]>([]);
+    const [allDepartments, setAllDepartments] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
+    const [allDepartmentHeads, setAllDepartmentHeads] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
     const [addingDepartment, setAddingDepartment] = useState(false);
     const [addingHead, setAddingHead] = useState(false);
 
@@ -261,6 +267,97 @@ export default function MasterData() {
         const vendors = tableData.filter(r => r.vendor_name && r.vendor_name !== 'null');
         return vendorFilter === 'All' ? vendors : vendors.filter(r => r.vendor_name === vendorFilter);
     }, [tableData, vendorFilter]);
+
+    async function deleteRecord(label: string, action: () => Promise<{ success: boolean; error?: string }>, reload: () => void) {
+        if (!window.confirm(`Remove this ${label}?`)) return;
+        const result = await action();
+        if (result.success) {
+            toast.success(`${label} removed successfully`);
+            reload();
+        } else {
+            toast.error(result.error || `Failed to remove ${label}`);
+        }
+    }
+
+    function openRelatedMasterAdd(tab: 'productCategory' | 'uom' | 'department' | 'departmentHead' | 'firm') {
+        setPostAddReturn(editDialogOpen && editDialogType === 'inventory' ? 'editInventory' : sheetOpen && activeTab === 'item' ? 'item' : null);
+        setActiveTab(tab);
+        setSheetOpen(true);
+        if (editDialogOpen) {
+            setEditDialogOpen(false);
+        }
+    }
+
+    function closeOrReturnAfterRelatedAdd() {
+        if (postAddReturn === 'item') {
+            setActiveTab('item');
+            setSheetOpen(true);
+        } else if (postAddReturn === 'editInventory') {
+            setSheetOpen(false);
+            setEditDialogOpen(true);
+        } else {
+            setSheetOpen(false);
+        }
+        setPostAddReturn(null);
+    }
+
+    const simpleEditLabels: Record<typeof simpleEditType, string> = {
+        productCategory: 'Product Category',
+        uom: 'UOM',
+        department: 'Department',
+        departmentHead: 'Department Head',
+    };
+
+    function openSimpleEditDialog(
+        type: typeof simpleEditType,
+        row: { product_category_id?: number; product_category_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean }
+    ) {
+        setSimpleEditType(type);
+        setSimpleEditId(row.product_category_id ?? row.uom_id ?? row.id ?? null);
+        setSimpleEditName(row.product_category_name ?? row.uom_name ?? row.name ?? '');
+        setSimpleEditActive(row.isActive !== false ? 'true' : 'false');
+        setSimpleEditOpen(true);
+    }
+
+    async function handleSimpleEditSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!simpleEditId) return;
+        if (!simpleEditName.trim()) {
+            toast.error(`${simpleEditLabels[simpleEditType]} is required`);
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const isActive = simpleEditActive === 'true';
+            let result: { success: boolean; error?: string };
+
+            if (simpleEditType === 'productCategory') {
+                result = await updateProductCategory(simpleEditId, { product_category_name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'uom') {
+                result = await updateUOM(simpleEditId, { uom_name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'department') {
+                result = await updateDepartment(simpleEditId, { name: simpleEditName.trim(), isActive });
+            } else {
+                result = await updateDepartmentHead(simpleEditId, { name: simpleEditName.trim(), isActive });
+            }
+
+            if (!result.success) throw new Error(result.error || 'Failed to update record');
+
+            toast.success(`${simpleEditLabels[simpleEditType]} updated successfully`);
+            setSimpleEditOpen(false);
+            setSimpleEditId(null);
+
+            if (simpleEditType === 'productCategory') loadProductCategories();
+            else if (simpleEditType === 'uom') loadUOMs();
+            else if (simpleEditType === 'department') loadDepartments();
+            else loadDepartmentHeads();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to update record');
+        } finally {
+            setSubmitting(false);
+        }
+    }
 
     function setEditDialogField(key: keyof MasterForm) {
         return (val: string) => setEditDialogForm(prev => ({ ...prev, [key]: val }));
@@ -568,6 +665,190 @@ export default function MasterData() {
         },
     ], []);
 
+    const productCategoryColumns = useMemo<ColumnDef<{ product_category_id: number; product_category_name: string; isActive?: boolean }>[]>(() => [
+        {
+            id: 'edit',
+            header: 'Edit',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => openSimpleEditDialog('productCategory', row.original)}
+                >
+                    Edit
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'product_category_id',
+            header: 'ID',
+            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
+        },
+        {
+            accessorKey: 'product_category_name',
+            header: 'Product Category',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
+        },
+        {
+            id: 'delete',
+            header: 'Delete Record',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs text-destructive hover:text-destructive"
+                    onClick={() => deleteRecord('product category', () => deleteProductCategory(row.original.product_category_id), loadProductCategories)}
+                >
+                    Remove
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'isActive',
+            header: 'Active Status',
+            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
+        },
+    ], [loadProductCategories]);
+
+    const uomColumns = useMemo<ColumnDef<{ uom_id: number; uom_name: string; isActive?: boolean }>[]>(() => [
+        {
+            id: 'edit',
+            header: 'Edit',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => openSimpleEditDialog('uom', row.original)}
+                >
+                    Edit
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'uom_id',
+            header: 'ID',
+            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
+        },
+        {
+            accessorKey: 'uom_name',
+            header: 'UOM',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={180} />,
+        },
+        {
+            id: 'delete',
+            header: 'Delete Record',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs text-destructive hover:text-destructive"
+                    onClick={() => deleteRecord('UOM', () => deleteUOM(row.original.uom_id), loadUOMs)}
+                >
+                    Remove
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'isActive',
+            header: 'Active Status',
+            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
+        },
+    ], [loadUOMs]);
+
+    const departmentColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
+        {
+            id: 'edit',
+            header: 'Edit',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => openSimpleEditDialog('department', row.original)}
+                >
+                    Edit
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'id',
+            header: 'ID',
+            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
+        },
+        {
+            accessorKey: 'name',
+            header: 'Department',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
+        },
+        {
+            id: 'delete',
+            header: 'Delete Record',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs text-destructive hover:text-destructive"
+                    onClick={() => deleteRecord('department', () => deleteDepartment(row.original.id), loadDepartments)}
+                >
+                    Remove
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'isActive',
+            header: 'Active Status',
+            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
+        },
+    ], [loadDepartments]);
+
+    const departmentHeadColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
+        {
+            id: 'edit',
+            header: 'Edit',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => openSimpleEditDialog('departmentHead', row.original)}
+                >
+                    Edit
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'id',
+            header: 'ID',
+            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
+        },
+        {
+            accessorKey: 'name',
+            header: 'Department Head',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
+        },
+        {
+            id: 'delete',
+            header: 'Delete Record',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs text-destructive hover:text-destructive"
+                    onClick={() => deleteRecord('department head', () => deleteDepartmentHead(row.original.id), loadDepartmentHeads)}
+                >
+                    Remove
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'isActive',
+            header: 'Active Status',
+            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
+        },
+    ], [loadDepartmentHeads]);
+
     /* fetch */
     async function fetchData() {
         setDataLoading(true);
@@ -694,10 +975,92 @@ export default function MasterData() {
 
             if (!result.success) throw new Error(result.error || 'Failed to save firm data');
             toast.success('Firm data saved successfully!');
-            setSheetOpen(false);
             loadFirms();
+            closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
             toast.error(err?.message ?? 'Failed to save firm data');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleProductCategorySubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newCategoryName.trim()) {
+            toast.error('Product Category is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const result = await postProductCategory(newCategoryName.trim());
+            if (!result.success) throw new Error(result.error || 'Failed to save product category');
+            toast.success('Product category saved successfully!');
+            setNewCategoryName('');
+            loadProductCategories();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save product category');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleUOMSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newUOMName.trim()) {
+            toast.error('UOM is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const result = await postToUOM(newUOMName.trim());
+            if (!result.success) throw new Error(result.error || 'Failed to save UOM');
+            toast.success('UOM saved successfully!');
+            setNewUOMName('');
+            loadUOMs();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save UOM');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleDepartmentSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newDepartmentName.trim()) {
+            toast.error('Department is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            await postDepartment(newDepartmentName.trim());
+            toast.success('Department saved successfully!');
+            setNewDepartmentName('');
+            loadDepartments();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save department');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleDepartmentHeadSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newHeadName.trim()) {
+            toast.error('Department Head is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            await postDepartmentHead(newHeadName.trim());
+            toast.success('Department head saved successfully!');
+            setNewHeadName('');
+            loadDepartmentHeads();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save department head');
         } finally {
             setSubmitting(false);
         }
@@ -936,8 +1299,12 @@ export default function MasterData() {
             </Heading>
 
             {/* ── Page Tabs ── */}
-            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor' | 'firm')}>
-                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-3 h-auto gap-1">
+            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor' | 'firm' | 'productCategory' | 'uom' | 'department' | 'departmentHead')}>
+                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 h-auto gap-1">
+                    <TabsTrigger value="productCategory">Product Category</TabsTrigger>
+                    <TabsTrigger value="uom">UOM</TabsTrigger>
+                    <TabsTrigger value="department">Department</TabsTrigger>
+                    <TabsTrigger value="departmentHead">Department Head</TabsTrigger>
                     <TabsTrigger value="inventory">Inventory Info</TabsTrigger>
                     <TabsTrigger value="vendor">Vendor Info</TabsTrigger>
                     <TabsTrigger value="firm">Firm Info</TabsTrigger>
@@ -1023,6 +1390,78 @@ export default function MasterData() {
                     </div>
                 </TabsContent>
 
+                <TabsContent value="productCategory">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={productCategories}
+                            columns={productCategoryColumns}
+                            searchFields={['product_category_name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('productCategory'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Product Category
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="uom">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={uoms}
+                            columns={uomColumns}
+                            searchFields={['uom_name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('uom'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add UOM
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="department">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={allDepartments}
+                            columns={departmentColumns}
+                            searchFields={['name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('department'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Department
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="departmentHead">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={allDepartmentHeads}
+                            columns={departmentHeadColumns}
+                            searchFields={['name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('departmentHead'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Department Head
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
             </Tabs>
 
             {/* ── Add Dialog ── */}
@@ -1030,19 +1469,33 @@ export default function MasterData() {
                 <DialogContent className="w-full max-w-lg max-h-[85vh] flex flex-col">
                     <DialogHeader className="shrink-0 pb-3 border-b">
                         <DialogTitle>
-                            {activeTab === 'item' ? 'Add Inventory' : activeTab === 'vendor' ? 'Add Vendor Info' : 'Add Firm Info'}
+                            {activeTab === 'item'
+                                ? 'Add Inventory'
+                                : activeTab === 'vendor'
+                                    ? 'Add Vendor Info'
+                                    : activeTab === 'firm'
+                                        ? 'Add Firm Info'
+                                        : activeTab === 'productCategory'
+                                            ? 'Add Product Category'
+                                            : activeTab === 'uom'
+                                                ? 'Add UOM'
+                                                : activeTab === 'department'
+                                                    ? 'Add Department'
+                                                    : 'Add Department Head'}
                         </DialogTitle>
                         <DialogDescription>
                             {activeTab === 'item'
                                 ? 'Fill in the item and department details.'
                                 : activeTab === 'vendor'
                                     ? 'Fill in the vendor contact and firm details.'
-                                    : 'Fill in the firm details.'}
+                                    : activeTab === 'firm'
+                                        ? 'Fill in the firm details.'
+                                        : 'Add a master value for use across forms.'}
                         </DialogDescription>
                     </DialogHeader>
 
                     {activeTab === 'item' ? (
-                        <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
                             <form id="item-form" onSubmit={handleItemSubmit} className="space-y-4">
                                 <Field
                                     label="Product Name"
@@ -1056,281 +1509,141 @@ export default function MasterData() {
                                     <Label className="text-sm font-medium">
                                         Product Category<span className="text-destructive ml-0.5">*</span>
                                     </Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select
-                                                value={form.itemCategoryId}
-                                                onValueChange={setField('itemCategoryId')}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Category" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {productCategories.map((c) => (
-                                                        <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
-                                                            {c.product_category_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setIsAddingCategory(!isAddingCategory)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {isAddingCategory && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New category name..."
-                                                value={newCategoryName}
-                                                onChange={(e) => setNewCategoryName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleAddCategory}
-                                                disabled={addingCategory}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {addingCategory ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select
+                                        value={form.itemCategoryId}
+                                        onValueChange={setField('itemCategoryId')}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Category" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('productCategory')} aria-label="Add product category">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    )}
+                                        <SelectContent>
+                                            {productCategories.map((c) => (
+                                                <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
+                                                    {c.product_category_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select value={form.uom} onValueChange={setField('uom')}>
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select UOM" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {uoms.map((u) => (
-                                                        <SelectItem key={u.uom_id} value={u.uom_name}>
-                                                            {u.uom_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setIsAddingUOM(!isAddingUOM)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {isAddingUOM && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New UOM name..."
-                                                value={newUOMName}
-                                                onChange={(e) => setNewUOMName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleAddUOM}
-                                                disabled={addingUOM}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {addingUOM ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select value={form.uom} onValueChange={setField('uom')}>
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select UOM" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('uom')} aria-label="Add UOM">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    )}
+                                        <SelectContent>
+                                            {uoms.map((u) => (
+                                                <SelectItem key={u.uom_id} value={u.uom_name}>
+                                                    {u.uom_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                                     <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select 
-                                                value={form.department} 
-                                                onValueChange={(val) => {
-                                                    setField('department')(val);
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Department" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <div className="flex items-center border-b px-3 pb-3">
-                                                        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                        <input
-                                                            placeholder="Search departments..."
-                                                            value={searchTermDept}
-                                                            onChange={(e) => setSearchTermDept(e.target.value)}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                            className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                        />
-                                                    </div>
-                                                    <div className="max-h-[300px] overflow-y-auto">
-                                                        {uniqueDepartments.filter(d => d.toLowerCase().includes(searchTermDept.toLowerCase())).map(dept => (
-                                                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                                                        ))}
-                                                    </div>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setIsAddingDepartment(!isAddingDepartment)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {isAddingDepartment && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New department name..."
-                                                value={newDepartmentName}
-                                                onChange={(e) => setNewDepartmentName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                disabled={addingDepartment || !newDepartmentName.trim()}
-                                                onClick={handleAddDept}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {addingDepartment ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select 
+                                        value={form.department} 
+                                        onValueChange={(val) => {
+                                            setField('department')(val);
+                                        }}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Department" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('department')} aria-label="Add department">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    )}
+                                        <SelectContent>
+                                            <div className="flex items-center border-b px-3 pb-3">
+                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                <input
+                                                    placeholder="Search departments..."
+                                                    value={searchTermDept}
+                                                    onChange={(e) => setSearchTermDept(e.target.value)}
+                                                    onKeyDown={(e) => e.stopPropagation()}
+                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                />
+                                            </div>
+                                            <div className="max-h-[300px] overflow-y-auto no-scrollbar">
+                                                {uniqueDepartments.filter(d => d.toLowerCase().includes(searchTermDept.toLowerCase())).map(dept => (
+                                                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                                                ))}
+                                            </div>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                                 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department Head</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select 
-                                                value={form.department_head} 
-                                                onValueChange={(val) => {
-                                                    setField('department_head')(val);
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Department Head" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <div className="flex items-center border-b px-3 pb-3">
-                                                        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                        <input
-                                                            placeholder="Search heads..."
-                                                            value={searchTermHead}
-                                                            onChange={(e) => setSearchTermHead(e.target.value)}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                            className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                        />
-                                                    </div>
-                                                    <div className="max-h-[300px] overflow-y-auto">
-                                                        {uniqueHeads.filter(h => h.toLowerCase().includes(searchTermHead.toLowerCase())).map(head => (
-                                                            <SelectItem key={head} value={head}>{head}</SelectItem>
-                                                        ))}
-                                                    </div>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setIsAddingHead(!isAddingHead)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {isAddingHead && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New head name..."
-                                                value={newHeadName}
-                                                onChange={(e) => setNewHeadName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                disabled={addingHead || !newHeadName.trim()}
-                                                onClick={handleAddHead}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {addingHead ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select 
+                                        value={form.department_head} 
+                                        onValueChange={(val) => {
+                                            setField('department_head')(val);
+                                        }}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Department Head" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('departmentHead')} aria-label="Add department head">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    )}
+                                        <SelectContent>
+                                            <div className="flex items-center border-b px-3 pb-3">
+                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                <input
+                                                    placeholder="Search heads..."
+                                                    value={searchTermHead}
+                                                    onChange={(e) => setSearchTermHead(e.target.value)}
+                                                    onKeyDown={(e) => e.stopPropagation()}
+                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                />
+                                            </div>
+                                            <div className="max-h-[300px] overflow-y-auto no-scrollbar">
+                                                {uniqueHeads.filter(h => h.toLowerCase().includes(searchTermHead.toLowerCase())).map(head => (
+                                                    <SelectItem key={head} value={head}>{head}</SelectItem>
+                                                ))}
+                                            </div>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Firm Name</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select
-                                                value={form.firm_name}
-                                                onValueChange={setField('firm_name')}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Firm" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {firms.map((f) => (
-                                                        <SelectItem key={f.firm_id} value={f.firm_name}>
-                                                            {f.firm_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setIsAddingFirm(!isAddingFirm)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {isAddingFirm && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New firm name..."
-                                                value={newFirmName}
-                                                onChange={(e) => setNewFirmName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleAddFirm}
-                                                disabled={addingFirm}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {addingFirm ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select
+                                        value={form.firm_name}
+                                        onValueChange={setField('firm_name')}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Firm" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('firm')} aria-label="Add firm">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    )}
+                                        <SelectContent>
+                                            {firms.map((f) => (
+                                                <SelectItem key={f.firm_id} value={f.firm_name}>
+                                                    {f.firm_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="pt-4 flex gap-2">
@@ -1346,6 +1659,78 @@ export default function MasterData() {
                                     </Button>
                                 </div>
 
+                            </form>
+                        </div>
+                    ) : activeTab === 'productCategory' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleProductCategorySubmit} className="space-y-4">
+                                <Field
+                                    label="Product Category"
+                                    id="product_category_name"
+                                    value={newCategoryName}
+                                    onChange={setNewCategoryName}
+                                    required
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Product Category...' : 'Save Product Category'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'uom' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleUOMSubmit} className="space-y-4">
+                                <Field
+                                    label="UOM"
+                                    id="uom_name"
+                                    value={newUOMName}
+                                    onChange={setNewUOMName}
+                                    required
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving UOM...' : 'Save UOM'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'department' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleDepartmentSubmit} className="space-y-4">
+                                <Field
+                                    label="Department"
+                                    id="department_name"
+                                    value={newDepartmentName}
+                                    onChange={setNewDepartmentName}
+                                    required
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Department...' : 'Save Department'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'departmentHead' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleDepartmentHeadSubmit} className="space-y-4">
+                                <Field
+                                    label="Department Head"
+                                    id="department_head_name"
+                                    value={newHeadName}
+                                    onChange={setNewHeadName}
+                                    required
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Department Head...' : 'Save Department Head'}
+                                    </Button>
+                                </div>
                             </form>
                         </div>
                     ) : activeTab === 'vendor' ? (
@@ -1611,6 +1996,50 @@ export default function MasterData() {
                 </DialogContent>
             </Dialog>
 
+            <Dialog open={simpleEditOpen} onOpenChange={(open) => {
+                setSimpleEditOpen(open);
+                if (!open) setSimpleEditId(null);
+            }}>
+                <DialogContent className="w-full max-w-md">
+                    <DialogHeader className="pb-3 border-b">
+                        <DialogTitle>Edit {simpleEditLabels[simpleEditType]}</DialogTitle>
+                        <DialogDescription>
+                            Update the name and active status.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <form onSubmit={handleSimpleEditSubmit} className="space-y-4 py-2">
+                        <Field
+                            label={simpleEditLabels[simpleEditType]}
+                            id="simple_edit_name"
+                            value={simpleEditName}
+                            onChange={setSimpleEditName}
+                            required
+                        />
+
+                        <div className="flex flex-col gap-1.5">
+                            <Label className="text-sm font-medium">Active Status</Label>
+                            <Select value={simpleEditActive} onValueChange={setSimpleEditActive}>
+                                <SelectTrigger className="w-full h-10">
+                                    <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="true">True</SelectItem>
+                                    <SelectItem value="false">False</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="pt-2 flex gap-2">
+                            <Button type="submit" disabled={submitting} className="flex-1 h-10">
+                                {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                {submitting ? 'Saving...' : 'Save Changes'}
+                            </Button>
+                        </div>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
             {/* ── Edit Dialog ── */}
             <Dialog open={editDialogOpen} onOpenChange={(open) => {
                 setEditDialogOpen(open);
@@ -1645,299 +2074,148 @@ export default function MasterData() {
                                     <Label className="text-sm font-medium">
                                         Item Category<span className="text-destructive ml-0.5">*</span>
                                     </Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select
-                                                value={editDialogForm.itemCategoryId}
-                                                onValueChange={setEditDialogField('itemCategoryId')}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Category" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {productCategories.map((c) => (
-                                                        <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
-                                                            {c.product_category_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setEditIsAddingCategory(!editIsAddingCategory)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {editIsAddingCategory && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New category name..."
-                                                value={editNewCategoryName}
-                                                onChange={(e) => setEditNewCategoryName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleEditAddCategory}
-                                                disabled={editAddingCategory}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {editAddingCategory ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select
+                                        value={editDialogForm.itemCategoryId}
+                                        onValueChange={setEditDialogField('itemCategoryId')}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Category" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('productCategory')} aria-label="Add product category">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    )}
+                                        <SelectContent>
+                                            {productCategories.map((c) => (
+                                                <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
+                                                    {c.product_category_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select value={editDialogForm.uom} onValueChange={setEditDialogField('uom')}>
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select UOM" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {uoms.map((u) => (
-                                                        <SelectItem key={u.uom_id} value={u.uom_name}>
-                                                            {u.uom_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setEditIsAddingUOM(!editIsAddingUOM)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-
-                                    {editIsAddingUOM && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New UOM name..."
-                                                value={editNewUOMName}
-                                                onChange={(e) => setEditNewUOMName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleEditAddUOM}
-                                                disabled={editAddingUOM}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {editAddingUOM ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select value={editDialogForm.uom} onValueChange={setEditDialogField('uom')}>
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select UOM" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('uom')} aria-label="Add UOM">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-
-                                    )}
+                                        <SelectContent>
+                                            {uoms.map((u) => (
+                                                <SelectItem key={u.uom_id} value={u.uom_name}>
+                                                    {u.uom_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select 
-                                                value={editDialogForm.department} 
-                                                onValueChange={(val) => {
-                                                    setEditDialogField('department')(val);
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Department" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <div className="flex items-center border-b px-3 pb-3">
-                                                        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                        <input
-                                                            placeholder="Search departments..."
-                                                            value={searchTermDept}
-                                                            onChange={(e) => setSearchTermDept(e.target.value)}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                            className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                        />
-                                                    </div>
-
-                                                    <div className="max-h-[300px] overflow-y-auto">
-                                                        {uniqueDepartments.filter(d => d.toLowerCase().includes(searchTermDept.toLowerCase())).map(dept => (
-                                                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                                                        ))}
-                                                    </div>
-
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setEditIsAddingDepartment(!editIsAddingDepartment)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-
-                                    {editIsAddingDepartment && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New department name..."
-                                                value={editNewDepartmentName}
-                                                onChange={(e) => setEditNewDepartmentName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                disabled={editAddingDepartment || !editNewDepartmentName.trim()}
-                                                onClick={handleEditAddDept}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {editAddingDepartment ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select 
+                                        value={editDialogForm.department} 
+                                        onValueChange={(val) => {
+                                            setEditDialogField('department')(val);
+                                        }}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Department" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('department')} aria-label="Add department">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
+                                        <SelectContent>
+                                            <div className="flex items-center border-b px-3 pb-3">
+                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                <input
+                                                    placeholder="Search departments..."
+                                                    value={searchTermDept}
+                                                    onChange={(e) => setSearchTermDept(e.target.value)}
+                                                    onKeyDown={(e) => e.stopPropagation()}
+                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                />
+                                            </div>
 
-                                    )}
+                                            <div className="max-h-[300px] overflow-y-auto">
+                                                {uniqueDepartments.filter(d => d.toLowerCase().includes(searchTermDept.toLowerCase())).map(dept => (
+                                                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                                                ))}
+                                            </div>
+
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department Head</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select 
-                                                value={editDialogForm.department_head} 
-                                                onValueChange={(val) => {
-                                                    setEditDialogField('department_head')(val);
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Department Head" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <div className="flex items-center border-b px-3 pb-3">
-                                                        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                        <input
-                                                            placeholder="Search heads..."
-                                                            value={searchTermHead}
-                                                            onChange={(e) => setSearchTermHead(e.target.value)}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                            className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                        />
-                                                    </div>
-
-                                                    <div className="max-h-[300px] overflow-y-auto">
-                                                        {uniqueHeads.filter(h => h.toLowerCase().includes(searchTermHead.toLowerCase())).map(head => (
-                                                            <SelectItem key={head} value={head}>{head}</SelectItem>
-                                                        ))}
-                                                    </div>
-
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setEditIsAddingHead(!editIsAddingHead)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-
-                                    {editIsAddingHead && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New head name..."
-                                                value={editNewHeadName}
-                                                onChange={(e) => setEditNewHeadName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                disabled={editAddingHead || !editNewHeadName.trim()}
-                                                onClick={handleEditAddHead}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {editAddingHead ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select 
+                                        value={editDialogForm.department_head} 
+                                        onValueChange={(val) => {
+                                            setEditDialogField('department_head')(val);
+                                        }}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Department Head" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('departmentHead')} aria-label="Add department head">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    )}
+                                        <SelectContent>
+                                            <div className="flex items-center border-b px-3 pb-3">
+                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                                <input
+                                                    placeholder="Search heads..."
+                                                    value={searchTermHead}
+                                                    onChange={(e) => setSearchTermHead(e.target.value)}
+                                                    onKeyDown={(e) => e.stopPropagation()}
+                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                                />
+                                            </div>
+
+                                            <div className="max-h-[300px] overflow-y-auto">
+                                                {uniqueHeads.filter(h => h.toLowerCase().includes(searchTermHead.toLowerCase())).map(head => (
+                                                    <SelectItem key={head} value={head}>{head}</SelectItem>
+                                                ))}
+                                            </div>
+
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Firm Name</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select
-                                                value={editDialogForm.firm_name}
-                                                onValueChange={setEditDialogField('firm_name')}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Firm" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {firms.map((f) => (
-                                                        <SelectItem key={f.firm_id} value={f.firm_name}>
-                                                            {f.firm_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setEditIsAddingFirm(!editIsAddingFirm)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-
-                                    {editIsAddingFirm && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New firm name..."
-                                                value={editNewFirmName}
-                                                onChange={(e) => setEditNewFirmName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleEditAddFirm}
-                                                disabled={editAddingFirm}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {editAddingFirm ? <Loader size={14} color="white" /> : 'Add'}
+                                    <Select
+                                        value={editDialogForm.firm_name}
+                                        onValueChange={setEditDialogField('firm_name')}
+                                    >
+                                        <div className="flex gap-2 items-end">
+                                            <SelectTrigger className="w-full h-10">
+                                                <SelectValue placeholder="Select Firm" />
+                                            </SelectTrigger>
+                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('firm')} aria-label="Add firm">
+                                                <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-
-                                    )}
+                                        <SelectContent>
+                                            {firms.map((f) => (
+                                                <SelectItem key={f.firm_id} value={f.firm_name}>
+                                                    {f.firm_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="pt-4 flex gap-2">

@@ -207,6 +207,24 @@ export async function postDepartment(name: string) {
     }
 }
 
+export async function updateDepartment(id: number, data: { name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/departments/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update department');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating department:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function fetchDepartmentHeads() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/department-heads`);
@@ -230,6 +248,24 @@ export async function postDepartmentHead(name: string) {
     } catch (error) {
         console.error('Error posting department head:', error);
         throw error;
+    }
+}
+
+export async function updateDepartmentHead(id: number, data: { name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/department-heads/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update department head');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating department head:', error);
+        return { success: false, error: error.message };
     }
 }
 
@@ -558,6 +594,32 @@ export async function fetchCounts(): Promise<BadgeCounts | null> {
     }
 }
 
+export interface InventoryAuditLog {
+    id: number;
+    createdAt: string;
+    action: string;
+    quantity: number;
+    itemName: string;
+    firm?: string;
+    department?: string | null;
+    departmentHead?: string | null;
+    uom?: string | null;
+    userName: string;
+    indentNumber?: string | null;
+    metadata?: Record<string, any>;
+}
+
+export async function fetchInventoryAuditLogs(inventoryId: number): Promise<InventoryAuditLog[]> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/inventory/${inventoryId}/audit-logs`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching inventory audit logs:', error);
+        return [];
+    }
+}
+
 export async function fetchVendors() {
     try {
         const data = await fetchFromSupabasePaginated('master_data');
@@ -699,6 +761,38 @@ export async function postToUOM(uomName: string) {
     }
 }
 
+export async function updateUOM(id: number, data: { uom_name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/uom/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update UOM');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating UOM:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteUOM(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/uom/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete UOM');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting UOM:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function fetchFirms() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/firms`);
@@ -800,6 +894,66 @@ export async function postProductCategory(name: string) {
         return { success: true, data: await response.json() as { product_category_id: number; product_category_name: string } };
     } catch (error: any) {
         console.error('Error creating product category:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateProductCategory(id: number, data: { product_category_name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-categories/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update product category');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating product category:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteProductCategory(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-categories/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete product category');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting product category:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteDepartment(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/departments/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete department');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting department:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteDepartmentHead(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/department-heads/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete department head');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting department head:', error);
         return { success: false, error: error.message };
     }
 }

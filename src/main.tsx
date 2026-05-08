@@ -304,6 +304,7 @@ const routes: RouteAttributes[] = [
     },
     {
         path: 'master-data',
+        gateKey: 'masterData',
         name: 'Master Data',
         icon: <Database size={20} />,
         element: <MasterData />,

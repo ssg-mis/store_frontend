@@ -7,13 +7,9 @@ import { Pill } from '../ui/pill';
 import { Store } from 'lucide-react';
 import DataTable from '../element/DataTable';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { toast } from 'sonner';
-import { postToSheet } from '@/lib/fetchers';
-import type { InventorySheet } from '@/types/sheets';
+import { fetchInventoryAuditLogs, type InventoryAuditLog } from '@/lib/fetchers';
 
 interface InventoryTable {
     inventoryId: number | null;
@@ -30,31 +26,19 @@ interface InventoryTable {
     current: number;
 }
 
-
-interface EditForm {
-    uom: string;
-    departmentHead: string;
-    department: string;
-}
-
-
 export default () => {
-    const { inventorySheet, inventoryLoading, updateInventorySheet, masterSheet } = useSheets();
+    const { inventorySheet, inventoryLoading, updateInventorySheet } = useSheets();
 
     const [tableData, setTableData] = useState<InventoryTable[]>([]);
-    const [editOpen, setEditOpen] = useState(false);
-    const [editRow, setEditRow] = useState<InventoryTable | null>(null);
-    const [editForm, setEditForm] = useState<EditForm>({ uom: '', departmentHead: '', department: '' });
-    const [saving, setSaving] = useState(false);
-    // Derived unique options for dropdowns
-    const departmentOptions = masterSheet?.departments || [];
-    const headOptions = masterSheet?.createGroupHeads || [];
-
+    const [viewOpen, setViewOpen] = useState(false);
+    const [viewRow, setViewRow] = useState<InventoryTable | null>(null);
+    const [auditLogs, setAuditLogs] = useState<InventoryAuditLog[]>([]);
+    const [auditLoading, setAuditLoading] = useState(false);
 
     useEffect(() => {
         setTableData(
             inventorySheet.map((i) => ({
-                inventoryId: i.inventoryId || null,
+                inventoryId: i.inventoryId || (i as any).id || null,
                 uom: i.uom || '-',
                 current: Number(i.current || 0),
                 status: i.colorCode || 'green',
@@ -66,8 +50,7 @@ export default () => {
                 approved: Number(i.approved || 0),
                 storeOut: Number(i.storeOut || 0),
                 loanOut: Number(i.loanOut || 0),
-            }))
-                .reverse()
+            })).reverse()
         );
     }, [inventorySheet]);
 
@@ -78,48 +61,32 @@ export default () => {
         return () => clearInterval(intervalId);
     }, [updateInventorySheet]);
 
-    function openEditDialog(row: InventoryTable) {
-        setEditRow(row);
-        setEditForm({
-            uom: row.uom || '',
-            departmentHead: row.departmentHead || '',
-            department: row.department || '',
-        });
-        setEditOpen(true);
-    }
+    async function openViewDialog(row: InventoryTable) {
+        setViewRow(row);
+        setViewOpen(true);
+        setAuditLogs([]);
 
-    async function handleSave() {
-        if (!editRow) return;
-        setSaving(true);
+        if (!row.inventoryId) {
+            toast.error('No inventory record found for this item');
+            return;
+        }
+
+        setAuditLoading(true);
         try {
-            const payload: any = {
-                itemName: editRow.itemName,
-                departmentHead: editForm.departmentHead,
-                department: editForm.department,
-                uom: editForm.uom,
-            };
-
-
-            let result;
-            if (editRow.inventoryId) {
-                result = await postToSheet([{ id: editRow.inventoryId, ...payload }], 'update', 'INVENTORY');
-            } else {
-                result = await postToSheet([payload], 'insert', 'INVENTORY');
-            }
-
-            if (result.success) {
-                toast.success('Inventory updated successfully');
-                setEditOpen(false);
-                updateInventorySheet();
-            } else {
-                throw new Error('Failed to save');
-            }
-        } catch (err: any) {
-            toast.error(err.message || 'Error saving inventory');
+            const logs = await fetchInventoryAuditLogs(row.inventoryId);
+            setAuditLogs(logs);
+        } catch {
+            toast.error('Failed to load inventory history');
         } finally {
-            setSaving(false);
+            setAuditLoading(false);
         }
     }
+
+    const formatDate = (value: string) => {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleString();
+    };
 
     const columns: ColumnDef<InventoryTable>[] = [
         {
@@ -130,9 +97,9 @@ export default () => {
                     variant="outline"
                     size="sm"
                     className="h-7 text-xs"
-                    onClick={() => openEditDialog(row.original)}
+                    onClick={() => openViewDialog(row.original)}
                 >
-                    Edit
+                    View
                 </Button>
             ),
         },
@@ -146,15 +113,12 @@ export default () => {
         { accessorKey: 'uom', header: 'UOM' },
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'departmentHead', header: 'Dept Head' },
-
-
         { accessorKey: 'indented', header: 'Indented' },
         { accessorKey: 'approved', header: 'Approved' },
         { accessorKey: 'purchaseQuantity', header: 'Purchased' },
         { accessorKey: 'storeOut', header: 'Store Out' },
         { accessorKey: 'loanOut', header: 'Loan Out' },
         { accessorKey: 'current', header: 'Stock' },
-
         {
             accessorKey: 'status',
             header: 'Status',
@@ -188,66 +152,37 @@ export default () => {
                 className="h-[80dvh]"
             />
 
-            <Dialog open={editOpen} onOpenChange={setEditOpen}>
-                <DialogContent className="w-full max-w-md">
+            <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+                <DialogContent className="w-full max-w-2xl max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>Edit Inventory Info</DialogTitle>
+                        <DialogTitle>Inventory History</DialogTitle>
                         <DialogDescription>
-                            Updating {editRow?.itemName}
+                            {viewRow?.itemName} {viewRow?.uom ? `(${viewRow.uom})` : ''}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="flex flex-col gap-1.5">
-                                <Label className="text-sm font-medium">Department</Label>
-                                <Select 
-                                    value={editForm.department} 
-                                    onValueChange={(v) => setEditForm(p => ({ ...p, department: v }))}
-                                >
-                                    <SelectTrigger className="h-9">
-                                        <SelectValue placeholder="Select Dept" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(departmentOptions as string[]).map((opt: string) => (
-                                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                    <div className="space-y-3 py-2">
+                        {auditLoading ? (
+                            <div className="py-8 text-center text-sm text-muted-foreground">Loading history...</div>
+                        ) : auditLogs.length === 0 ? (
+                            <div className="py-8 text-center text-sm text-muted-foreground">
+                                No inventory history recorded yet. New inventory actions will appear here.
                             </div>
-                            <div className="flex flex-col gap-1.5">
-                                <Label className="text-sm font-medium">Dept Head</Label>
-                                <Select 
-                                    value={editForm.departmentHead} 
-                                    onValueChange={(v) => setEditForm(p => ({ ...p, departmentHead: v }))}
-                                >
-                                    <SelectTrigger className="h-9">
-                                        <SelectValue placeholder="Select Head" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(headOptions as string[]).map((opt: string) => (
-                                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col gap-1.5">
-                            <Label className="text-sm font-medium">UOM</Label>
-                            <Input
-                                value={editForm.uom}
-                                onChange={(e) => setEditForm(p => ({ ...p, uom: e.target.value }))}
-                                placeholder="Enter UOM"
-                            />
-                        </div>
-
-                        <Button
-                            className="w-full mt-2"
-                            onClick={handleSave}
-                            disabled={saving}
-                        >
-                            {saving ? 'Saving…' : 'Save Changes'}
-                        </Button>
+                        ) : (
+                            auditLogs.map((log) => (
+                                <div key={log.id} className="rounded-sm border p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <p className="text-sm font-medium">
+                                            {log.action} {Math.abs(Number(log.quantity || 0))} {log.uom || viewRow?.uom || ''}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">{formatDate(log.createdAt)}</p>
+                                    </div>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                        {log.action} by {log.userName || 'Unknown user'}
+                                        {log.indentNumber ? ` for ${log.indentNumber}` : ''}
+                                    </p>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>

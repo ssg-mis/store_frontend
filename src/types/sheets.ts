@@ -262,6 +262,7 @@ export type UserPermissions = {
     // New permissions for Dashboard and Inventory
     dashboard: boolean;
     inventory: boolean;
+    masterData: boolean;
     setting: boolean;
     firmAccess?: string[];
 };
@@ -287,6 +288,7 @@ export const allPermissionKeys = [
     "poMaster",
     "dashboard",
     "inventory",
+    "masterData",
     "setting",
 ] as const;
 
