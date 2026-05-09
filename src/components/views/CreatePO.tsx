@@ -566,7 +566,9 @@ export default () => {
         if (mode !== 'revise') {
             const qtyErrors: string[] = [];
             values.indents.forEach((itemRow) => {
-                const indent = indentSheetData.find(i => i.indentNumber === itemRow.indentNumber);
+                const indent = indentSheetData.find((i: any) =>
+                    itemRow.id ? i.id === itemRow.id : (i.indentNumber || i.indent_number) === itemRow.indentNumber
+                );
                 const approvedQty = Number(indent?.approvedQuantity || indent?.approved_quantity || 0);
                 if (approvedQty > 0 && itemRow.quantity > approvedQty) {
                     const name = indent?.productName || indent?.product_name || itemRow.indentNumber;
@@ -582,7 +584,9 @@ export default () => {
         // Stock Validation (skipped in revise mode — already checked at PO creation)
         const stockErrors: string[] = [];
         if (mode !== 'revise') values.indents.forEach((itemRow) => {
-            const indent = indentSheetData.find(i => i.indentNumber === itemRow.indentNumber);
+            const indent = indentSheetData.find((i: any) =>
+                itemRow.id ? i.id === itemRow.id : (i.indentNumber || i.indent_number) === itemRow.indentNumber
+            );
             const itemName = indent?.productName || indent?.product_name || '';
             const departmentHead = indent?.departmentHead || '';
 
@@ -821,7 +825,8 @@ export default () => {
                     discountPercent: v.discount || 0,
                     gstPercent: v.gst,
                     leadTime: values.leadTime || null,
-                    indent_number: v.indentNumber
+                    indent_number: v.indentNumber,
+                    indent_id: v.id || indent?.id || null,
                 };
             });
 

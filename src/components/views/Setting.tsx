@@ -40,6 +40,7 @@ interface UsersTableData {
     name: string;
     password: string;
     role: string;
+    modifyAccess: 'EDIT' | 'VIEW';
     permissions: string[];
     firmAccess: string[];
 }
@@ -109,6 +110,7 @@ export default () => {
                         name: user.name,
                         password: user.password,
                         role: user.role || 'USER',
+                        modifyAccess: (String(user.modifyAccess || user.modify_access || 'EDIT').toUpperCase() === 'VIEW' ? 'VIEW' : 'EDIT'),
                         permissions: permissionKeys,
                         firmAccess: extractedFirmAccess,
                     };
@@ -132,6 +134,15 @@ export default () => {
             cell: ({ row }) => (
                 <Pill className={row.original.role === 'ADMIN' ? 'bg-primary/10 text-primary' : ''}>
                     {row.original.role}
+                </Pill>
+            ),
+        },
+        {
+            accessorKey: 'modifyAccess',
+            header: 'Action Access',
+            cell: ({ row }) => (
+                <Pill className={row.original.modifyAccess === 'VIEW' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}>
+                    {row.original.modifyAccess}
                 </Pill>
             ),
         },
@@ -211,6 +222,7 @@ export default () => {
         username: z.string().nonempty(),
         password: z.string().nonempty(),
         role: z.string().default('USER'),
+        modifyAccess: z.enum(['EDIT', 'VIEW']).default('EDIT'),
         permissions: z.array(z.string()),
         firmAccess: z.array(z.string()).default([]),
     });
@@ -224,6 +236,7 @@ export default () => {
                 name: selectedUser.name,
                 password: selectedUser.password,
                 role: selectedUser.role || 'USER',
+                modifyAccess: selectedUser.modifyAccess || 'EDIT',
                 permissions: selectedUser.permissions,
                 firmAccess: selectedUser.firmAccess || [],
             });
@@ -234,6 +247,7 @@ export default () => {
             name: '',
             password: '',
             role: 'USER',
+            modifyAccess: 'EDIT',
             permissions: [],
             firmAccess: [],
         });
@@ -260,6 +274,7 @@ export default () => {
                     name: value.name,
                     password: value.password,
                     role: value.role,
+                    modifyAccess: value.modifyAccess,
                     pageAccess,
                     firmAccess: value.firmAccess,
                 };
@@ -284,6 +299,7 @@ export default () => {
                 name: value.name,
                 password: value.password,
                 role: value.role,
+                modifyAccess: value.modifyAccess,
                 pageAccess,
                 firmAccess: value.firmAccess,
             };
@@ -416,6 +432,26 @@ export default () => {
                                                 <SelectContent>
                                                     <SelectItem value="USER">USER</SelectItem>
                                                     <SelectItem value="ADMIN">ADMIN</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="modifyAccess"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Action Access</FormLabel>
+                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select access" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="EDIT">EDIT - Can view and modify</SelectItem>
+                                                    <SelectItem value="VIEW">VIEW - View only</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </FormItem>

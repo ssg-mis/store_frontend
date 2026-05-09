@@ -93,7 +93,9 @@ interface HistoryData {
 }
 
 interface PendingGroup {
+    groupKey: string;
     indentNo: string;
+    vendorType: 'Three Party' | 'Regular';
     firm: string;
     indenter: string;
     department: string;
@@ -498,20 +500,22 @@ export default () => {
             (historyFilters.product === 'All' || item.product === historyFilters.product);
     });
 
-    // Group pending items by indent number
+    // Group pending items by indent number and vendor type so mixed approvals
+    // under one indent follow their own Regular / Three Party flows.
     const groupedPendingData = useMemo(() => {
         const groups = new Map<string, VendorUpdateData[]>();
         filteredTableData.forEach(item => {
-            // Group by base indent number (stripping existing suffixes if any)
             const baseIndentNo = item.indentNo.replace(/-[A-Z]+$/, '');
-            if (!groups.has(baseIndentNo)) {
-                groups.set(baseIndentNo, []);
+            const groupKey = `${baseIndentNo}::${item.vendorType}`;
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, []);
             }
-            groups.get(baseIndentNo)!.push(item);
+            groups.get(groupKey)!.push(item);
         });
 
         return Array.from(groups.entries())
-            .map(([baseIndentNo, items]) => {
+            .map(([groupKey, items]) => {
+                const [baseIndentNo] = groupKey.split('::');
                 // Sort items within group by date ascending
                 const sortedItems = [...items].sort((a, b) => 
                     new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
@@ -526,7 +530,9 @@ export default () => {
                 });
                 const first = sortedItems[0];
                 return {
+                    groupKey,
                     indentNo: baseIndentNo,
+                    vendorType: first.vendorType,
                     firm: first.firm,
                     indenter: first.indenter,
                     department: first.department,
@@ -548,14 +554,16 @@ export default () => {
         const groups = new Map<string, HistoryData[]>();
         filteredHistoryData.forEach(item => {
             const baseIndentNo = item.indentNo.replace(/-[A-Z]+$/, '');
-            if (!groups.has(baseIndentNo)) {
-                groups.set(baseIndentNo, []);
+            const groupKey = `${baseIndentNo}::${item.vendorType}`;
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, []);
             }
-            groups.get(baseIndentNo)!.push(item);
+            groups.get(groupKey)!.push(item);
         });
 
         return Array.from(groups.entries())
-            .map(([baseIndentNo, items]) => {
+            .map(([groupKey, items]) => {
+                const [baseIndentNo] = groupKey.split('::');
                 // Deduplicate by product: same indent+product can appear in both
                 // vendor_rate_update and three_party_approval — keep three_party if present
                 const seenProducts = new Map<string, HistoryData>();
@@ -598,6 +606,7 @@ export default () => {
 
                 const first = deduplicatedItems[0];
                 return {
+                    groupKey,
                     indentNo: baseIndentNo,
                     firm: first.firm,
                     indenter: first.indenter,
@@ -622,19 +631,18 @@ export default () => {
             .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
     }, [filteredHistoryData]);
 
-    const handleIndentSelect = (indentNo: string, checked: boolean) => {
+    const handleIndentSelect = (groupKey: string, checked: boolean) => {
         setSelectedIndents(prev => {
             const newSet = new Set(prev);
-            if (checked) newSet.add(indentNo);
-            else newSet.delete(indentNo);
+            if (checked) newSet.add(groupKey);
+            else newSet.delete(groupKey);
             return newSet;
         });
     };
 
     const handleSelectAllIndents = (checked: boolean) => {
         if (checked) {
-            const allIndentNos = [...new Set(groupedPendingData.map(item => item.indentNo))];
-            setSelectedIndents(new Set(allIndentNos));
+            setSelectedIndents(new Set(groupedPendingData.map(item => item.groupKey)));
         } else {
             setSelectedIndents(new Set());
         }
@@ -786,6 +794,7 @@ export default () => {
         try {
             const results = await Promise.all(selectedGroup.items.map(item =>
                 postToSheet([{
+                    indent_id: item.indentId,
                     indent_number: item.indentNo,
                     product_code: item.productCode,
                     approvedVendorName: values.vendorName,
@@ -878,6 +887,7 @@ export default () => {
 
             await Promise.all(selectedGroup.items.map((item, i) => {
                 const payload: any = {
+                    indent_id: item.indentId,
                     indent_number: item.indentNo,
                     product_code: item.productCode,
                     vendorName1: values.vendorName1, rate1: values.products[i].rate1, paymentTerm1: values.paymentTerm1, deliveryTime1: values.deliveryTime1,
@@ -1040,21 +1050,22 @@ export default () => {
                                             <TableHead>Indenter</TableHead>
                                             <TableHead>Department</TableHead>
                                             <TableHead>Date</TableHead>
+                                            <TableHead>Vendor Type</TableHead>
                                             <TableHead>Products</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {groupedPendingData.map(group => (
                                             <TableRow
-                                                key={group.indentNo}
-                                                className={selectedIndents.has(group.indentNo) ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                                                key={group.groupKey}
+                                                className={selectedIndents.has(group.groupKey) ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}
                                             >
                                                 <TableCell>
                                                     <input
                                                         type="checkbox"
                                                         className="h-4 w-4 rounded border-gray-300"
-                                                        checked={selectedIndents.has(group.indentNo)}
-                                                        onChange={(e) => handleIndentSelect(group.indentNo, e.target.checked)}
+                                                        checked={selectedIndents.has(group.groupKey)}
+                                                        onChange={(e) => handleIndentSelect(group.groupKey, e.target.checked)}
                                                     />
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
@@ -1062,6 +1073,11 @@ export default () => {
                                                 <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.requestDate}</TableCell>
+                                                <TableCell>
+                                                    <Pill variant={group.vendorType === 'Three Party' ? 'secondary' : 'primary'}>
+                                                        {group.vendorType}
+                                                    </Pill>
+                                                </TableCell>
                                                 <TableCell>
                                                     <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                                                         {group.items.length} {group.items.length === 1 ? 'product' : 'products'}
@@ -1128,13 +1144,18 @@ export default () => {
 
                             <div className="space-y-8 py-2">
                                 {groupedPendingData
-                                    .filter(group => selectedIndents.has(group.indentNo))
+                                    .filter(group => selectedIndents.has(group.groupKey))
                                     .map(group => (
-                                        <div key={group.indentNo} className="rounded-lg border overflow-hidden">
+                                        <div key={group.groupKey} className="rounded-lg border overflow-hidden">
 
                                             {/* ── Indent title bar ── */}
                                             <div className="bg-primary px-4 py-2 flex items-center justify-between">
-                                                <span className="text-sm font-bold text-primary-foreground tracking-wide">{group.indentNo}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-primary-foreground tracking-wide">{group.indentNo}</span>
+                                                    <Pill variant={group.vendorType === 'Three Party' ? 'secondary' : 'primary'}>
+                                                        {group.vendorType}
+                                                    </Pill>
+                                                </div>
                                                 <Button
                                                     size="sm"
                                                     variant="secondary"
@@ -1219,7 +1240,7 @@ export default () => {
                         </>
                     ) : selectedGroup ? (
                         <div>
-                            {selectedGroup.items[0]?.vendorType === 'Three Party' ? (
+                            {selectedGroup.vendorType === 'Three Party' ? (
                                 <Form {...threePartyForm}>
                                     <form
                                         onSubmit={threePartyForm.handleSubmit(onSubmitThreeParty, onError)}

@@ -54,6 +54,27 @@ interface FirmRow {
     isActive: boolean;
 }
 
+interface UOMConversionRow {
+    conversion_id: number;
+    conversionToBase: string | number;
+    alternateUom?: {
+        uom_id: number;
+        uom_name: string;
+    };
+}
+
+interface UOMRow {
+    uom_id: number;
+    uom_name: string;
+    isActive?: boolean;
+    baseConversions?: UOMConversionRow[];
+}
+
+interface AdditionalUOMDraft {
+    uom_name: string;
+    conversionToBase: number;
+}
+
 interface MasterForm {
     vendor_name: string;
     vendor_gstin: string;
@@ -151,6 +172,29 @@ function Field({
     );
 }
 
+function ActiveStatusField({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (val: string) => void;
+}) {
+    return (
+        <div className="flex flex-col gap-1.5">
+            <Label className="text-sm font-medium">Is Active</Label>
+            <Select value={value} onValueChange={onChange}>
+                <SelectTrigger className="w-full h-10">
+                    <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="true">True</SelectItem>
+                    <SelectItem value="false">False</SelectItem>
+                </SelectContent>
+            </Select>
+        </div>
+    );
+}
+
 function TruncCell({ value, width = 140 }: { value: string | null; width?: number }) {
     if (!value || value === 'null' || value === '---' || value.trim() === '') {
         return <span className="text-muted-foreground">—</span>;
@@ -164,6 +208,11 @@ function TruncCell({ value, width = 140 }: { value: string | null; width?: numbe
             {value}
         </span>
     );
+}
+
+function normalizePaymentTerm(value: string | string[] | null | undefined) {
+    if (Array.isArray(value)) return value[0] || '';
+    return value || '';
 }
 
 
@@ -190,7 +239,7 @@ export default function MasterData() {
     const [simpleEditId, setSimpleEditId] = useState<number | null>(null);
     const [simpleEditName, setSimpleEditName] = useState('');
     const [simpleEditActive, setSimpleEditActive] = useState('true');
-    const [postAddReturn, setPostAddReturn] = useState<'item' | 'editInventory' | null>(null);
+    const [postAddReturn, setPostAddReturn] = useState<'item' | 'vendor' | 'editInventory' | null>(null);
 
     const [isAddingDepartment, setIsAddingDepartment] = useState(false);
     const [newDepartmentName, setNewDepartmentName] = useState('');
@@ -205,18 +254,20 @@ export default function MasterData() {
     const [searchTermDept, setSearchTermDept] = useState('');
     const [searchTermHead, setSearchTermHead] = useState('');
 
-    const [uoms, setUoms] = useState<{ uom_id: number, uom_name: string, isActive?: boolean }[]>([]);
+    const [uoms, setUoms] = useState<UOMRow[]>([]);
     const [isAddingUOM, setIsAddingUOM] = useState(false);
     const [newUOMName, setNewUOMName] = useState('');
     const [addingUOM, setAddingUOM] = useState(false);
+    const [showAdditionalUOMForm, setShowAdditionalUOMForm] = useState(false);
+    const [additionalUOMName, setAdditionalUOMName] = useState('');
+    const [additionalUOMConversion, setAdditionalUOMConversion] = useState('');
+    const [additionalUOMDrafts, setAdditionalUOMDrafts] = useState<AdditionalUOMDraft[]>([]);
     const [firms, setFirms] = useState<FirmRow[]>([]);
-    const [isAddingFirm, setIsAddingFirm] = useState(false);
-    const [newFirmName, setNewFirmName] = useState('');
-    const [addingFirm, setAddingFirm] = useState(false);
     const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string, isActive?: boolean }[]>([]);
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [addingCategory, setAddingCategory] = useState(false);
+    const [newMasterActive, setNewMasterActive] = useState('true');
 
     const [allDepartments, setAllDepartments] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
     const [allDepartmentHeads, setAllDepartmentHeads] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
@@ -280,7 +331,13 @@ export default function MasterData() {
     }
 
     function openRelatedMasterAdd(tab: 'productCategory' | 'uom' | 'department' | 'departmentHead' | 'firm') {
-        setPostAddReturn(editDialogOpen && editDialogType === 'inventory' ? 'editInventory' : sheetOpen && activeTab === 'item' ? 'item' : null);
+        setPostAddReturn(
+            editDialogOpen && editDialogType === 'inventory'
+                ? 'editInventory'
+                : sheetOpen && (activeTab === 'item' || activeTab === 'vendor')
+                    ? activeTab
+                    : null
+        );
         setActiveTab(tab);
         setSheetOpen(true);
         if (editDialogOpen) {
@@ -292,6 +349,9 @@ export default function MasterData() {
         if (postAddReturn === 'item') {
             setActiveTab('item');
             setSheetOpen(true);
+        } else if (postAddReturn === 'vendor') {
+            setActiveTab('vendor');
+            setSheetOpen(true);
         } else if (postAddReturn === 'editInventory') {
             setSheetOpen(false);
             setEditDialogOpen(true);
@@ -299,6 +359,20 @@ export default function MasterData() {
             setSheetOpen(false);
         }
         setPostAddReturn(null);
+    }
+
+    function handleAddDialogOpenChange(open: boolean) {
+        if (open) {
+            setSheetOpen(true);
+            return;
+        }
+
+        if (postAddReturn) {
+            closeOrReturnAfterRelatedAdd();
+            return;
+        }
+
+        setSheetOpen(false);
     }
 
     const simpleEditLabels: Record<typeof simpleEditType, string> = {
@@ -382,7 +456,7 @@ export default function MasterData() {
                 vendor_gstin: row.vendor_gstin || '',
                 vendor_address: row.vendorAddress || row.vendor_address || '',
                 vendor_email: row.vendor_email || '',
-                payment_term: row.payment_term || '',
+                payment_term: normalizePaymentTerm(row.payment_term),
                 department: row.department || '',
                 department_head: row.departmentHead || row.department_head || '',
                 item_name: row.itemName || '',
@@ -456,7 +530,7 @@ export default function MasterData() {
                     vendor_gstin: editDialogForm.vendor_gstin.trim() || null,
                     vendor_address: editDialogForm.vendor_address.trim() || null,
                     vendor_email: editDialogForm.vendor_email.trim() || null,
-                    payment_term: editDialogForm.payment_term.trim() || null,
+                    payment_term: normalizePaymentTerm(editDialogForm.payment_term).trim() || null,
                     firm_name: editDialogForm.firm_name.trim() || null,
                     contact_person: editDialogForm.contact_person.trim() || null,
                     mobile: editDialogForm.mobile.trim() || null,
@@ -604,6 +678,18 @@ export default function MasterData() {
             header: 'Email',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
         },
+        {
+            accessorKey: 'isActive',
+            header: 'Status',
+            cell: ({ getValue }) => {
+                const val = getValue() as boolean;
+                return (
+                    <Pill variant={val ? 'secondary' : 'reject'}>
+                        {val ? 'Active' : 'Inactive'}
+                    </Pill>
+                );
+            },
+        },
     ], []);
 
     const firmColumns = useMemo<ColumnDef<FirmRow>[]>(() => [
@@ -681,11 +767,6 @@ export default function MasterData() {
             ),
         },
         {
-            accessorKey: 'product_category_id',
-            header: 'ID',
-            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
-        },
-        {
             accessorKey: 'product_category_name',
             header: 'Product Category',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
@@ -711,7 +792,7 @@ export default function MasterData() {
         },
     ], [loadProductCategories]);
 
-    const uomColumns = useMemo<ColumnDef<{ uom_id: number; uom_name: string; isActive?: boolean }>[]>(() => [
+    const uomColumns = useMemo<ColumnDef<UOMRow>[]>(() => [
         {
             id: 'edit',
             header: 'Edit',
@@ -727,14 +808,29 @@ export default function MasterData() {
             ),
         },
         {
-            accessorKey: 'uom_id',
-            header: 'ID',
-            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
-        },
-        {
             accessorKey: 'uom_name',
             header: 'UOM',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={180} />,
+        },
+        {
+            id: 'additionalUoms',
+            header: 'Additional UOM',
+            cell: ({ row }) => {
+                const conversions = row.original.baseConversions || [];
+                if (conversions.length === 0) {
+                    return <span className="text-muted-foreground">-</span>;
+                }
+
+                return (
+                    <div className="space-y-1">
+                        {conversions.map((conversion) => (
+                            <div key={conversion.conversion_id} className="text-xs">
+                                1 {conversion.alternateUom?.uom_name || '-'} = {Number(conversion.conversionToBase).toLocaleString()} {row.original.uom_name}
+                            </div>
+                        ))}
+                    </div>
+                );
+            },
         },
         {
             id: 'delete',
@@ -771,11 +867,6 @@ export default function MasterData() {
                     Edit
                 </Button>
             ),
-        },
-        {
-            accessorKey: 'id',
-            header: 'ID',
-            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
         },
         {
             accessorKey: 'name',
@@ -817,11 +908,6 @@ export default function MasterData() {
                     Edit
                 </Button>
             ),
-        },
-        {
-            accessorKey: 'id',
-            header: 'ID',
-            cell: ({ getValue }) => <span className="tabular-nums">{getValue() as number}</span>,
         },
         {
             accessorKey: 'name',
@@ -907,6 +993,8 @@ export default function MasterData() {
             setForm(emptyForm);
             setIsAddingDepartment(false);
             setNewDepartmentName('');
+            setNewMasterActive('true');
+            resetAdditionalUOMState();
         }
     }, [sheetOpen]);
 
@@ -992,10 +1080,11 @@ export default function MasterData() {
         }
         setSubmitting(true);
         try {
-            const result = await postProductCategory(newCategoryName.trim());
+            const result = await postProductCategory(newCategoryName.trim(), newMasterActive === 'true');
             if (!result.success) throw new Error(result.error || 'Failed to save product category');
             toast.success('Product category saved successfully!');
             setNewCategoryName('');
+            setNewMasterActive('true');
             loadProductCategories();
             closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
@@ -1003,6 +1092,53 @@ export default function MasterData() {
         } finally {
             setSubmitting(false);
         }
+    }
+
+    function resetAdditionalUOMState() {
+        setShowAdditionalUOMForm(false);
+        setAdditionalUOMName('');
+        setAdditionalUOMConversion('');
+        setAdditionalUOMDrafts([]);
+    }
+
+    function handleAddAdditionalUOMDraft() {
+        const baseName = newUOMName.trim();
+        const additionalName = additionalUOMName.trim();
+        const conversion = Number(additionalUOMConversion);
+
+        if (!baseName) {
+            toast.error('Enter base UOM before adding additional UOM');
+            return;
+        }
+
+        if (!additionalName) {
+            toast.error('Additional UOM is required');
+            return;
+        }
+
+        if (baseName.toLowerCase() === additionalName.toLowerCase()) {
+            toast.error('Additional UOM must be different from base UOM');
+            return;
+        }
+
+        if (!Number.isFinite(conversion) || conversion <= 0) {
+            toast.error('Conversion must be greater than 0');
+            return;
+        }
+
+        const alreadyAdded = additionalUOMDrafts.some(
+            (uom) => uom.uom_name.toLowerCase() === additionalName.toLowerCase()
+        );
+
+        if (alreadyAdded) {
+            toast.error('This additional UOM is already added');
+            return;
+        }
+
+        setAdditionalUOMDrafts(prev => [...prev, { uom_name: additionalName, conversionToBase: conversion }]);
+        setAdditionalUOMName('');
+        setAdditionalUOMConversion('');
+        setShowAdditionalUOMForm(false);
     }
 
     async function handleUOMSubmit(e: React.FormEvent) {
@@ -1013,10 +1149,12 @@ export default function MasterData() {
         }
         setSubmitting(true);
         try {
-            const result = await postToUOM(newUOMName.trim());
+            const result = await postToUOM(newUOMName.trim(), newMasterActive === 'true', additionalUOMDrafts);
             if (!result.success) throw new Error(result.error || 'Failed to save UOM');
             toast.success('UOM saved successfully!');
             setNewUOMName('');
+            setNewMasterActive('true');
+            resetAdditionalUOMState();
             loadUOMs();
             closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
@@ -1034,9 +1172,10 @@ export default function MasterData() {
         }
         setSubmitting(true);
         try {
-            await postDepartment(newDepartmentName.trim());
+            await postDepartment(newDepartmentName.trim(), newMasterActive === 'true');
             toast.success('Department saved successfully!');
             setNewDepartmentName('');
+            setNewMasterActive('true');
             loadDepartments();
             closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
@@ -1054,9 +1193,10 @@ export default function MasterData() {
         }
         setSubmitting(true);
         try {
-            await postDepartmentHead(newHeadName.trim());
+            await postDepartmentHead(newHeadName.trim(), newMasterActive === 'true');
             toast.success('Department head saved successfully!');
             setNewHeadName('');
+            setNewMasterActive('true');
             loadDepartmentHeads();
             closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
@@ -1084,27 +1224,6 @@ export default function MasterData() {
             toast.error(error.message || 'Failed to add UOM');
         } finally {
             setAddingUOM(false);
-        }
-    }
-
-    async function handleAddFirm() {
-        if (!newFirmName.trim()) return;
-        setAddingFirm(true);
-        try {
-            const result = await postToFirm(newFirmName.trim());
-            if (result.success) {
-                toast.success('Firm added successfully');
-                setNewFirmName('');
-                setIsAddingFirm(false);
-                loadFirms();
-                setForm(prev => ({ ...prev, firm_name: result.data.firm_name }));
-            } else {
-                toast.error(result.error || 'Failed to add firm');
-            }
-        } catch (error: any) {
-            toast.error(error.message || 'Failed to add firm');
-        } finally {
-            setAddingFirm(false);
         }
     }
 
@@ -1465,8 +1584,8 @@ export default function MasterData() {
             </Tabs>
 
             {/* ── Add Dialog ── */}
-            <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
-                <DialogContent className="w-full max-w-lg max-h-[85vh] flex flex-col">
+            <Dialog open={sheetOpen} onOpenChange={handleAddDialogOpenChange}>
+                <DialogContent className="w-full max-w-lg max-h-[85vh] min-h-0 overflow-hidden flex flex-col">
                     <DialogHeader className="shrink-0 pb-3 border-b">
                         <DialogTitle>
                             {activeTab === 'item'
@@ -1671,6 +1790,10 @@ export default function MasterData() {
                                     onChange={setNewCategoryName}
                                     required
                                 />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
                                 <div className="pt-4 flex gap-2">
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
@@ -1689,6 +1812,87 @@ export default function MasterData() {
                                     onChange={setNewUOMName}
                                     required
                                 />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
+                                <div className="space-y-3 rounded-md border border-dashed p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-medium">Additional UOM</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Use conversion as 1 additional UOM equals base UOM quantity.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setShowAdditionalUOMForm(prev => !prev)}
+                                            className="shrink-0"
+                                        >
+                                            <Plus className="mr-2 h-4 w-4" />
+                                            Add Additional UOM
+                                        </Button>
+                                    </div>
+
+                                    {showAdditionalUOMForm && (
+                                        <div className="grid grid-cols-1 gap-3 rounded-md bg-muted/30 p-3">
+                                            <Field
+                                                label="Additional UOM"
+                                                id="additional_uom_name"
+                                                value={additionalUOMName}
+                                                onChange={setAdditionalUOMName}
+                                                placeholder="e.g. Box"
+                                            />
+                                            <Field
+                                                label={`How many ${newUOMName.trim() || 'base units'} in 1 ${additionalUOMName.trim() || 'additional UOM'}?`}
+                                                id="additional_uom_conversion"
+                                                type="number"
+                                                value={additionalUOMConversion}
+                                                onChange={setAdditionalUOMConversion}
+                                                placeholder="e.g. 10"
+                                            />
+                                            <div className="flex items-center justify-between gap-3">
+                                                <p className="text-xs text-muted-foreground">
+                                                    1 {additionalUOMName.trim() || 'Additional UOM'} = {additionalUOMConversion || '0'} {newUOMName.trim() || 'Base UOM'}
+                                                </p>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    onClick={handleAddAdditionalUOMDraft}
+                                                    className="shrink-0"
+                                                >
+                                                    Add
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {additionalUOMDrafts.length > 0 && (
+                                        <div className="space-y-2">
+                                            {additionalUOMDrafts.map((uom, index) => (
+                                                <div
+                                                    key={`${uom.uom_name}-${index}`}
+                                                    className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm"
+                                                >
+                                                    <span>
+                                                        1 {uom.uom_name} = {uom.conversionToBase} {newUOMName.trim() || 'Base UOM'}
+                                                    </span>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 text-xs"
+                                                        onClick={() => setAdditionalUOMDrafts(prev => prev.filter((_, i) => i !== index))}
+                                                    >
+                                                        Remove
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="pt-4 flex gap-2">
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
@@ -1706,6 +1910,10 @@ export default function MasterData() {
                                     value={newDepartmentName}
                                     onChange={setNewDepartmentName}
                                     required
+                                />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
                                 />
                                 <div className="pt-4 flex gap-2">
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
@@ -1725,6 +1933,10 @@ export default function MasterData() {
                                     onChange={setNewHeadName}
                                     required
                                 />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
                                 <div className="pt-4 flex gap-2">
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
@@ -1734,7 +1946,7 @@ export default function MasterData() {
                             </form>
                         </div>
                     ) : activeTab === 'vendor' ? (
-                        <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
+                        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-4 py-4 pr-1">
                             <form id="vendor-form" onSubmit={handleVendorSubmit} className="space-y-4">
                                 <Field
                                     label="Vendor Name"
@@ -1790,33 +2002,12 @@ export default function MasterData() {
                                             variant="outline"
                                             size="icon"
                                             className="h-10 w-10 shrink-0"
-                                            onClick={() => setIsAddingFirm(!isAddingFirm)}
+                                            onClick={() => openRelatedMasterAdd('firm')}
+                                            aria-label="Add firm"
                                         >
                                             <Plus className="h-4 w-4" />
                                         </Button>
                                     </div>
-
-                                    {isAddingFirm && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New firm name..."
-                                                value={newFirmName}
-                                                onChange={(e) => setNewFirmName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleAddFirm}
-                                                disabled={addingFirm}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {addingFirm ? <Loader size={14} color="white" /> : 'Add'}
-                                            </Button>
-                                        </div>
-
-                                    )}
                                 </div>
 
                                 <Field
@@ -1896,7 +2087,7 @@ export default function MasterData() {
                             </form>
                         </div>
                     ) : (
-                        <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
+                        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-4 py-4 pr-1">
                             <form id="firm-form" onSubmit={handleFirmSubmit} className="space-y-4">
                                 <Field
                                     label="Firm Name"

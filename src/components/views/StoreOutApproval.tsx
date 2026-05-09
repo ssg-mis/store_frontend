@@ -126,6 +126,15 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
         return ['Store Out'];
     }, [mainTab]);
 
+    const getDisplayValidityDate = (record: any) => {
+        const indentType = record.indentType || record.indent_type || (mainTab === 'loan-out' ? 'Loan Out' : '');
+        const validitySource = indentType === 'Loan Out'
+            ? (record.coolOffPeriod || record.cool_off_period || record.validityDate)
+            : record.validityDate;
+
+        return validitySource ? formatDate(new Date(validitySource)) : '—';
+    };
+
     const fetchPendingData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
         if (pendingAbortRef.current) pendingAbortRef.current.abort();
         const controller = new AbortController();
@@ -165,7 +174,7 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
                     uom: record.uom || '',
                     specifications: record.specifications || 'Not specified',
                     attachment: record.attachment || 'N/A',
-                    validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
+                    validityDate: getDisplayValidityDate(record),
                     indentType: record.indentType || (
                         mainTab === 'store-out' ? 'Store Out'
                         : mainTab === 'store-out-return' ? 'Store Out Return'
@@ -229,7 +238,7 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
                     uom: record.uom || '',
                     issuedStatus: record.issue_status || '',
                     issueApprovedBy: record.issue_approved_by || '',
-                    validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '—',
+                    validityDate: getDisplayValidityDate(record),
                     indentType: record.indentType || (
                         mainTab === 'store-out' ? 'Store Out'
                         : mainTab === 'store-out-return' ? 'Store Out Return'
@@ -494,7 +503,13 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
         issueApprovedBy: z.string().nonempty('Approved By is required'),
         issueStatus: z.enum(['Done', 'Not done']),
         issuedQuantity: z.number().min(0, 'Quantity must be positive'),
-    });
+    }).refine(
+        (values) => !selectedIndent || values.issuedQuantity <= selectedIndent.quantity,
+        {
+            path: ['issuedQuantity'],
+            message: `Issued quantity cannot exceed requested quantity (${selectedIndent?.quantity ?? 0})`,
+        }
+    );
 
     const form = useForm<z.infer<typeof schema>>({
         resolver: zodResolver(schema),
@@ -909,8 +924,8 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
                                                 <Input
                                                     type="number"
                                                     placeholder="Enter quantity"
+                                                    max={selectedIndent?.quantity}
                                                     {...field}
-                                                    disabled={mainTab === 'loan-out'}
                                                     onChange={(e) => field.onChange(Number(e.target.value))}
                                                 />
                                             </FormControl>

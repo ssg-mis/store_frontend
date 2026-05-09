@@ -32,6 +32,7 @@ export default () => {
     const [tableData, setTableData] = useState<InventoryTable[]>([]);
     const [viewOpen, setViewOpen] = useState(false);
     const [viewRow, setViewRow] = useState<InventoryTable | null>(null);
+    const [viewMovement, setViewMovement] = useState<{ field: 'purchaseQuantity' | 'storeOut' | 'loanOut'; label: string } | null>(null);
     const [auditLogs, setAuditLogs] = useState<InventoryAuditLog[]>([]);
     const [auditLoading, setAuditLoading] = useState(false);
 
@@ -61,8 +62,12 @@ export default () => {
         return () => clearInterval(intervalId);
     }, [updateInventorySheet]);
 
-    async function openViewDialog(row: InventoryTable) {
+    async function openViewDialog(
+        row: InventoryTable,
+        movement?: { field: 'purchaseQuantity' | 'storeOut' | 'loanOut'; label: string }
+    ) {
         setViewRow(row);
+        setViewMovement(movement || null);
         setViewOpen(true);
         setAuditLogs([]);
 
@@ -86,6 +91,28 @@ export default () => {
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return '';
         return date.toLocaleString();
+    };
+
+    const movementLogs = viewMovement
+        ? auditLogs.filter((log) => log.metadata?.field === viewMovement.field)
+        : auditLogs;
+
+    const renderMovementLink = (
+        row: InventoryTable,
+        field: 'purchaseQuantity' | 'storeOut' | 'loanOut',
+        label: string
+    ) => {
+        const value = Number(row[field] || 0);
+        return (
+            <button
+                type="button"
+                className="font-medium text-primary underline-offset-4 hover:underline disabled:pointer-events-none disabled:text-muted-foreground disabled:no-underline"
+                disabled={value === 0}
+                onClick={() => openViewDialog(row, { field, label })}
+            >
+                {value}
+            </button>
+        );
     };
 
     const columns: ColumnDef<InventoryTable>[] = [
@@ -115,9 +142,21 @@ export default () => {
         { accessorKey: 'departmentHead', header: 'Dept Head' },
         { accessorKey: 'indented', header: 'Indented' },
         { accessorKey: 'approved', header: 'Approved' },
-        { accessorKey: 'purchaseQuantity', header: 'Purchased' },
-        { accessorKey: 'storeOut', header: 'Store Out' },
-        { accessorKey: 'loanOut', header: 'Loan Out' },
+        {
+            accessorKey: 'purchaseQuantity',
+            header: 'Purchased',
+            cell: ({ row }) => renderMovementLink(row.original, 'purchaseQuantity', 'Purchased'),
+        },
+        {
+            accessorKey: 'storeOut',
+            header: 'Store Out',
+            cell: ({ row }) => renderMovementLink(row.original, 'storeOut', 'Store Out'),
+        },
+        {
+            accessorKey: 'loanOut',
+            header: 'Loan Out',
+            cell: ({ row }) => renderMovementLink(row.original, 'loanOut', 'Loan Out'),
+        },
         { accessorKey: 'current', header: 'Stock' },
         {
             accessorKey: 'status',
@@ -152,10 +191,13 @@ export default () => {
                 className="h-[80dvh]"
             />
 
-            <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+            <Dialog open={viewOpen} onOpenChange={(open) => {
+                setViewOpen(open);
+                if (!open) setViewMovement(null);
+            }}>
                 <DialogContent className="w-full max-w-2xl max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>Inventory History</DialogTitle>
+                        <DialogTitle>{viewMovement ? `${viewMovement.label} History` : 'Inventory History'}</DialogTitle>
                         <DialogDescription>
                             {viewRow?.itemName} {viewRow?.uom ? `(${viewRow.uom})` : ''}
                         </DialogDescription>
@@ -163,12 +205,14 @@ export default () => {
                     <div className="space-y-3 py-2">
                         {auditLoading ? (
                             <div className="py-8 text-center text-sm text-muted-foreground">Loading history...</div>
-                        ) : auditLogs.length === 0 ? (
+                        ) : movementLogs.length === 0 ? (
                             <div className="py-8 text-center text-sm text-muted-foreground">
-                                No inventory history recorded yet. New inventory actions will appear here.
+                                {viewMovement
+                                    ? `No ${viewMovement.label.toLowerCase()} history recorded for this item yet.`
+                                    : 'No inventory history recorded yet. New inventory actions will appear here.'}
                             </div>
                         ) : (
-                            auditLogs.map((log) => (
+                            movementLogs.map((log) => (
                                 <div key={log.id} className="rounded-sm border p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                         <p className="text-sm font-medium">

@@ -28,10 +28,27 @@ import { useEffect, useState } from 'react';
 
 
 
+type UOMConversionRow = {
+    conversion_id: number;
+    conversionToBase: string | number;
+    alternateUom?: {
+        uom_id: number;
+        uom_name: string;
+    };
+};
+
+type UOMRow = {
+    uom_id: number;
+    uom_name: string;
+    isActive?: boolean;
+    baseConversions?: UOMConversionRow[];
+};
+
 export default () => {
     const { user } = useAuth();
     const isAdmin = (user as any)?.role === 'ADMIN';
     const userFirmAccess = Array.isArray((user as any)?.firmAccess) ? (user as any).firmAccess : [];
+    const today = new Date().toISOString().split('T')[0];
 
     const { indentSheet: sheet, updateIndentSheet, inventorySheet, updateInventorySheet, receivedSheet, poMasterSheet } = useSheets();
     const [indentSheet, setIndentSheet] = useState<IndentSheet[]>([]);
@@ -40,8 +57,8 @@ export default () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchTermDepartmentHead, setSearchTermDepartmentHead] = useState('');
     const [searchTermProductName, setSearchTermProductName] = useState('');
-    const [uoms, setUoms] = useState<{ uom_id: number; uom_name: string }[]>([]);
-    const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string }[]>([]);
+    const [uoms, setUoms] = useState<UOMRow[]>([]);
+    const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean }[]>([]);
 
     const refreshMaster = async () => {
         const data = await fetchIndentMasterData();
@@ -54,8 +71,8 @@ export default () => {
 
     useEffect(() => {
         fetchIndentMasterData().then(setMaster);
-        fetchUOMs().then(setUoms);
-        fetchProductCategories().then(setProductCategories);
+        fetchUOMs().then((data) => setUoms(data.filter((u) => u.isActive !== false)));
+        fetchProductCategories().then((data) => setProductCategories(data.filter((c) => c.isActive !== false)));
         updateInventorySheet(true); // silent refresh so stock check uses latest data
     }, []);
 
@@ -68,8 +85,10 @@ export default () => {
     const schema = z.object({
         firm: z.string().nonempty('Select a firm'),
         indenterName: z.string().nonempty(),
+        indenterUserId: z.coerce.number().optional(),
         indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'], { required_error: 'Select a status' }),
         validityDate: z.string().optional(),
+        coolOffPeriod: z.string().optional(),
         products: z
             .array(
                 z.object({
@@ -92,8 +111,10 @@ export default () => {
         defaultValues: {
             firm: '',
             indenterName: isAdmin ? '' : ((user as any)?.name || ''),
+            indenterUserId: isAdmin ? undefined : (user as any)?.id,
             indentType: '' as any,
             validityDate: '',
+            coolOffPeriod: '',
             products: [
                 {
                     attachment: undefined,
@@ -125,6 +146,77 @@ export default () => {
         );
         return Number(item?.current || 0);
     };
+
+    const normalizeLookupValue = (value?: string | null) => value?.toLowerCase().trim() || '';
+
+    const getUOMOptionsForProduct = (itemName: string, departmentHead: string) => {
+        if (!itemName) return uoms;
+
+        const allowedUOMNames = [
+            ...new Set(
+                (inventorySheet || [])
+                    .filter((item) =>
+                        normalizeLookupValue(item.itemName) === normalizeLookupValue(itemName) &&
+                        (!departmentHead || normalizeLookupValue(item.departmentHead) === normalizeLookupValue(departmentHead)) &&
+                        item.uom &&
+                        item.uom !== '-'
+                    )
+                    .map((item) => item.uom.trim())
+            ),
+        ];
+
+        if (allowedUOMNames.length === 0) return uoms;
+
+        const allowedSet = new Set(allowedUOMNames.map(normalizeLookupValue));
+        const options = new Map<string, UOMRow>();
+
+        uoms
+            .filter((uom) => allowedSet.has(normalizeLookupValue(uom.uom_name)))
+            .forEach((uom) => {
+                options.set(normalizeLookupValue(uom.uom_name), uom);
+
+                (uom.baseConversions || [])
+                    .filter((conversion) => conversion.alternateUom?.uom_name)
+                    .forEach((conversion) => {
+                        const alternateName = conversion.alternateUom!.uom_name;
+                        options.set(normalizeLookupValue(alternateName), {
+                            uom_id: conversion.alternateUom!.uom_id,
+                            uom_name: alternateName,
+                        });
+                    });
+            });
+
+        allowedUOMNames
+            .filter((name) => !options.has(normalizeLookupValue(name)))
+            .forEach((name, i) => {
+                options.set(normalizeLookupValue(name), { uom_id: -i - 1, uom_name: name });
+            });
+
+        return Array.from(options.values());
+    };
+
+    useEffect(() => {
+        products.forEach((product, index) => {
+            const productName = product?.productName || '';
+            const currentUOM = product?.uom || '';
+
+            if (!productName) {
+                if (currentUOM) form.setValue(`products.${index}.uom` as any, '');
+                return;
+            }
+
+            const departmentHead = product?.departmentHead || '';
+            const uomOptions = getUOMOptionsForProduct(productName, departmentHead);
+            const hasCurrentUOM = uomOptions.some(
+                (uom) => normalizeLookupValue(uom.uom_name) === normalizeLookupValue(currentUOM)
+            );
+
+            if (!hasCurrentUOM) {
+                const defaultUOM = master?.uomLookup?.[departmentHead]?.[productName] || uomOptions[0]?.uom_name || '';
+                form.setValue(`products.${index}.uom` as any, defaultUOM);
+            }
+        });
+    }, [products, master, uoms, inventorySheet, form]);
 
     const getLastPurchaseInfo = (itemName: string, departmentHead: string) => {
         if (!itemName || !receivedSheet) return null;
@@ -162,15 +254,6 @@ export default () => {
     // Automatic Indent Type switching removed per user request to allow manual control.
     // Stock validation is still performed in onSubmit and on the Backend.
 
-    // Force quantity to 1 for Loan Out
-    useEffect(() => {
-        if (indentType === 'Loan Out') {
-            products.forEach((_, index) => {
-                form.setValue(`products.${index}.quantity` as any, 1);
-            });
-        }
-    }, [indentType, products.length]);
-
     // Sync Department, Department Head, Area of Use from product[0] to all subsequent products
     useEffect(() => {
         const subscription = form.watch((value, { name }) => {
@@ -195,15 +278,17 @@ export default () => {
     // Auto-fill UOM when productName changes
     useEffect(() => {
         const subscription = form.watch(async (value, { name }) => {
-            // Trigger check if productName changes OR if indentType changes to 'Loan Out'
+            // Trigger check if productName, indentType, or cool-off period changes.
             const isLoanTypeChange = name === 'indentType' && value.indentType === 'Loan Out';
+            const isCoolOffChange = name === 'coolOffPeriod' && value.indentType === 'Loan Out';
             const isProductChange = name?.endsWith('.productName');
 
-            if (value.indentType === 'Loan Out' && (isProductChange || isLoanTypeChange)) {
+            if (value.indentType === 'Loan Out' && (isProductChange || isLoanTypeChange || isCoolOffChange)) {
                 const checkProduct = async (pn: string) => {
-                    if (!pn || !(user as any)?.id) return;
+                    const targetUserId = isAdmin ? value.indenterUserId : (user as any)?.id;
+                    if (!pn || !targetUserId) return;
                     try {
-                        const url = `${import.meta.env.VITE_API_BASE_URL}/loans/check-eligibility?userId=${(user as any).id}&productName=${encodeURIComponent(pn)}`;
+                        const url = `${import.meta.env.VITE_API_BASE_URL}/loans/check-eligibility?userId=${targetUserId}&productName=${encodeURIComponent(pn)}`;
                         const stored = localStorage.getItem('auth');
                         const token = stored ? JSON.parse(stored).token : '';
                         
@@ -213,12 +298,9 @@ export default () => {
                         const data = await response.json();
                         
                         if (data && data.eligible === false) {
-                            toast.warning(data.message, { 
+                            toast.warning('Loan cool-off period active', {
+                                description: data.message,
                                 duration: 15000,
-                                action: {
-                                    label: 'Deduct from Pay',
-                                    onClick: () => console.log('User acknowledged deduction')
-                                }
                             });
                         }
                     } catch (err) {
@@ -255,7 +337,7 @@ export default () => {
             }
         });
         return () => subscription.unsubscribe();
-    }, [form, master, user]);
+    }, [form, isAdmin, master, user]);
 
     const getNextIndentNumber = async () => {
         try {
@@ -337,6 +419,7 @@ export default () => {
                     indentNumber: currentIndentNumber,
                     firm: data.firm,
                     indenterName: data.indenterName,
+                    userId: isAdmin ? data.indenterUserId : (user as any)?.id,
                     department: product.department,
                     areaOfUse: product.areaOfUse,
                     departmentHead: product.departmentHead,
@@ -347,6 +430,7 @@ export default () => {
                     specifications: product.specifications || '',
                     indentType: data.indentType,
                     validityDate: (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType)) ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
+                    coolOffPeriod: data.indentType === 'Loan Out' && data.coolOffPeriod ? new Date(data.coolOffPeriod).toISOString() : null,
                     planned: plannedStr, 
                 };
 
@@ -371,8 +455,10 @@ export default () => {
             form.reset({
                 firm: '',
                 indenterName: isAdmin ? '' : ((user as any)?.name || ''),
+                indenterUserId: isAdmin ? undefined : (user as any)?.id,
                 indentType: '' as any,
                 validityDate: '',
+                coolOffPeriod: '',
                 products: [
                     {
                         attachment: undefined,
@@ -435,17 +521,24 @@ export default () => {
                             )}
                         />
 
-                        <FormField
-                            control={form.control}
-                            name="indenterName"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>
-                                        Indenter Name
-                                        <span className="text-destructive">*</span>
-                                    </FormLabel>
-                                    {isAdmin ? (
-                                        <Select onValueChange={field.onChange} value={field.value}>
+                        {isAdmin ? (
+                            <FormField
+                                control={form.control}
+                                name="indenterUserId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>
+                                            Indenter Name
+                                            <span className="text-destructive">*</span>
+                                        </FormLabel>
+                                        <Select
+                                            onValueChange={(value) => {
+                                                const selectedUser = users.find((u) => String(u.id) === value);
+                                                field.onChange(Number(value));
+                                                form.setValue('indenterName', selectedUser?.name || '', { shouldValidate: true });
+                                            }}
+                                            value={field.value ? String(field.value) : ''}
+                                        >
                                             <FormControl>
                                                 <SelectTrigger className="w-full">
                                                     <SelectValue placeholder="Select indenter" />
@@ -453,20 +546,32 @@ export default () => {
                                             </FormControl>
                                             <SelectContent>
                                                 {users.map((u) => (
-                                                    <SelectItem key={u.id} value={u.name}>
+                                                    <SelectItem key={u.id} value={String(u.id)}>
                                                         {u.name}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                    ) : (
+                                    </FormItem>
+                                )}
+                            />
+                        ) : (
+                            <FormField
+                                control={form.control}
+                                name="indenterName"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>
+                                            Indenter Name
+                                            <span className="text-destructive">*</span>
+                                        </FormLabel>
                                         <FormControl>
                                             <Input {...field} disabled />
                                         </FormControl>
-                                    )}
-                                </FormItem>
-                            )}
-                        />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
 
                         <FormField
                             control={form.control}
@@ -495,6 +600,25 @@ export default () => {
                             )}
                         />
 
+                        <FormField
+                            control={form.control}
+                            name="coolOffPeriod"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Cool Off Period</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            type="date"
+                                            min={today}
+                                            {...field}
+                                            disabled={indentType !== 'Loan Out'}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
 
                     </div>
 
@@ -512,7 +636,7 @@ export default () => {
                                         productName: '',
                                         productCategory: lastProduct.productCategory || '',
                                         quantity: 1,
-                                        uom: lastProduct.uom || '',
+                                        uom: '',
                                         areaOfUse: lastProduct.areaOfUse || '',
                                         attachment: undefined,
                                         specifications: '',
@@ -725,6 +849,7 @@ export default () => {
                                                                 <Select
                                                                     onValueChange={(value) => {
                                                                         field.onChange(value);
+                                                                        form.setValue(`products.${index}.uom` as any, '');
                                                                         const uom = master?.uomLookup?.[departmentHead]?.[value];
                                                                         if (uom) {
                                                                             form.setValue(`products.${index}.uom` as any, uom);
@@ -810,36 +935,43 @@ export default () => {
                                             <FormField
                                                 control={form.control}
                                                 name={`products.${index}.uom`}
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>
-                                                            UOM
-                                                            <span className="text-destructive">
-                                                                *
-                                                            </span>
-                                                        </FormLabel>
-                                                        <Select
-                                                            onValueChange={field.onChange}
-                                                            value={field.value}
-                                                        >
-                                                            <FormControl>
-                                                                <SelectTrigger className="w-full">
-                                                                    <SelectValue placeholder="Select UOM" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                {uoms.map((u) => (
-                                                                    <SelectItem
-                                                                        key={u.uom_id}
-                                                                        value={u.uom_name}
-                                                                    >
-                                                                        {u.uom_name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </FormItem>
-                                                )}
+                                                render={({ field }) => {
+                                                    const productName = products[index]?.productName || '';
+                                                    const uomOptions = getUOMOptionsForProduct(productName, departmentHead);
+
+                                                    return (
+                                                        <FormItem>
+                                                            <FormLabel>
+                                                                UOM
+                                                                <span className="text-destructive">
+                                                                    *
+                                                                </span>
+                                                            </FormLabel>
+                                                            <Select
+                                                                key={`${departmentHead || 'no-head'}-${productName || 'no-product'}`}
+                                                                onValueChange={field.onChange}
+                                                                value={field.value}
+                                                                disabled={!productName}
+                                                            >
+                                                                <FormControl>
+                                                                    <SelectTrigger className="w-full">
+                                                                        <SelectValue placeholder="Select UOM" />
+                                                                    </SelectTrigger>
+                                                                </FormControl>
+                                                                <SelectContent>
+                                                                    {uomOptions.map((u) => (
+                                                                        <SelectItem
+                                                                            key={u.uom_id}
+                                                                            value={u.uom_name}
+                                                                        >
+                                                                            {u.uom_name}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </FormItem>
+                                                    );
+                                                }}
                                             />
                                             <FormField
                                                 control={form.control}
@@ -856,7 +988,7 @@ export default () => {
                                                             <Input
                                                                 type="number"
                                                                 {...field}
-                                                                disabled={!departmentHead || indentType === 'Loan Out'}
+                                                                disabled={!departmentHead}
                                                             />
                                                         </FormControl>
                                                     </FormItem>

@@ -1,214 +1,5 @@
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 
-const styles = StyleSheet.create({
-    page: {
-        padding: 20,
-        fontSize: 10,
-    },
-    mainContainer: {
-        border: '1 solid black',
-        fontSize: '.7rem',
-        gap: '10px',
-        paddingBottom: '10px',
-    },
-    header: {
-        textAlign: 'center',
-        gap: '2',
-        justifyContent: 'center',
-        alignItems: 'center',
-        fontWeight: 'bold',
-        backgroundColor: "#cfe2f3",
-        paddingVertical: "12px",
-    },
-    companyName: {
-        fontSize: '1.2rem',
-        maxWidth: '30rem',
-    },
-    divider: {
-        borderBottom: '1 solid black',
-    },
-    purchaseOrderTitle: {
-        textAlign: 'center',
-        gap: '2',
-        justifyContent: 'center',
-        alignItems: 'center',
-        fontWeight: 'semibold',
-        fontSize: '1rem',
-    },
-    detailsContainer: {
-        paddingHorizontal: '20px',
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        gap: '5rem',
-    },
-    detailsSection: {
-        gap: '7px',
-    },
-    detailRow: {
-        flexDirection: 'row',
-        gap: '.3rem',
-    },
-    detailLabel: {
-        fontWeight: 'semibold',
-    },
-    detailValue: {
-        width: 150,
-    },
-    commercialContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        gap: '2rem',
-        marginHorizontal: 10,
-    },
-    commercialHeader: {
-        alignItems: 'center',
-        borderBottom: '1 solid black',
-        textAlign: 'center',
-        width: '150',
-    },
-    commercialHeaderText: {
-        fontWeight: 'semibold',
-        fontSize: '.8rem',
-        paddingBottom: '1px',
-    },
-    commercialContent: {
-        padding: '3px',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    commercialText: {
-        width: 150,
-        textAlign: 'center',
-    },
-    addressText: {
-        textAlign: 'center',
-        width: 150,
-    },
-    description: {
-        marginHorizontal: '10px',
-    },
-    tableHeaderRow: {
-        flexDirection: 'row',
-        borderBottom: '1pt solid black',
-        borderTop: '1pt solid black',
-    },
-    tableCell1: {
-        width: '4%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell2: {
-        width: '10%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCellFirm: {
-        width: '10%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell3: {
-        width: '10%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell4: {
-        width: '16%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell5: {
-        width: '6%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell6: {
-        width: '6%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell7: {
-        width: '8%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell8: {
-        width: '8%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell9: {
-        width: '8%',
-        borderRight: '1pt solid black',
-        padding: 4,
-    },
-    tableCell10: {
-        width: '14%',
-        padding: 4,
-    },
-    tableRow: {
-        flexDirection: 'row',
-        borderBottom: '1pt solid black',
-    },
-    tableTotalCell: {
-        width: '86%',
-        borderRight: '1pt solid black',
-        padding: 4,
-        textAlign: 'right',
-    },
-    tableTotalCellBold: {
-        width: '84%',
-        borderRight: '1pt solid black',
-        padding: 4,
-        textAlign: 'right',
-        fontWeight: 'semibold',
-    },
-    tableTotalValue: {
-        width: '16%',
-        padding: 4,
-    },
-    termsContainer: {
-        paddingHorizontal: '10px',
-        gap: '.5rem',
-        flexGrow: 1,
-    },
-    termsHeader: {
-        fontSize: '.8rem',
-        fontWeight: 'semibold',
-    },
-    termsText: {
-        fontSize: '.8rem',
-    },
-    acknowledgement: {
-        fontWeight: 'semibold',
-        paddingHorizontal: '10px',
-    },
-    signatureContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-evenly',
-    },
-    signatureSection: {
-        gap: '3px',
-        alignItems: 'center',
-    },
-    signatureLabel: {
-        fontWeight: 'semibold',
-    },
-    companySignature: {
-        width: '20%',
-        textAlign: 'center',
-        fontWeight: 'semibold',
-    },
-    systemGenerated: {
-        textAlign: 'center',
-        fontSize: 7,
-        color: 'gray',
-        marginTop: 5,
-        borderTop: '0.5 solid #eee',
-        paddingTop: 3,
-    },
-});
-
 interface Item {
     internalCode: string;
     firm: string;
@@ -252,12 +43,242 @@ export interface POPdfProps {
     firm: string;
 }
 
+const styles = StyleSheet.create({
+    page: {
+        paddingTop: 16,
+        paddingHorizontal: 18,
+        paddingBottom: 14,
+        fontSize: 8.5,
+        fontFamily: 'Helvetica',
+        color: '#111',
+    },
+    letterheadHeader: {
+        width: '100%',
+        height: 86,
+        objectFit: 'contain',
+        marginBottom: 2,
+    },
+    letterheadFooter: {
+        width: '100%',
+        height: 24,
+        objectFit: 'contain',
+        marginTop: 4,
+    },
+    table: {
+        border: '1 solid #111',
+        width: '100%',
+    },
+    row: {
+        flexDirection: 'row',
+        borderBottom: '1 solid #111',
+    },
+    lastRow: {
+        flexDirection: 'row',
+    },
+    cell: {
+        paddingHorizontal: 4,
+        paddingVertical: 3,
+        borderRight: '1 solid #111',
+        minHeight: 18,
+    },
+    cellLast: {
+        paddingHorizontal: 4,
+        paddingVertical: 3,
+        minHeight: 18,
+    },
+    title: {
+        textAlign: 'center',
+        fontSize: 13,
+        fontFamily: 'Helvetica-Bold',
+        textTransform: 'uppercase',
+        paddingVertical: 5,
+    },
+    label: {
+        fontSize: 7,
+        color: '#222',
+    },
+    bold: {
+        fontFamily: 'Helvetica-Bold',
+    },
+    supplierCell: {
+        width: '50%',
+        minHeight: 104,
+    },
+    rightCell: {
+        width: '50%',
+        paddingHorizontal: 0,
+        paddingVertical: 0,
+    },
+    metaRow: {
+        flexDirection: 'row',
+        borderBottom: '1 solid #111',
+    },
+    metaCell: {
+        width: '50%',
+        paddingHorizontal: 4,
+        paddingVertical: 3,
+        minHeight: 26,
+        borderRight: '1 solid #111',
+    },
+    metaCellLast: {
+        width: '50%',
+        paddingHorizontal: 4,
+        paddingVertical: 3,
+        minHeight: 26,
+    },
+    addressBlock: {
+        lineHeight: 1.25,
+    },
+    itemHeader: {
+        flexDirection: 'row',
+        borderBottom: '1 solid #111',
+        minHeight: 26,
+    },
+    itemRow: {
+        flexDirection: 'row',
+        borderBottom: '1 solid #111',
+        minHeight: 22,
+    },
+    sl: {
+        width: '7%',
+        textAlign: 'center',
+    },
+    desc: {
+        width: '43%',
+    },
+    qty: {
+        width: '15%',
+        textAlign: 'right',
+    },
+    rate: {
+        width: '12%',
+        textAlign: 'right',
+    },
+    per: {
+        width: '8%',
+        textAlign: 'center',
+    },
+    amount: {
+        width: '15%',
+        textAlign: 'right',
+    },
+    totalLabel: {
+        width: '50%',
+        textAlign: 'right',
+    },
+    totalQty: {
+        width: '15%',
+        textAlign: 'right',
+    },
+    totalRate: {
+        width: '12%',
+    },
+    totalPer: {
+        width: '8%',
+    },
+    totalAmount: {
+        width: '15%',
+        textAlign: 'right',
+    },
+    wordsLeft: {
+        width: '62%',
+        minHeight: 40,
+    },
+    wordsRight: {
+        width: '38%',
+        minHeight: 40,
+        textAlign: 'center',
+        justifyContent: 'center',
+    },
+    termsCell: {
+        minHeight: 88,
+        paddingHorizontal: 5,
+        paddingVertical: 5,
+    },
+    termsLine: {
+        marginTop: 2,
+    },
+    signatureCell: {
+        width: '33.33%',
+        minHeight: 34,
+        justifyContent: 'flex-end',
+        textAlign: 'center',
+        fontFamily: 'Helvetica-Bold',
+    },
+});
+
+const HEADER_IMAGE = '/po-letterhead-header.png';
+const FOOTER_IMAGE = '/po-letterhead-footer.png';
+
+function formatMoney(value: number) {
+    return Number(value || 0).toFixed(2);
+}
+
+function formatQty(value: number, unit: string) {
+    return `${Number(value || 0).toFixed(3)} ${unit || ''}`.trim();
+}
+
+function lineTaxableAmount(item: Item) {
+    const base = Number(item.rate || 0) * Number(item.quantity || 0);
+    const discount = base * Number(item.discount || 0) / 100;
+    return Number((base - discount).toFixed(2));
+}
+
+function gstGroups(items: Item[]) {
+    const groups = new Map<number, number>();
+    items.forEach((item) => {
+        const taxable = lineTaxableAmount(item);
+        const gst = Number(item.gst || 0);
+        if (gst <= 0) return;
+        groups.set(gst, Number(((groups.get(gst) || 0) + taxable * gst / 100).toFixed(2)));
+    });
+    return Array.from(groups.entries()).sort(([a], [b]) => b - a);
+}
+
+function numberToWords(num: number): string {
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+    const belowHundred = (n: number) => {
+        if (n < 20) return ones[n];
+        return `${tens[Math.floor(n / 10)]}${n % 10 ? ` ${ones[n % 10]}` : ''}`;
+    };
+
+    const belowThousand = (n: number) => {
+        if (n < 100) return belowHundred(n);
+        return `${ones[Math.floor(n / 100)]} Hundred${n % 100 ? ` ${belowHundred(n % 100)}` : ''}`;
+    };
+
+    if (num === 0) return 'Zero';
+
+    const crore = Math.floor(num / 10000000);
+    num %= 10000000;
+    const lakh = Math.floor(num / 100000);
+    num %= 100000;
+    const thousand = Math.floor(num / 1000);
+    num %= 1000;
+
+    return [
+        crore ? `${belowThousand(crore)} Crore` : '',
+        lakh ? `${belowThousand(lakh)} Lakh` : '',
+        thousand ? `${belowThousand(thousand)} Thousand` : '',
+        num ? belowThousand(num) : '',
+    ].filter(Boolean).join(' ');
+}
+
+function amountInWords(value: number) {
+    const rupees = Math.floor(Number(value || 0));
+    const paise = Math.round((Number(value || 0) - rupees) * 100);
+    return `INR ${numberToWords(rupees)}${paise ? ` and ${numberToWords(paise)} Paise` : ''} Only`;
+}
+
+function splitLines(value?: string) {
+    return (value || '').split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
 export default ({
-    companyLogo,
     companyName,
-    companyPhone,
     companyGstin,
-    companyPan,
     companyAddress,
     billingAddress,
     destinationAddress,
@@ -273,208 +294,189 @@ export default ({
     description,
     items,
     total,
-    gstAmount,
     grandTotal,
     terms,
     preparedBy,
     approvedBy,
     transportationType,
-    firm,
 }: POPdfProps) => {
+    const totalQty = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const primaryUnit = items[0]?.unit || '';
+    const gstRows = gstGroups(items);
+    const displayedTerms = terms.length ? terms : splitLines(description);
+
     return (
         <Document>
             <Page size="A4" style={styles.page}>
-                <View style={styles.mainContainer}>
-                    <View>
-                        <View style={styles.header}>
-                            {companyLogo && (
-                                <Image 
-                                    src={companyLogo} 
-                                    style={{ width: 60, height: 60, objectFit: 'contain', marginRight: 15 }} 
-                                />
-                            )}
-                            <View style={{ flex: 1, alignItems: 'center' }}>
-                                <Text style={styles.companyName}>Shri Shyam Oil Extractions Pvt Ltd</Text>
-                            </View>
-                        </View>
+                <Image src={HEADER_IMAGE} style={styles.letterheadHeader} />
 
-                        <View style={styles.divider} />
+                <View style={styles.table}>
+                    <View style={styles.row}>
+                        <Text style={[styles.cellLast, styles.title]}>Purchase Order</Text>
                     </View>
 
-                    <Text style={styles.purchaseOrderTitle}>Purchase Order</Text>
-
-                    <View style={styles.divider} />
-
-                    <View style={styles.detailsContainer}>
-                        <View style={styles.detailsSection}>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Supplier Name:</Text>
-                                <Text style={styles.detailValue}>{supplierName}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Supplier Address:</Text>
-                                <Text style={styles.detailValue}>{supplierAddress}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>GSTIN:</Text>
-                                <Text style={styles.detailValue}>{supplierGstin}</Text>
-                            </View>
+                    <View style={styles.row}>
+                        <View style={[styles.cell, styles.supplierCell]}>
+                            <Text style={[styles.bold, { marginBottom: 3 }]}>TO</Text>
+                            <Text style={[styles.bold, styles.addressBlock]}>{supplierName || '-'}</Text>
+                            {splitLines(supplierAddress).map((line, index) => (
+                                <Text key={index} style={styles.addressBlock}>{line}</Text>
+                            ))}
+                            <Text style={{ marginTop: 4 }}>GSTIN/UIN: {supplierGstin || '-'}</Text>
                         </View>
-                        <View style={styles.detailsSection}>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Order No:</Text>
-                                <Text style={styles.detailValue}>{orderNumber}</Text>
+
+                        <View style={[styles.cellLast, styles.rightCell]}>
+                            <View style={styles.metaRow}>
+                                <View style={styles.metaCell}>
+                                    <Text style={styles.label}>Purchase order no</Text>
+                                    <Text style={styles.bold}>{orderNumber || '-'}</Text>
+                                </View>
+                                <View style={styles.metaCellLast}>
+                                    <Text style={styles.label}>Dated</Text>
+                                    <Text style={styles.bold}>{orderDate || '-'}</Text>
+                                </View>
                             </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Firm:</Text>
-                                <Text style={styles.detailValue}>{firm}</Text>
+                            <View style={styles.metaRow}>
+                                <View style={styles.metaCell}>
+                                    <Text style={styles.label}>Mode/Terms of Payment</Text>
+                                    <Text>{displayedTerms[0] || '-'}</Text>
+                                </View>
+                                <View style={styles.metaCellLast}>
+                                    <Text style={styles.label}>Dispatched Through</Text>
+                                    <Text>{transportationType || '-'}</Text>
+                                </View>
                             </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>PO Date:</Text>
-                                <Text style={styles.detailValue}>{orderDate}</Text>
+                            <View style={styles.metaRow}>
+                                <View style={styles.metaCell}>
+                                    <Text style={styles.label}>Quotation No.</Text>
+                                    <Text>{quotationNumber || '-'}</Text>
+                                </View>
+                                <View style={styles.metaCellLast}>
+                                    <Text style={styles.label}>Quotation Date</Text>
+                                    <Text>{quotationDate || '-'}</Text>
+                                </View>
                             </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Quotation No:</Text>
-                                <Text style={styles.detailValue}>{quotationNumber || 'N/A'}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Quotation Date:</Text>
-                                <Text style={styles.detailValue}>{quotationDate || 'N/A'}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Transportation:</Text>
-                                <Text style={styles.detailValue}>{transportationType}</Text>
+                            <View style={styles.lastRow}>
+                                <View style={styles.metaCell}>
+                                    <Text style={styles.label}>Enquiry No.</Text>
+                                    <Text>{enqNo || '-'}</Text>
+                                </View>
+                                <View style={styles.metaCellLast}>
+                                    <Text style={styles.label}>Enquiry Date / Freight</Text>
+                                    <Text>{enqDate || '-'}</Text>
+                                </View>
                             </View>
                         </View>
                     </View>
 
-                    <View style={styles.divider} />
-
-                    <View style={styles.commercialContainer}>
-                        <View>
-                            <View style={styles.commercialHeader}>
-                                <Text style={styles.commercialHeaderText}>
-                                    Our Commercial Details
-                                </Text>
-                            </View>
-                            <View style={styles.commercialContent}>
-                                <Text style={styles.commercialText}>
-                                    <Text style={styles.detailLabel}>GSTIN </Text>
-                                    {companyGstin}
-                                </Text>
-                                <Text style={styles.commercialText}>
-                                    <Text style={styles.detailLabel}>PAN No. </Text>
-                                    {companyPan}
-                                </Text>
-                            </View>
+                    <View style={styles.row}>
+                        <View style={[styles.cell, { width: '50%', minHeight: 56 }]}>
+                            <Text style={[styles.bold, { marginBottom: 3 }]}>BUYER (BILL TO)</Text>
+                            <Text style={styles.bold}>{companyName || '-'}</Text>
+                            {splitLines(billingAddress || companyAddress).map((line, index) => (
+                                <Text key={index}>{line}</Text>
+                            ))}
+                            <Text>GSTIN/UIN: {companyGstin || '-'}</Text>
                         </View>
-                        <View>
-                            <View style={styles.commercialHeader}>
-                                <Text style={styles.commercialHeaderText}>Billing Address</Text>
-                            </View>
-                            <View style={styles.commercialContent}>
-                                <Text style={styles.addressText}>M/S JAY {companyName}</Text>
-                                <Text style={styles.addressText}>{billingAddress}</Text>
-                            </View>
-                        </View>
-                        <View>
-                            <View style={styles.commercialHeader}>
-                                <Text style={styles.commercialHeaderText}>Destination Address</Text>
-                            </View>
-                            <View style={styles.commercialContent}>
-                                <Text style={styles.addressText}>M/S {companyName}</Text>
-                                <Text style={styles.addressText}>{destinationAddress}</Text>
-                            </View>
+                        <View style={[styles.cellLast, { width: '50%', minHeight: 56 }]}>
+                            <Text style={[styles.bold, { marginBottom: 3 }]}>CONSIGNEE (SHIP TO)</Text>
+                            <Text style={styles.bold}>{companyName || '-'}</Text>
+                            {splitLines(destinationAddress || companyAddress).map((line, index) => (
+                                <Text key={index}>{line}</Text>
+                            ))}
+                            <Text>GSTIN/UIN: {companyGstin || '-'}</Text>
                         </View>
                     </View>
 
-                    <View style={styles.divider} />
+                    <View style={styles.itemHeader}>
+                        <Text style={[styles.cell, styles.sl, styles.bold]}>Sl{'\n'}No.</Text>
+                        <Text style={[styles.cell, styles.desc, styles.bold]}>Description of Goods</Text>
+                        <Text style={[styles.cell, styles.qty, styles.bold]}>Quantity</Text>
+                        <Text style={[styles.cell, styles.rate, styles.bold]}>Rate</Text>
+                        <Text style={[styles.cell, styles.per, styles.bold]}>Per</Text>
+                        <Text style={[styles.cellLast, styles.amount, styles.bold]}>Amount</Text>
+                    </View>
 
-                    <Text style={styles.description}>
-                        {description.split('\n').map((line, index) => (
-                            <Text key={index}>
-                                {line}
-                                {'\n'}
+                    {items.map((item, index) => (
+                        <View style={styles.itemRow} key={`${item.product}-${index}`}>
+                            <Text style={[styles.cell, styles.sl]}>{index + 1}</Text>
+                            <Text style={[styles.cell, styles.desc]}>
+                                {item.product}
+                                {item.description ? `\n${item.description}` : ''}
                             </Text>
-                        ))}
-                    </Text>
-
-                    <View style={styles.divider} />
-
-                    <View>
-                        <View style={styles.tableHeaderRow}>
-                            <Text style={styles.tableCell1}>S/N</Text>
-                            <Text style={styles.tableCell2}>Internal Code</Text>
-                            <Text style={styles.tableCellFirm}>Firm</Text>
-                            <Text style={styles.tableCell3}>Product</Text>
-                            <Text style={styles.tableCell4}>Description</Text>
-                            <Text style={styles.tableCell5}>Qty</Text>
-                            <Text style={styles.tableCell6}>Unit</Text>
-                            <Text style={styles.tableCell7}>Rate</Text>
-                            <Text style={styles.tableCell8}>GST (%)</Text>
-                            <Text style={styles.tableCell9}>Discount (%)</Text>
-                            <Text style={styles.tableCell10}>Amount</Text>
+                            <Text style={[styles.cell, styles.qty]}>{formatQty(item.quantity, item.unit)}</Text>
+                            <Text style={[styles.cell, styles.rate]}>{formatMoney(item.rate)}</Text>
+                            <Text style={[styles.cell, styles.per]}>{item.unit}</Text>
+                            <Text style={[styles.cellLast, styles.amount]}>{formatMoney(lineTaxableAmount(item))}</Text>
                         </View>
+                    ))}
 
-                        {items.map((item, i) => (
-                            <View style={styles.tableRow} key={i}>
-                                <Text style={styles.tableCell1}>{i + 1}</Text>
-                                <Text style={styles.tableCell2}>{item.internalCode}</Text>
-                                <Text style={styles.tableCellFirm}>{item.firm}</Text>
-                                <Text style={styles.tableCell3}>{item.product}</Text>
-                                <Text style={styles.tableCell4}>{item.description}</Text>
-                                <Text style={styles.tableCell5}>{item.quantity}</Text>
-                                <Text style={styles.tableCell6}>{item.unit}</Text>
-                                <Text style={styles.tableCell7}>{item.rate}</Text>
-                                <Text style={styles.tableCell8}>{item.gst} %</Text>
-                                <Text style={styles.tableCell9}>{item.discount} %</Text>
-                                <Text style={styles.tableCell10}>{item.amount}</Text>
-                            </View>
-                        ))}
-                        <View style={styles.tableRow}>
-                            <Text style={styles.tableTotalCell}>Total</Text>
-                            <Text style={styles.tableTotalValue}>{total}</Text>
+                    {gstRows.map(([gstPercent, gstValue]) => {
+                        const halfPercent = gstPercent / 2;
+                        const halfValue = gstValue / 2;
+                        return [
+                            <View style={styles.itemRow} key={`cgst-${gstPercent}`}>
+                                <Text style={[styles.cell, styles.sl]} />
+                                <Text style={[styles.cell, styles.desc, { textAlign: 'right' }]}>CGST {halfPercent}%</Text>
+                                <Text style={[styles.cell, styles.qty]}>{halfPercent}</Text>
+                                <Text style={[styles.cell, styles.rate]} />
+                                <Text style={[styles.cell, styles.per]}>%</Text>
+                                <Text style={[styles.cellLast, styles.amount]}>{formatMoney(halfValue)}</Text>
+                            </View>,
+                            <View style={styles.itemRow} key={`sgst-${gstPercent}`}>
+                                <Text style={[styles.cell, styles.sl]} />
+                                <Text style={[styles.cell, styles.desc, { textAlign: 'right' }]}>SGST {halfPercent}%</Text>
+                                <Text style={[styles.cell, styles.qty]}>{halfPercent}</Text>
+                                <Text style={[styles.cell, styles.rate]} />
+                                <Text style={[styles.cell, styles.per]}>%</Text>
+                                <Text style={[styles.cellLast, styles.amount]}>{formatMoney(halfValue)}</Text>
+                            </View>,
+                        ];
+                    })}
+
+                    <View style={styles.row}>
+                        <Text style={[styles.cell, styles.totalLabel, styles.bold]}>TOTAL</Text>
+                        <Text style={[styles.cell, styles.totalQty, styles.bold]}>{formatQty(totalQty, primaryUnit)}</Text>
+                        <Text style={[styles.cell, styles.totalRate]} />
+                        <Text style={[styles.cell, styles.totalPer]} />
+                        <Text style={[styles.cellLast, styles.totalAmount, styles.bold]}>{formatMoney(grandTotal || total)}</Text>
+                    </View>
+
+                    <View style={styles.row}>
+                        <View style={[styles.cell, styles.wordsLeft]}>
+                            <Text style={styles.label}>Amount Chargeable (in words)</Text>
+                            <Text style={[styles.bold, { marginTop: 8 }]}>{amountInWords(grandTotal || total)}</Text>
                         </View>
-                        <View style={styles.tableRow}>
-                            <Text style={styles.tableTotalCell}>GST Amount</Text>
-                            <Text style={styles.tableTotalValue}>{gstAmount}</Text>
-                        </View>
-                        <View style={styles.tableRow}>
-                            <Text style={styles.tableTotalCellBold}>Grand Total</Text>
-                            <Text style={styles.tableTotalValue}>{grandTotal}</Text>
+                        <View style={[styles.cellLast, styles.wordsRight]}>
+                            <Text>for {companyName || 'Company'}</Text>
                         </View>
                     </View>
 
-                    <View style={styles.divider} />
-
-                    <View style={styles.termsContainer}>
-                        <Text style={styles.termsHeader}>Terms & Conditions</Text>
-                        {terms.map((term, i) => (
-                            <Text style={styles.termsText} key={i}>
-                                {i + 1}. {term}
-                            </Text>
-                        ))}
-                    </View>
-                    <Text style={styles.acknowledgement}>
-                        Kindly Acknowlage Receipt Or This Purchase Order Along With Its Enclousers
-                        &amp; Ensure Timely Execution Of The Orderd Material
-                    </Text>
-
-                    <View style={styles.divider} />
-
-                    <View style={styles.signatureContainer}>
-                        <View style={styles.signatureSection}>
-                            <Text style={styles.signatureLabel}>Prepared By</Text>
-                            <Text>{preparedBy}</Text>
+                    <View style={styles.row}>
+                        <View style={[styles.cellLast, styles.termsCell]}>
+                            <Text style={styles.bold}>TERMS AND CONDITIONS</Text>
+                            {displayedTerms.map((term, index) => (
+                                <Text key={index} style={styles.termsLine}>{index + 1}. {term}</Text>
+                            ))}
                         </View>
-                        <View style={styles.signatureSection}>
-                            <Text style={styles.signatureLabel}>Approved By</Text>
-                            <Text>{approvedBy}</Text>
-                        </View>
-                        <Text style={styles.companySignature}>For {companyName}</Text>
                     </View>
-                    <Text style={styles.systemGenerated}>This is a system generated document.</Text>
+
+                    <View style={styles.lastRow}>
+                        <View style={[styles.cell, styles.signatureCell]}>
+                            <Text>MADE BY</Text>
+                            <Text>{preparedBy || '-'}</Text>
+                        </View>
+                        <View style={[styles.cell, styles.signatureCell]}>
+                            <Text>CHECKED BY</Text>
+                        </View>
+                        <View style={[styles.cellLast, styles.signatureCell]}>
+                            <Text>AUTHORISED BY</Text>
+                            <Text>{approvedBy || '-'}</Text>
+                        </View>
+                    </View>
                 </View>
+
+                <Image src={FOOTER_IMAGE} style={styles.letterheadFooter} />
             </Page>
         </Document>
     );

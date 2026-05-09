@@ -49,6 +49,7 @@ import PendingPOs from './components/views/PendingPOs';
 import Order from './components/views/Order';
 import Inventory from './components/views/Inventory';
 import POMaster from './components/views/POMaster';
+import ViewOnlyGuard from './components/element/ViewOnlyGuard';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const { loggedIn, loading } = useAuth();
@@ -377,7 +378,11 @@ window.__reactRoot.render(
                             return <Route
                                 key={`${path}-${index}`}
                                 path={path}
-                                element={<GatedRoute identifier={gateKey} roleKey={roleKey}>{element}</GatedRoute>}
+                                element={
+                                    <GatedRoute identifier={gateKey} roleKey={roleKey}>
+                                        <ViewOnlyGuard>{element}</ViewOnlyGuard>
+                                    </GatedRoute>
+                                }
                             />;
                         })}
                         <Route path="*" element={<Navigate to="/" replace />} />

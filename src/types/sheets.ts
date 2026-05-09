@@ -117,8 +117,11 @@ export type InventorySheet = {
     inventoryId: number | null;
     itemName: string;
     departmentHead: string;
+    departmentHeadId?: number | null;
     department?: string;
+    departmentId?: number | null;
     uom: string;
+    uomId?: number | null;
     individualRate: number;
     indented: number;
     approved: number;
@@ -239,6 +242,8 @@ export type UserPermissions = {
     password: string;
     name: string;
     role?: string;
+    modifyAccess?: 'EDIT' | 'VIEW';
+    modify_access?: 'EDIT' | 'VIEW';
 
     administrate: boolean;
     createIndent: boolean;

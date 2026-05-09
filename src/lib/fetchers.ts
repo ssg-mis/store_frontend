@@ -125,9 +125,14 @@ export async function fetchIndentMasterData() {
         const firmsData = firmsRes.ok ? await firmsRes.json() : [];
         const inventoryData: any[] = inventoryRes.ok ? await inventoryRes.json() : [];
 
-        const firms = firmsData.map((f: any) => f.firm_name).filter(Boolean) as string[];
-        const departments = deptsData.map((d: any) => d.name) as string[];
-        const allDepartmentHeads = headsData.map((h: any) => h.name) as string[];
+        // Only include active records in dropdowns
+        const activeDepts = deptsData.filter((d: any) => d.isActive !== false);
+        const activeHeads = headsData.filter((h: any) => h.isActive !== false);
+        const activeFirms = firmsData.filter((f: any) => f.isActive !== false);
+
+        const firms = activeFirms.map((f: any) => f.firm_name).filter(Boolean) as string[];
+        const departments = activeDepts.map((d: any) => d.name) as string[];
+        const allDepartmentHeads = activeHeads.map((h: any) => h.name) as string[];
 
         // Build bidirectional dept ↔ head lookup from Inventory records
         const departmentToHead: Record<string, string> = {};
@@ -192,12 +197,12 @@ export async function fetchDepartments() {
     }
 }
 
-export async function postDepartment(name: string) {
+export async function postDepartment(name: string, isActive: boolean = true) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/departments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
+            body: JSON.stringify({ name, isActive })
         });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
@@ -236,12 +241,12 @@ export async function fetchDepartmentHeads() {
     }
 }
 
-export async function postDepartmentHead(name: string) {
+export async function postDepartmentHead(name: string, isActive: boolean = true) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/department-heads`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
+            body: JSON.stringify({ name, isActive })
         });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
@@ -743,12 +748,16 @@ export async function fetchUOMs() {
     }
 }
 
-export async function postToUOM(uomName: string) {
+export async function postToUOM(
+    uomName: string,
+    isActive: boolean = true,
+    additionalUoms: { uom_name: string; conversionToBase: number }[] = []
+) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/uom`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uom_name: uomName })
+            body: JSON.stringify({ uom_name: uomName, isActive, additionalUoms })
         });
         if (!response.ok) {
             const errorText = await response.text();
@@ -757,6 +766,24 @@ export async function postToUOM(uomName: string) {
         return { success: true, data: await response.json() };
     } catch (error: any) {
         console.error('Error creating UOM:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function postUOMConversion(id: number, data: { uom_name: string; conversionToBase: number; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/uom/${id}/conversions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create UOM conversion');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error creating UOM conversion:', error);
         return { success: false, error: error.message };
     }
 }
@@ -873,25 +900,25 @@ export async function fetchProductCategories() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return await response.json() as { product_category_id: number; product_category_name: string }[];
+        return await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean }[];
     } catch (error) {
         console.error('Error fetching product categories:', error);
         return [];
     }
 }
 
-export async function postProductCategory(name: string) {
+export async function postProductCategory(name: string, isActive: boolean = true) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_category_name: name })
+            body: JSON.stringify({ product_category_name: name, isActive })
         });
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(errorText || 'Failed to create product category');
         }
-        return { success: true, data: await response.json() as { product_category_id: number; product_category_name: string } };
+        return { success: true, data: await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean } };
     } catch (error: any) {
         console.error('Error creating product category:', error);
         return { success: false, error: error.message };
