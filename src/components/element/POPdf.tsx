@@ -53,16 +53,52 @@ const styles = StyleSheet.create({
         color: '#111',
     },
     letterheadHeader: {
-        width: '100%',
-        height: 86,
-        objectFit: 'contain',
+        minHeight: 86,
         marginBottom: 2,
+        border: '1 solid #111',
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    letterheadLogoWrap: {
+        width: 58,
+        height: 58,
+        marginRight: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    letterheadLogo: {
+        width: 54,
+        height: 54,
+        objectFit: 'contain',
+    },
+    letterheadBody: {
+        flex: 1,
+        textAlign: 'center',
+    },
+    letterheadCompany: {
+        fontSize: 16,
+        fontFamily: 'Helvetica-Bold',
+        textTransform: 'uppercase',
+        marginBottom: 4,
+    },
+    letterheadLine: {
+        fontSize: 8,
+        lineHeight: 1.2,
+    },
+    letterheadMeta: {
+        marginTop: 4,
+        fontSize: 8,
+        fontFamily: 'Helvetica-Bold',
     },
     letterheadFooter: {
-        width: '100%',
-        height: 24,
-        objectFit: 'contain',
         marginTop: 4,
+        borderTop: '1 solid #111',
+        paddingTop: 4,
+        textAlign: 'center',
+        fontSize: 7,
+        color: '#222',
     },
     table: {
         border: '1 solid #111',
@@ -207,9 +243,6 @@ const styles = StyleSheet.create({
     },
 });
 
-const HEADER_IMAGE = '/po-letterhead-header.png';
-const FOOTER_IMAGE = '/po-letterhead-footer.png';
-
 function formatMoney(value: number) {
     return Number(value || 0).toFixed(2);
 }
@@ -277,8 +310,11 @@ function splitLines(value?: string) {
 }
 
 export default ({
+    companyLogo,
     companyName,
+    companyPhone,
     companyGstin,
+    companyPan,
     companyAddress,
     billingAddress,
     destinationAddress,
@@ -304,11 +340,30 @@ export default ({
     const primaryUnit = items[0]?.unit || '';
     const gstRows = gstGroups(items);
     const displayedTerms = terms.length ? terms : splitLines(description);
+    const addressLines = splitLines(companyAddress);
+    const companyMeta = [
+        companyGstin ? `GSTIN/UIN: ${companyGstin}` : '',
+        companyPan ? `PAN: ${companyPan}` : '',
+        companyPhone ? `Phone: ${companyPhone}` : '',
+    ].filter(Boolean).join('   |   ');
 
     return (
         <Document>
             <Page size="A4" style={styles.page}>
-                <Image src={HEADER_IMAGE} style={styles.letterheadHeader} />
+                <View style={styles.letterheadHeader}>
+                    {companyLogo ? (
+                        <View style={styles.letterheadLogoWrap}>
+                            <Image src={companyLogo} style={styles.letterheadLogo} />
+                        </View>
+                    ) : null}
+                    <View style={styles.letterheadBody}>
+                        <Text style={styles.letterheadCompany}>{companyName || '-'}</Text>
+                        {addressLines.map((line, index) => (
+                            <Text key={index} style={styles.letterheadLine}>{line}</Text>
+                        ))}
+                        {companyMeta ? <Text style={styles.letterheadMeta}>{companyMeta}</Text> : null}
+                    </View>
+                </View>
 
                 <View style={styles.table}>
                     <View style={styles.row}>
@@ -476,7 +531,9 @@ export default ({
                     </View>
                 </View>
 
-                <Image src={FOOTER_IMAGE} style={styles.letterheadFooter} />
+                <View style={styles.letterheadFooter}>
+                    <Text>{companyName || 'Company'}{companyPhone ? ` | Phone: ${companyPhone}` : ''}{companyGstin ? ` | GSTIN/UIN: ${companyGstin}` : ''}</Text>
+                </View>
             </Page>
         </Document>
     );

@@ -50,6 +50,7 @@ export default function Dashboard() {
             name: string;
             orders: number;
             quantity: number;
+            value: number;
         }[]
     >([]);
 
@@ -166,8 +167,14 @@ export default function Dashboard() {
                                 accessibilityLayer
                                 data={chartData}
                                 layout="vertical"
-                                margin={{ right: 30, left: 10 }}
+                                margin={{ right: 40, left: 20, top: 10, bottom: 10 }}
                             >
+                                <defs>
+                                    <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
+                                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.6} />
+                                        <stop offset="100%" stopColor="hsl(var(--primary))" />
+                                    </linearGradient>
+                                </defs>
                                 <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="#f1f5f9" />
                                 <YAxis
                                     dataKey="name"
@@ -175,32 +182,26 @@ export default function Dashboard() {
                                     tickLine={false}
                                     tickMargin={10}
                                     axisLine={false}
-                                    hide
+                                    width={150}
+                                    tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }}
                                 />
                                 <XAxis dataKey="frequency" type="number" hide />
                                 <ChartTooltip
-                                    cursor={{ fill: '#f8fafc' }}
+                                    cursor={{ fill: '#f8fafc', opacity: 0.4 }}
                                     content={<CustomChartTooltipContent />}
                                 />
                                 <Bar
                                     dataKey="frequency"
                                     layout="vertical"
-                                    fill="hsl(var(--primary))"
-                                    radius={[0, 4, 4, 0]}
-                                    barSize={32}
+                                    fill="url(#barGradient)"
+                                    radius={[0, 6, 6, 0]}
+                                    barSize={24}
                                 >
-                                    <LabelList
-                                        dataKey="name"
-                                        position="insideLeft"
-                                        offset={12}
-                                        className="fill-white font-bold"
-                                        fontSize={12}
-                                    />
                                     <LabelList
                                         dataKey="frequency"
                                         position="right"
                                         offset={10}
-                                        className="fill-slate-500 font-semibold"
+                                        className="fill-slate-600 font-bold"
                                         fontSize={12}
                                     />
                                 </Bar>
@@ -217,19 +218,23 @@ export default function Dashboard() {
                     <CardContent className="space-y-4">
                         {topVendorsData.length > 0 ? (
                             topVendorsData.map((vendor, i) => (
-                                <div key={i} className="flex items-center justify-between p-3 rounded-xl border border-slate-50 hover:bg-slate-50 transition-colors">
+                                <div key={i} className="flex items-center justify-between p-3 rounded-xl border border-slate-50 hover:bg-slate-100/50 transition-all hover:shadow-sm">
                                     <div className="flex items-center gap-3">
-                                        <div className="size-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs uppercase tracking-tighter">
+                                        <div className={`size-10 rounded-full flex items-center justify-center font-bold text-xs uppercase tracking-tighter ${
+                                            i === 0 ? 'bg-amber-100 text-amber-700' : 
+                                            i === 1 ? 'bg-slate-200 text-slate-700' :
+                                            i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
+                                        }`}>
                                             {vendor.name.slice(0, 2)}
                                         </div>
-                                        <div>
-                                            <p className="font-bold text-slate-800 truncate max-w-[150px] leading-tight">{vendor.name}</p>
-                                            <p className="text-xs text-slate-500 font-medium">{vendor.orders} Orders processed</p>
+                                        <div className="min-w-0">
+                                            <p className="font-bold text-slate-800 truncate max-w-[140px] leading-tight" title={vendor.name}>{vendor.name}</p>
+                                            <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">{vendor.orders} Orders</p>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="font-black text-slate-900 tracking-tight">{Math.floor(vendor.quantity).toLocaleString()}</p>
-                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Units Sold</p>
+                                        <p className="font-black text-slate-900 tracking-tight text-sm">₹{Math.floor(vendor.value).toLocaleString()}</p>
+                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-0.5">Value</p>
                                     </div>
                                 </div>
                             ))

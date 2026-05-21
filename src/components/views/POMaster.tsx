@@ -121,23 +121,50 @@ export default () => {
         [fetchData]
     );
 
+    const getBasePo = (poNumber: string) => {
+        const parts = poNumber.split('/');
+        const lastSegment = parts[parts.length - 1];
+        const mainSeq = lastSegment.split('-')[0];
+        return [...parts.slice(0, -1), mainSeq].join('/');
+    };
+
+    const getRevision = (poNumber: string) => {
+        const parts = poNumber.split('/');
+        const lastSegment = parts[parts.length - 1];
+        const segments = lastSegment.split('-');
+        return segments.length > 1 ? parseInt(segments[segments.length - 1], 10) : 0;
+    };
+
     const groupedData = useMemo(() => {
-        const groups = new Map<string, POMasterItem[]>();
+        // Group rows by exact poNumber first
+        const poGroups = new Map<string, POMasterItem[]>();
         tableData.forEach(item => {
-            if (!groups.has(item.poNumber)) groups.set(item.poNumber, []);
-            groups.get(item.poNumber)!.push(item);
+            if (!poGroups.has(item.poNumber)) poGroups.set(item.poNumber, []);
+            poGroups.get(item.poNumber)!.push(item);
         });
-        return Array.from(groups.entries()).map(([poNumber, items]) => {
-            const first = items[0];
+
+        // Group PO versions by base number (strips revision suffix like -1, -2)
+        const baseGroups = new Map<string, { poNumber: string; revision: number; items: POMasterItem[] }[]>();
+        for (const [poNumber, items] of poGroups.entries()) {
+            const base = getBasePo(poNumber);
+            if (!baseGroups.has(base)) baseGroups.set(base, []);
+            baseGroups.get(base)!.push({ poNumber, revision: getRevision(poNumber), items });
+        }
+
+        return Array.from(baseGroups.entries()).map(([, versions]) => {
+            versions.sort((a, b) => b.revision - a.revision);
+            const latest = versions[0];
+            const first = latest.items[0];
             return {
-                poNumber,
+                poNumber: latest.poNumber,
                 partyName: first.partyName,
                 timestamp: first.timestamp,
                 preparedBy: first.preparedBy,
                 approvedBy: first.approvedBy,
                 totalPoAmount: first.totalPoAmount,
                 pdf: first.pdf,
-                items,
+                items: latest.items,
+                versions,
             };
         });
     }, [tableData]);
@@ -244,6 +271,33 @@ export default () => {
                                                     </span>
                                                 </TableCell>
                                             </TableRow>
+                                            {isExpanded && group.versions.length > 1 && group.versions.map((ver) => (
+                                                <TableRow key={`rev-${ver.poNumber}`} className="bg-primary/5">
+                                                    <TableCell />
+                                                    <TableCell onClick={(e) => e.stopPropagation()}>
+                                                        {ver.items[0]?.pdf ? (
+                                                            <Button
+                                                                asChild
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                                                            >
+                                                                <a href={ver.items[0].pdf} target="_blank" rel="noopener noreferrer">
+                                                                    <FileText size={13} />
+                                                                    View
+                                                                </a>
+                                                            </Button>
+                                                        ) : (
+                                                            <span className="text-muted-foreground text-xs">—</span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-xs font-medium text-primary">{ver.poNumber}</TableCell>
+                                                    <TableCell colSpan={5} className="text-xs text-muted-foreground">
+                                                        {ver.revision === group.versions[0].revision ? 'Latest' : ver.revision === 0 ? 'Original' : `Revision ${ver.revision}`}
+                                                    </TableCell>
+                                                    <TableCell />
+                                                </TableRow>
+                                            ))}
                                             {isExpanded && group.items.map((item, idx) => (
                                                 <TableRow key={`${group.poNumber}-${idx}`} className="bg-muted/20">
                                                     <TableCell />

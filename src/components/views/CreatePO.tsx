@@ -29,13 +29,12 @@ import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 
-function generatePoNumber(poNumbers: string[], today = new Date(), firmName?: string): string {
+function generatePoNumber(poNumbers: string[], today = new Date(), firmAlias?: string): string {
     // Step 1: Get financial year from today's date
     const fyStart = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
     const fy = `${(fyStart % 100).toString().padStart(2, '0')}-${((fyStart + 1) % 100).toString().padStart(2, '0')}`;
 
-    // Add firm name if provided, else keep as is
-    const firmPart = firmName && firmName !== 'N/A' && firmName !== '' ? `${firmName.toUpperCase().trim()}/` : '';
+    const firmPart = firmAlias && firmAlias !== '' ? `${firmAlias.toUpperCase().trim()}/` : '';
     const prefix = `SSPL/${firmPart}STORES/${fy}/`;
 
     // Step 2: Extract numbers for curre nt financial year
@@ -96,6 +95,17 @@ function filterUniquePoNumbers(data: any[]): any[] {
 
     return result;
 }
+
+const formatFirmAddress = (firm: any, fallback = '') => {
+    if (!firm) return fallback;
+
+    const lines = [
+        firm.firm_address || '',
+        [firm.state, firm.pin_code].filter(Boolean).join(' '),
+    ].filter(Boolean);
+
+    return lines.join('\n') || fallback;
+};
 
 export default () => {
     const { updateIndentSheet, updatePoMasterSheet, updateRelatedSheets } = useSheets();
@@ -295,53 +305,61 @@ export default () => {
     const poDate = form.watch('poDate');
     const poNumber = form.watch('poNumber');
 
+    const findIndentById = (id?: number) => indentSheetData.find((indent: any) => indent.id === id);
+
+    const selectedIndentRows = useMemo(() => {
+        if (mode !== 'create' || !indentName) return [];
+
+        return indentSheetData.filter((indent: any) => indent.indentNumber === indentName);
+    }, [mode, indentName, indentSheetData]);
+
+    const selectedPrimaryIndent = useMemo(() => {
+        if (indents[0]?.id) return findIndentById(indents[0].id);
+        return selectedIndentRows[0];
+    }, [indents, selectedIndentRows, indentSheetData]);
+
     const displayFirm = useMemo(() => {
         let firmName = "Shri Shyam Oil Extractions Pvt Ltd"; // Default
 
         if (mode === 'create') {
-            if (indents && indents.length > 0) {
-                const indent = indentSheetData.find(i => (i.indentNumber || i.indent_number) === indents[0].indentNumber);
-                if (indent?.firm) {
-                    firmName = indent.firm;
-                }
-            } else if (indentName) {
-                const indent = indentSheetData.find(i => (i.indentNumber || i.indent_number) === indentName);
-                if (indent?.firm) {
-                    firmName = indent.firm;
-                }
+            if (selectedPrimaryIndent?.firm) {
+                firmName = selectedPrimaryIndent.firm;
             }
         } else if (mode === 'revise') {
             const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber);
             if (po) {
                 if (po.firm) {
                     firmName = po.firm;
-                } else {
-                    const indentNo = po.internalCode || po.internal_code || po.indent_number;
-                    const indent = indentSheetData.find(i => (i.indentNumber || i.indent_number) === indentNo);
-                    if (indent?.firm) {
-                        firmName = indent.firm;
-                    }
+                } else if (po.indent?.firm) {
+                    firmName = po.indent.firm;
                 }
             }
         }
         return firmName;
-    }, [mode, indents, indentSheetData, poNumber, poMasterSheetData, indentName]);
+    }, [mode, selectedPrimaryIndent, poNumber, poMasterSheetData]);
 
     const selectedFirmData = useMemo(() => {
         return firms.find(f => f.firm_name === displayFirm);
     }, [firms, displayFirm]);
 
+    const selectedFirmAddress = useMemo(
+        () => formatFirmAddress(selectedFirmData, detailsData?.companyAddress || detailsData?.company_address || ''),
+        [selectedFirmData, detailsData]
+    );
+
 
     // Initialize destination address from details
     useEffect(() => {
-        const baseAddr = selectedFirmData ? `${selectedFirmData.firm_name}\n${selectedFirmData.firm_address || ''}\n${selectedFirmData.state || ''} ${selectedFirmData.pin_code || ''}` : displayFirm;
+        const baseAddr = [displayFirm, selectedFirmAddress].filter(Boolean).join('\n');
         
         if (detailsData?.destinationAddress) {
             setDestinationAddress(`${baseAddr}\n${detailsData.destinationAddress}`);
+        } else if (detailsData?.destination_address) {
+            setDestinationAddress(`${baseAddr}\n${detailsData.destination_address}`);
         } else {
             setDestinationAddress(baseAddr);
         }
-    }, [detailsData, displayFirm, selectedFirmData]);
+    }, [detailsData, displayFirm, selectedFirmAddress]);
 
     const termsArray = useFieldArray({
         control: form.control,
@@ -357,21 +375,21 @@ export default () => {
 
     useEffect(() => {
         if (mode === 'create') {
-            // Get firm from selected indents
-            const selectedFirm = indents.length > 0 
-                ? indentSheetData.find(i => i.indentNumber === indents[0].indentNumber)?.firm 
+            const selectedFirmName = indents.length > 0
+                ? findIndentById(indents[0].id)?.firm
                 : undefined;
+            const selectedFirmAlias = firms.find(f => f.firm_name === selectedFirmName)?.alias ?? selectedFirmName;
 
             form.setValue(
                 'poNumber',
                 generatePoNumber(
                     poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null),
                     poDate || new Date(),
-                    selectedFirm
+                    selectedFirmAlias
                 )
             );
         }
-    }, [poDate, poMasterSheetData, mode, indents, indentSheetData, form]);
+    }, [poDate, poMasterSheetData, mode, indents, indentSheetData, form, firms]);
 
     useEffect(() => {
         if (mode === 'revise') {
@@ -436,11 +454,8 @@ export default () => {
             // If a specific indent is selected, only show that one; otherwise show all for this vendor
             const currentIndentName = form.getValues('indentName');
             if (currentIndentName) {
-                const selectedIndents = indentSheetData.filter(
-                    (i: any) => (i.indentNumber || i.indent_number) === currentIndentName
-                );
-                form.setValue('indents', selectedIndents.map((i: any) => ({
-                    indentNumber: i.indentNumber || i.indent_number,
+                form.setValue('indents', selectedIndentRows.map((i: any) => ({
+                    indentNumber: i.indentNumber,
                     id: i.id,
                     quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
                     gst: 18,
@@ -460,18 +475,24 @@ export default () => {
                 );
             }
         }
-    }, [vendor, indentSheetData, vendorsData]);
+    }, [vendor, indentName, indentSheetData, vendorsData, selectedIndentRows]);
 
     useEffect(() => {
         if (indentName && mode === 'create') {
-            const selectedIndent = indentSheetData.find(
-                (i: any) => (i.indentNumber || i.indent_number) === indentName
-            );
+            const selectedIndent = selectedIndentRows[0];
             if (selectedIndent) {
                 form.setValue('supplierName', selectedIndent.approvedVendorName || selectedIndent.approved_vendor_name || '');
+                form.setValue('indents', selectedIndentRows.map((i: any) => ({
+                    indentNumber: i.indentNumber,
+                    id: i.id,
+                    quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
+                    gst: 18,
+                    discount: 0,
+                    discountAmount: 0,
+                })));
             }
         }
-    }, [indentName, indentSheetData]);
+    }, [indentName, mode, selectedIndentRows]);
 
     useEffect(() => {
         const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
@@ -546,7 +567,9 @@ export default () => {
     };
 
     const handleDestinationCancel = () => {
-        setDestinationAddress(detailsData?.destinationAddress ? `Shri Shyam Oil Extractions Pvt. Ltd.\n${detailsData.destinationAddress}` : 'Shri Shyam Oil Extractions Pvt. Ltd.');
+        const baseAddr = [displayFirm, selectedFirmAddress].filter(Boolean).join('\n');
+        const destination = detailsData?.destinationAddress || detailsData?.destination_address || '';
+        setDestinationAddress(destination ? `${baseAddr}\n${destination}` : baseAddr);
         setIsEditingDestination(false);
     };
 
@@ -674,11 +697,11 @@ export default () => {
             const pdfProps: POPdfProps = {
                 companyLogo: logoBase64,
                 companyName: displayFirm,
-                companyPhone: selectedFirmData?.mobile || detailsData?.companyPhone || '',
-                companyGstin: selectedFirmData?.firm_gstin || detailsData?.companyGstin || '',
-                companyPan: selectedFirmData?.pan_number || detailsData?.companyPan || '',
-                companyAddress: selectedFirmData?.firm_address || detailsData?.companyAddress || '',
-                billingAddress: selectedFirmData?.firm_address || detailsData?.billingAddress || '',
+                companyPhone: selectedFirmData?.mobile || detailsData?.companyPhone || detailsData?.company_phone || '',
+                companyGstin: selectedFirmData?.firm_gstin || detailsData?.companyGstin || detailsData?.company_gstin || '',
+                companyPan: selectedFirmData?.pan_number || detailsData?.companyPan || detailsData?.company_pan || '',
+                companyAddress: selectedFirmAddress,
+                billingAddress: selectedFirmAddress || detailsData?.billingAddress || detailsData?.billing_address || '',
                 destinationAddress: destinationAddress, // Use the editable destination address
                 supplierName: values.supplierName,
                 supplierAddress: values.supplierAddress,
@@ -924,9 +947,7 @@ export default () => {
                                     <h1 className="text-2xl font-bold">{displayFirm}</h1>
                                     <div>
                                         <p className="text-sm">
-                                            {selectedFirmData?.firm_address || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
-                                            {selectedFirmData?.state && `, ${selectedFirmData.state}`}
-                                            {selectedFirmData?.pin_code && `-${selectedFirmData.pin_code}`}
+                                            {selectedFirmAddress || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
                                         </p>
                                         <p className="text-sm">Phone No: {selectedFirmData?.mobile || '+919993023243'}</p>
                                     </div>
@@ -1170,11 +1191,11 @@ export default () => {
                                     <CardContent className="p-5 text-sm">
                                         <p>
                                             <span className="font-medium">GSTIN: </span>
-                                            {selectedFirmData?.firm_gstin || detailsData?.company_gstin || '21AACCJ1154B1ZG'}
+                                            {selectedFirmData?.firm_gstin || detailsData?.companyGstin || detailsData?.company_gstin || '21AACCJ1154B1ZG'}
                                         </p>
                                         <p>
                                             <span className="font-medium">Pan No: </span>
-                                            {selectedFirmData?.pan_number || detailsData?.company_pan || 'AACCJ1154B'}
+                                            {selectedFirmData?.pan_number || detailsData?.companyPan || detailsData?.company_pan || 'AACCJ1154B'}
                                         </p>
                                     </CardContent>
                                 </Card>
@@ -1187,9 +1208,7 @@ export default () => {
                                     <CardContent className="p-5 text-sm">
                                         <p className="font-medium">M/S {displayFirm}</p>
                                         <p className="whitespace-pre-wrap">
-                                            {selectedFirmData?.firm_address || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
-                                            {selectedFirmData?.state && `, ${selectedFirmData.state}`}
-                                            {selectedFirmData?.pin_code && `-${selectedFirmData.pin_code}`}
+                                            {selectedFirmAddress || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
                                         </p>
                                     </CardContent>
                                 </Card>

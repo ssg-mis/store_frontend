@@ -61,37 +61,40 @@ export function analyzeData(
 
     for (const r of receivedSheet) {
         const indentInfo = indentMap.get(r.indentNumber);
-        const productName = indentInfo?.product || 'Unknown Product';
+        // Fallback to product name in received record if indent info is missing
+        const productName = indentInfo?.product || r.product || 'Unknown Product';
         
         if (!productFrequencyMap.has(productName)) {
             productFrequencyMap.set(productName, { frequency: 0, quantity: 0 });
         }
         const entry = productFrequencyMap.get(productName)!;
         entry.frequency += 1;
-        entry.quantity += r.receivedQuantity;
+        entry.quantity += (r.receivedQuantity || 0);
     }
 
     const topProducts = [...productFrequencyMap.entries()]
+        .filter(([name]) => name !== 'Unknown Product')
         .sort((a, b) => b[1].frequency - a[1].frequency)
         .slice(0, 10)
         .map(([name, data]) => ({ name, ...data }));
 
-    // 6. Top 10 Vendors (By order count in Received Sheet)
-    const vendorMap = new Map<string, { orders: number; quantity: number }>();
+    // 6. Top 10 Vendors (By total value in Received Sheet)
+    const vendorMap = new Map<string, { orders: number; quantity: number; value: number }>();
 
     for (const r of receivedSheet) {
         if (!r.vendor) continue;
         const vendorName = r.vendor.trim();
         if (!vendorMap.has(vendorName)) {
-            vendorMap.set(vendorName, { orders: 0, quantity: 0 });
+            vendorMap.set(vendorName, { orders: 0, quantity: 0, value: 0 });
         }
         const entry = vendorMap.get(vendorName)!;
         entry.orders += 1;
-        entry.quantity += r.receivedQuantity;
+        entry.quantity += (r.receivedQuantity || 0);
+        entry.value += Number(r.billAmount || 0);
     }
 
     const topVendors = [...vendorMap.entries()]
-        .sort((a, b) => b[1].orders - a[1].orders)
+        .sort((a, b) => b[1].value - a[1].value)
         .slice(0, 10)
         .map(([name, data]) => ({ name, ...data }));
 

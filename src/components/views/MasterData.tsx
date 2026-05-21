@@ -43,6 +43,7 @@ interface MasterRow {
 interface FirmRow {
     firm_id: number;
     firm_name: string;
+    alias: string | null;
     firm_gstin: string | null;
     firm_address: string | null;
     firm_email: string | null;
@@ -86,6 +87,7 @@ interface MasterForm {
     item_name: string;
     uom: string;
     firm_name: string;
+    alias: string;
     firm_gstin: string;
     firm_address: string;
     firm_email: string;
@@ -110,6 +112,7 @@ const emptyForm: MasterForm = {
     item_name: '',
     uom: '',
     firm_name: '',
+    alias: '',
     firm_gstin: '',
     firm_address: '',
     firm_email: '',
@@ -478,6 +481,7 @@ export default function MasterData() {
             setEditDialogForm({
                 ...emptyForm,
                 firm_name: row.firm_name || '',
+                alias: row.alias || '',
                 firm_gstin: row.firm_gstin || '',
                 firm_address: row.firm_address || '',
                 firm_email: row.firm_email || '',
@@ -505,6 +509,9 @@ export default function MasterData() {
             let result;
             if (editDialogType === 'inventory') {
                 const selectedFirm = firms.find(f => f.firm_name === editDialogForm.firm_name);
+                const selectedDept = allDepartments.find(d => d.name === editDialogForm.department);
+                const selectedHead = allDepartmentHeads.find(h => h.name === editDialogForm.department_head);
+                const selectedUom = uoms.find(u => u.uom_name === editDialogForm.uom);
                 const payload: any = {
                     id: editingId,
                     department: editDialogForm.department.trim() || '',
@@ -512,6 +519,9 @@ export default function MasterData() {
                     itemName: editDialogForm.item_name.trim(),
                     uom: editDialogForm.uom || '',
                     itemCategoryId: editDialogForm.itemCategoryId ? parseInt(editDialogForm.itemCategoryId) : undefined,
+                    ...(selectedDept && { departmentId: selectedDept.id }),
+                    ...(selectedHead && { departmentHeadId: selectedHead.id }),
+                    ...(selectedUom && { uomId: selectedUom.uom_id }),
                 };
                 if (selectedFirm) payload.firm = selectedFirm.firm_id;
                 result = await postToSheet([payload], 'update', 'INVENTORY');
@@ -551,6 +561,7 @@ export default function MasterData() {
             } else {
                 result = await updateFirm(editingId, {
                     firm_name: editDialogForm.firm_name,
+                    alias: editDialogForm.alias || null,
                     firm_gstin: editDialogForm.firm_gstin,
                     firm_address: editDialogForm.firm_address,
                     firm_email: editDialogForm.firm_email,
@@ -711,6 +722,11 @@ export default function MasterData() {
             accessorKey: 'firm_name',
             header: 'Firm Name',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={160} />,
+        },
+        {
+            accessorKey: 'alias',
+            header: 'Alias',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={100} />,
         },
         {
             accessorKey: 'firm_gstin',
@@ -1018,6 +1034,9 @@ export default function MasterData() {
             toast.error('Please select a Firm');
             return;
         }
+        const selectedDept = allDepartments.find(d => d.name === form.department);
+        const selectedHead = allDepartmentHeads.find(h => h.name === form.department_head);
+        const selectedUom = uoms.find(u => u.uom_name === form.uom);
         setSubmitting(true);
         try {
             const result = await postToSheet([{
@@ -1025,8 +1044,11 @@ export default function MasterData() {
                 departmentHead: form.department_head.trim() || '',
                 itemName: form.item_name.trim(),
                 uom: form.uom || '',
-                firm: selectedFirm.firm_name,
+                firm: selectedFirm.firm_id,
                 itemCategoryId: parseInt(form.itemCategoryId),
+                ...(selectedDept && { departmentId: selectedDept.id }),
+                ...(selectedHead && { departmentHeadId: selectedHead.id }),
+                ...(selectedUom && { uomId: selectedUom.uom_id }),
             }], 'insert', 'INVENTORY');
 
             if (!result.success) throw new Error('Failed to save inventory item');
@@ -1050,6 +1072,7 @@ export default function MasterData() {
         try {
             const result = await postToFirm({
                 firm_name: form.firm_name.trim(),
+                alias: form.alias.trim() || null,
                 firm_gstin: form.firm_gstin.trim() || null,
                 firm_address: form.firm_address.trim() || null,
                 firm_email: form.firm_email.trim() || null,
@@ -2097,6 +2120,13 @@ export default function MasterData() {
                                     required
                                 />
                                 <Field
+                                    label="Alias (used in PO Number)"
+                                    id="firm_alias"
+                                    value={form.alias}
+                                    onChange={setField('alias')}
+                                    placeholder="e.g. SSESPL"
+                                />
+                                <Field
                                     label="Firm GSTIN"
                                     id="firm_gstin"
                                     value={form.firm_gstin}
@@ -2637,6 +2667,7 @@ export default function MasterData() {
                             <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
                                 <div className="space-y-4">
                                     <Field label="Firm Name" id="edit_firm_name" value={editDialogForm.firm_name} onChange={setEditDialogField('firm_name')} required />
+                                    <Field label="Alias (used in PO Number)" id="edit_firm_alias" value={editDialogForm.alias} onChange={setEditDialogField('alias')} placeholder="e.g. SSESPL" />
                                     <Field label="GSTIN" id="edit_firm_gstin" value={editDialogForm.firm_gstin} onChange={setEditDialogField('firm_gstin')} />
                                     <Field label="PAN Number" id="edit_pan_number" value={editDialogForm.pan_number} onChange={setEditDialogField('pan_number')} />
                                     <Field label="Contact Person" id="edit_contact_person" value={editDialogForm.contact_person} onChange={setEditDialogField('contact_person')} />
