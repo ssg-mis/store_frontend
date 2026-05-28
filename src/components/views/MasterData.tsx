@@ -1045,7 +1045,7 @@ export default function MasterData() {
                 departmentHead: form.department_head.trim() || '',
                 itemName: form.item_name.trim(),
                 uom: form.uom || '',
-                firm: selectedFirm.firm_id.toString(),
+                firm: selectedFirm.firm_id,
                 itemCategoryId: parseInt(form.itemCategoryId),
                 ...(selectedDept && { departmentId: selectedDept.id }),
                 ...(selectedHead && { departmentHeadId: selectedHead.id }),
