@@ -520,11 +520,11 @@ export default function MasterData() {
                     itemName: editDialogForm.item_name.trim(),
                     uom: editDialogForm.uom || '',
                     itemCategoryId: editDialogForm.itemCategoryId ? parseInt(editDialogForm.itemCategoryId) : undefined,
-                    ...(selectedDept && { departmentId: selectedDept.id }),
-                    ...(selectedHead && { departmentHeadId: selectedHead.id }),
-                    ...(selectedUom && { uomId: selectedUom.uom_id }),
+                    ...(selectedDept && { departmentId: Number(selectedDept.id) }),
+                    ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
+                    ...(selectedUom && { uomId: Number(selectedUom.uom_id) }),
                 };
-                if (selectedFirm) payload.firm = selectedFirm.firm_id;
+                if (selectedFirm) payload.firm = Number(selectedFirm.firm_id);
                 result = await postToSheet([payload], 'update', 'INVENTORY');
                 if (result.success) {
                     toast.success('Updated successfully');
@@ -1045,11 +1045,11 @@ export default function MasterData() {
                 departmentHead: form.department_head.trim() || '',
                 itemName: form.item_name.trim(),
                 uom: form.uom || '',
-                firm: selectedFirm.firm_id,
+                firm: Number(selectedFirm.firm_id),
                 itemCategoryId: parseInt(form.itemCategoryId),
-                ...(selectedDept && { departmentId: selectedDept.id }),
-                ...(selectedHead && { departmentHeadId: selectedHead.id }),
-                ...(selectedUom && { uomId: selectedUom.uom_id }),
+                ...(selectedDept && { departmentId: Number(selectedDept.id) }),
+                ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
+                ...(selectedUom && { uomId: Number(selectedUom.uom_id) }),
             }], 'insert', 'INVENTORY');
 
             if (!result.success) throw new Error('Failed to save inventory item');
