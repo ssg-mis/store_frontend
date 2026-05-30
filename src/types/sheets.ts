@@ -122,6 +122,7 @@ export type InventorySheet = {
     departmentId?: number | null;
     uom: string;
     uomId?: number | null;
+    additionalUoms?: { uomName: string; uomId: number; conversionToBase: number }[] | null;
     individualRate: number;
     indented: number;
     approved: number;
