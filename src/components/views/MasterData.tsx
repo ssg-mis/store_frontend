@@ -71,10 +71,6 @@ interface UOMRow {
     baseConversions?: UOMConversionRow[];
 }
 
-interface AdditionalUOMDraft {
-    uom_name: string;
-    conversionToBase: number;
-}
 
 interface MasterForm {
     vendor_name: string;
@@ -261,10 +257,6 @@ export default function MasterData() {
     const [isAddingUOM, setIsAddingUOM] = useState(false);
     const [newUOMName, setNewUOMName] = useState('');
     const [addingUOM, setAddingUOM] = useState(false);
-    const [showAdditionalUOMForm, setShowAdditionalUOMForm] = useState(false);
-    const [additionalUOMName, setAdditionalUOMName] = useState('');
-    const [additionalUOMConversion, setAdditionalUOMConversion] = useState('');
-    const [additionalUOMDrafts, setAdditionalUOMDrafts] = useState<AdditionalUOMDraft[]>([]);
     const [firms, setFirms] = useState<FirmRow[]>([]);
     const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string, isActive?: boolean }[]>([]);
     const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -293,6 +285,14 @@ export default function MasterData() {
     const [editNewPaymentTermName, setEditNewPaymentTermName] = useState('');
     const [isAddingPaymentTerm, setIsAddingPaymentTerm] = useState(false);
     const [newPaymentTermName, setNewPaymentTermName] = useState('');
+    const [showAddInvAdditionalUOM, setShowAddInvAdditionalUOM] = useState(false);
+    const [addInvAdditionalUOMName, setAddInvAdditionalUOMName] = useState('');
+    const [addInvAdditionalUOMConversion, setAddInvAdditionalUOMConversion] = useState('');
+    const [additionalUomDrafts, setAdditionalUomDrafts] = useState<{ uomName: string; uomId: number; conversionToBase: number }[]>([]);
+    const [showEditInvAdditionalUOM, setShowEditInvAdditionalUOM] = useState(false);
+    const [editInvAdditionalUOMName, setEditInvAdditionalUOMName] = useState('');
+    const [editInvAdditionalUOMConversion, setEditInvAdditionalUOMConversion] = useState('');
+    const [editAdditionalUomDrafts, setEditAdditionalUomDrafts] = useState<{ uomName: string; uomId: number; conversionToBase: number }[]>([]);
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
 
@@ -500,6 +500,14 @@ export default function MasterData() {
         setEditNewDepartmentName('');
         setEditIsAddingHead(false);
         setEditNewHeadName('');
+        setShowEditInvAdditionalUOM(false);
+        setEditInvAdditionalUOMName('');
+        setEditInvAdditionalUOMConversion('');
+        setEditAdditionalUomDrafts(
+            type === 'inventory' && Array.isArray(row.additionalUoms)
+                ? row.additionalUoms
+                : []
+        );
         setEditDialogOpen(true);
     }
 
@@ -509,10 +517,9 @@ export default function MasterData() {
         try {
             let result;
             if (editDialogType === 'inventory') {
-                const selectedFirm = firms.find(f => f.firm_name === editDialogForm.firm_name);
                 const selectedDept = allDepartments.find(d => d.name === editDialogForm.department);
                 const selectedHead = allDepartmentHeads.find(h => h.name === editDialogForm.department_head);
-                const selectedUom = uoms.find(u => u.uom_name === editDialogForm.uom);
+                const selectedUomObj = uoms.find(u => u.uom_name === editDialogForm.uom);
                 const payload: any = {
                     id: editingId,
                     department: editDialogForm.department.trim() || '',
@@ -520,11 +527,11 @@ export default function MasterData() {
                     itemName: editDialogForm.item_name.trim(),
                     uom: editDialogForm.uom || '',
                     itemCategoryId: editDialogForm.itemCategoryId ? parseInt(editDialogForm.itemCategoryId) : undefined,
+                    additionalUoms: editAdditionalUomDrafts,
                     ...(selectedDept && { departmentId: Number(selectedDept.id) }),
                     ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
-                    ...(selectedUom && { uomId: Number(selectedUom.uom_id) }),
+                    ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
                 };
-                if (selectedFirm) payload.firm = Number(selectedFirm.firm_id);
                 result = await postToSheet([payload], 'update', 'INVENTORY');
                 if (result.success) {
                     toast.success('Updated successfully');
@@ -1011,7 +1018,10 @@ export default function MasterData() {
             setIsAddingDepartment(false);
             setNewDepartmentName('');
             setNewMasterActive('true');
-            resetAdditionalUOMState();
+            setShowAddInvAdditionalUOM(false);
+            setAddInvAdditionalUOMName('');
+            setAddInvAdditionalUOMConversion('');
+            setAdditionalUomDrafts([]);
         }
     }, [sheetOpen]);
 
@@ -1030,14 +1040,9 @@ export default function MasterData() {
             toast.error('Item Category is required');
             return;
         }
-        const selectedFirm = firms.find(f => f.firm_name === form.firm_name);
-        if (!selectedFirm) {
-            toast.error('Please select a Firm');
-            return;
-        }
         const selectedDept = allDepartments.find(d => d.name === form.department);
         const selectedHead = allDepartmentHeads.find(h => h.name === form.department_head);
-        const selectedUom = uoms.find(u => u.uom_name === form.uom);
+        const selectedUomObj = uoms.find(u => u.uom_name === form.uom);
         setSubmitting(true);
         try {
             const result = await postToSheet([{
@@ -1045,11 +1050,11 @@ export default function MasterData() {
                 departmentHead: form.department_head.trim() || '',
                 itemName: form.item_name.trim(),
                 uom: form.uom || '',
-                firm: Number(selectedFirm.firm_id),
                 itemCategoryId: parseInt(form.itemCategoryId),
                 ...(selectedDept && { departmentId: Number(selectedDept.id) }),
                 ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
-                ...(selectedUom && { uomId: Number(selectedUom.uom_id) }),
+                ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
+                additionalUoms: additionalUomDrafts,
             }], 'insert', 'INVENTORY');
 
             if (!result.success) throw new Error('Failed to save inventory item');
@@ -1118,52 +1123,6 @@ export default function MasterData() {
         }
     }
 
-    function resetAdditionalUOMState() {
-        setShowAdditionalUOMForm(false);
-        setAdditionalUOMName('');
-        setAdditionalUOMConversion('');
-        setAdditionalUOMDrafts([]);
-    }
-
-    function handleAddAdditionalUOMDraft() {
-        const baseName = newUOMName.trim();
-        const additionalName = additionalUOMName.trim();
-        const conversion = Number(additionalUOMConversion);
-
-        if (!baseName) {
-            toast.error('Enter base UOM before adding additional UOM');
-            return;
-        }
-
-        if (!additionalName) {
-            toast.error('Additional UOM is required');
-            return;
-        }
-
-        if (baseName.toLowerCase() === additionalName.toLowerCase()) {
-            toast.error('Additional UOM must be different from base UOM');
-            return;
-        }
-
-        if (!Number.isFinite(conversion) || conversion <= 0) {
-            toast.error('Conversion must be greater than 0');
-            return;
-        }
-
-        const alreadyAdded = additionalUOMDrafts.some(
-            (uom) => uom.uom_name.toLowerCase() === additionalName.toLowerCase()
-        );
-
-        if (alreadyAdded) {
-            toast.error('This additional UOM is already added');
-            return;
-        }
-
-        setAdditionalUOMDrafts(prev => [...prev, { uom_name: additionalName, conversionToBase: conversion }]);
-        setAdditionalUOMName('');
-        setAdditionalUOMConversion('');
-        setShowAdditionalUOMForm(false);
-    }
 
     async function handleUOMSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -1173,12 +1132,11 @@ export default function MasterData() {
         }
         setSubmitting(true);
         try {
-            const result = await postToUOM(newUOMName.trim(), newMasterActive === 'true', additionalUOMDrafts);
+            const result = await postToUOM(newUOMName.trim(), newMasterActive === 'true');
             if (!result.success) throw new Error(result.error || 'Failed to save UOM');
             toast.success('UOM saved successfully!');
             setNewUOMName('');
             setNewMasterActive('true');
-            resetAdditionalUOMState();
             loadUOMs();
             closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
@@ -1676,7 +1634,7 @@ export default function MasterData() {
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
-                                    <Select value={form.uom} onValueChange={setField('uom')}>
+                                    <Select value={form.uom} onValueChange={(val) => { setField('uom')(val); setAdditionalUomDrafts([]); setAddInvAdditionalUOMName(''); setAddInvAdditionalUOMConversion(''); setShowAddInvAdditionalUOM(false); }}>
                                         <div className="flex gap-2 items-end">
                                             <SelectTrigger className="w-full h-10">
                                                 <SelectValue placeholder="Select UOM" />
@@ -1694,7 +1652,121 @@ export default function MasterData() {
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                    <div className="flex flex-col gap-1.5">
+
+                                <div className="space-y-3 rounded-md border border-dashed p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <p className="text-sm font-medium">Additional UOM</p>
+                                        {!showAddInvAdditionalUOM && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setShowAddInvAdditionalUOM(true)}
+                                                className="shrink-0"
+                                            >
+                                                <Plus className="mr-2 h-4 w-4" />
+                                                Add Additional UOM
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    {additionalUomDrafts.length > 0 && (
+                                        <div className="space-y-2">
+                                            {additionalUomDrafts.map((d, i) => (
+                                                <div key={i} className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm">
+                                                    <span>1 {d.uomName} = {d.conversionToBase} {form.uom}</span>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 text-xs"
+                                                        onClick={() => setAdditionalUomDrafts(prev => prev.filter((_, idx) => idx !== i))}
+                                                    >
+                                                        Remove
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {showAddInvAdditionalUOM && (
+                                        <div className="grid grid-cols-1 gap-3 rounded-md bg-muted/30 p-3">
+                                            <div className="flex flex-col gap-1.5">
+                                                <Label className="text-xs text-muted-foreground">Additional UOM</Label>
+                                                <Select
+                                                    value={addInvAdditionalUOMName}
+                                                    onValueChange={(val) => {
+                                                        setAddInvAdditionalUOMName(val);
+                                                        const existing = uoms.find(u => u.uom_name === form.uom)?.baseConversions?.find(c => c.alternateUom?.uom_name === val);
+                                                        setAddInvAdditionalUOMConversion(existing ? String(existing.conversionToBase) : '');
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="h-9">
+                                                        <SelectValue placeholder="Select UOM" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {uoms
+                                                            .filter(u => u.uom_name !== form.uom && !additionalUomDrafts.some(d => d.uomName === u.uom_name))
+                                                            .map(u => (
+                                                                <SelectItem key={u.uom_id} value={u.uom_name}>{u.uom_name}</SelectItem>
+                                                            ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="flex flex-col gap-1.5">
+                                                <Label className="text-xs text-muted-foreground">
+                                                    How many {form.uom || 'base UOM'} in 1 {addInvAdditionalUOMName || 'additional UOM'}?
+                                                </Label>
+                                                <Input
+                                                    type="number"
+                                                    value={addInvAdditionalUOMConversion}
+                                                    onChange={e => setAddInvAdditionalUOMConversion(e.target.value)}
+                                                    placeholder="e.g. 10"
+                                                    className="h-9"
+                                                />
+                                            </div>
+                                            {addInvAdditionalUOMName && addInvAdditionalUOMConversion && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    1 {addInvAdditionalUOMName} = {addInvAdditionalUOMConversion} {form.uom || 'base UOM'}
+                                                </p>
+                                            )}
+                                            <div className="flex justify-end gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        setAddInvAdditionalUOMName('');
+                                                        setAddInvAdditionalUOMConversion('');
+                                                        setShowAddInvAdditionalUOM(false);
+                                                    }}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    disabled={!addInvAdditionalUOMName || !addInvAdditionalUOMConversion || Number(addInvAdditionalUOMConversion) <= 0}
+                                                    onClick={() => {
+                                                        const selectedUomObj = uoms.find(u => u.uom_name === addInvAdditionalUOMName);
+                                                        setAdditionalUomDrafts(prev => [...prev, {
+                                                            uomName: addInvAdditionalUOMName,
+                                                            uomId: selectedUomObj?.uom_id ?? 0,
+                                                            conversionToBase: parseFloat(addInvAdditionalUOMConversion),
+                                                        }]);
+                                                        setAddInvAdditionalUOMName('');
+                                                        setAddInvAdditionalUOMConversion('');
+                                                        setShowAddInvAdditionalUOM(false);
+                                                    }}
+                                                >
+                                                    Add
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department</Label>
                                     <Select 
                                         value={form.department} 
@@ -1765,30 +1837,6 @@ export default function MasterData() {
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="flex flex-col gap-1.5">
-                                    <Label className="text-sm font-medium">Firm Name</Label>
-                                    <Select
-                                        value={form.firm_name}
-                                        onValueChange={setField('firm_name')}
-                                    >
-                                        <div className="flex gap-2 items-end">
-                                            <SelectTrigger className="w-full h-10">
-                                                <SelectValue placeholder="Select Firm" />
-                                            </SelectTrigger>
-                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('firm')} aria-label="Add firm">
-                                                <Plus className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                        <SelectContent>
-                                            {firms.map((f) => (
-                                                <SelectItem key={f.firm_id} value={f.firm_name}>
-                                                    {f.firm_name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
                                 <div className="pt-4 flex gap-2">
                                     <Button
                                         type="submit"
@@ -1840,83 +1888,6 @@ export default function MasterData() {
                                     value={newMasterActive}
                                     onChange={setNewMasterActive}
                                 />
-                                <div className="space-y-3 rounded-md border border-dashed p-3">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-medium">Additional UOM</p>
-                                            <p className="text-xs text-muted-foreground">
-                                                Use conversion as 1 additional UOM equals base UOM quantity.
-                                            </p>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setShowAdditionalUOMForm(prev => !prev)}
-                                            className="shrink-0"
-                                        >
-                                            <Plus className="mr-2 h-4 w-4" />
-                                            Add Additional UOM
-                                        </Button>
-                                    </div>
-
-                                    {showAdditionalUOMForm && (
-                                        <div className="grid grid-cols-1 gap-3 rounded-md bg-muted/30 p-3">
-                                            <Field
-                                                label="Additional UOM"
-                                                id="additional_uom_name"
-                                                value={additionalUOMName}
-                                                onChange={setAdditionalUOMName}
-                                                placeholder="e.g. Box"
-                                            />
-                                            <Field
-                                                label={`How many ${newUOMName.trim() || 'base units'} in 1 ${additionalUOMName.trim() || 'additional UOM'}?`}
-                                                id="additional_uom_conversion"
-                                                type="number"
-                                                value={additionalUOMConversion}
-                                                onChange={setAdditionalUOMConversion}
-                                                placeholder="e.g. 10"
-                                            />
-                                            <div className="flex items-center justify-between gap-3">
-                                                <p className="text-xs text-muted-foreground">
-                                                    1 {additionalUOMName.trim() || 'Additional UOM'} = {additionalUOMConversion || '0'} {newUOMName.trim() || 'Base UOM'}
-                                                </p>
-                                                <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    onClick={handleAddAdditionalUOMDraft}
-                                                    className="shrink-0"
-                                                >
-                                                    Add
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {additionalUOMDrafts.length > 0 && (
-                                        <div className="space-y-2">
-                                            {additionalUOMDrafts.map((uom, index) => (
-                                                <div
-                                                    key={`${uom.uom_name}-${index}`}
-                                                    className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm"
-                                                >
-                                                    <span>
-                                                        1 {uom.uom_name} = {uom.conversionToBase} {newUOMName.trim() || 'Base UOM'}
-                                                    </span>
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-7 text-xs"
-                                                        onClick={() => setAdditionalUOMDrafts(prev => prev.filter((_, i) => i !== index))}
-                                                    >
-                                                        Remove
-                                                    </Button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
                                 <div className="pt-4 flex gap-2">
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
@@ -2000,40 +1971,6 @@ export default function MasterData() {
                                     onChange={setField('payment_term')}
                                     placeholder="e.g. Net 30"
                                 />
-                                <div className="flex flex-col gap-1.5">
-                                    <Label className="text-sm font-medium">Firm Name</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select
-                                                value={form.firm_name}
-                                                onValueChange={setField('firm_name')}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Firm" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {firms.map((f) => (
-                                                        <SelectItem key={f.firm_id} value={f.firm_name}>
-                                                            {f.firm_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => openRelatedMasterAdd('firm')}
-                                            aria-label="Add firm"
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-
                                 <Field
                                     label="Vendor Address"
                                     id="vendor_address"
@@ -2320,7 +2257,7 @@ export default function MasterData() {
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
-                                    <Select value={editDialogForm.uom} onValueChange={setEditDialogField('uom')}>
+                                    <Select value={editDialogForm.uom} onValueChange={(val) => { setEditDialogField('uom')(val); setEditAdditionalUomDrafts([]); setEditInvAdditionalUOMName(''); setEditInvAdditionalUOMConversion(''); setShowEditInvAdditionalUOM(false); }}>
                                         <div className="flex gap-2 items-end">
                                             <SelectTrigger className="w-full h-10">
                                                 <SelectValue placeholder="Select UOM" />
@@ -2339,10 +2276,123 @@ export default function MasterData() {
                                     </Select>
                                 </div>
 
+                                <div className="space-y-3 rounded-md border border-dashed p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <p className="text-sm font-medium">Additional UOM</p>
+                                        {!showEditInvAdditionalUOM && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setShowEditInvAdditionalUOM(true)}
+                                                className="shrink-0"
+                                            >
+                                                <Plus className="mr-2 h-4 w-4" />
+                                                Add Additional UOM
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    {editAdditionalUomDrafts.length > 0 && (
+                                        <div className="space-y-2">
+                                            {editAdditionalUomDrafts.map((d, i) => (
+                                                <div key={i} className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2 text-sm">
+                                                    <span>1 {d.uomName} = {d.conversionToBase} {editDialogForm.uom}</span>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 text-xs"
+                                                        onClick={() => setEditAdditionalUomDrafts(prev => prev.filter((_, idx) => idx !== i))}
+                                                    >
+                                                        Remove
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {showEditInvAdditionalUOM && (
+                                        <div className="grid grid-cols-1 gap-3 rounded-md bg-muted/30 p-3">
+                                            <div className="flex flex-col gap-1.5">
+                                                <Label className="text-xs text-muted-foreground">Additional UOM</Label>
+                                                <Select
+                                                    value={editInvAdditionalUOMName}
+                                                    onValueChange={(val) => {
+                                                        setEditInvAdditionalUOMName(val);
+                                                        const existing = uoms.find(u => u.uom_name === editDialogForm.uom)?.baseConversions?.find(c => c.alternateUom?.uom_name === val);
+                                                        setEditInvAdditionalUOMConversion(existing ? String(existing.conversionToBase) : '');
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="h-9">
+                                                        <SelectValue placeholder="Select UOM" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {uoms
+                                                            .filter(u => u.uom_name !== editDialogForm.uom && !editAdditionalUomDrafts.some(d => d.uomName === u.uom_name))
+                                                            .map(u => (
+                                                                <SelectItem key={u.uom_id} value={u.uom_name}>{u.uom_name}</SelectItem>
+                                                            ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="flex flex-col gap-1.5">
+                                                <Label className="text-xs text-muted-foreground">
+                                                    How many {editDialogForm.uom || 'base UOM'} in 1 {editInvAdditionalUOMName || 'additional UOM'}?
+                                                </Label>
+                                                <Input
+                                                    type="number"
+                                                    value={editInvAdditionalUOMConversion}
+                                                    onChange={e => setEditInvAdditionalUOMConversion(e.target.value)}
+                                                    placeholder="e.g. 10"
+                                                    className="h-9"
+                                                />
+                                            </div>
+                                            {editInvAdditionalUOMName && editInvAdditionalUOMConversion && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    1 {editInvAdditionalUOMName} = {editInvAdditionalUOMConversion} {editDialogForm.uom || 'base UOM'}
+                                                </p>
+                                            )}
+                                            <div className="flex justify-end gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        setEditInvAdditionalUOMName('');
+                                                        setEditInvAdditionalUOMConversion('');
+                                                        setShowEditInvAdditionalUOM(false);
+                                                    }}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    disabled={!editInvAdditionalUOMName || !editInvAdditionalUOMConversion || Number(editInvAdditionalUOMConversion) <= 0}
+                                                    onClick={() => {
+                                                        const selectedUomObj = uoms.find(u => u.uom_name === editInvAdditionalUOMName);
+                                                        setEditAdditionalUomDrafts(prev => [...prev, {
+                                                            uomName: editInvAdditionalUOMName,
+                                                            uomId: selectedUomObj?.uom_id ?? 0,
+                                                            conversionToBase: parseFloat(editInvAdditionalUOMConversion),
+                                                        }]);
+                                                        setEditInvAdditionalUOMName('');
+                                                        setEditInvAdditionalUOMConversion('');
+                                                        setShowEditInvAdditionalUOM(false);
+                                                    }}
+                                                >
+                                                    Add
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department</Label>
-                                    <Select 
-                                        value={editDialogForm.department} 
+                                    <Select
+                                        value={editDialogForm.department}
                                         onValueChange={(val) => {
                                             setEditDialogField('department')(val);
                                         }}
@@ -2412,30 +2462,6 @@ export default function MasterData() {
                                                 ))}
                                             </div>
 
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="flex flex-col gap-1.5">
-                                    <Label className="text-sm font-medium">Firm Name</Label>
-                                    <Select
-                                        value={editDialogForm.firm_name}
-                                        onValueChange={setEditDialogField('firm_name')}
-                                    >
-                                        <div className="flex gap-2 items-end">
-                                            <SelectTrigger className="w-full h-10">
-                                                <SelectValue placeholder="Select Firm" />
-                                            </SelectTrigger>
-                                            <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => openRelatedMasterAdd('firm')} aria-label="Add firm">
-                                                <Plus className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                        <SelectContent>
-                                            {firms.map((f) => (
-                                                <SelectItem key={f.firm_id} value={f.firm_name}>
-                                                    {f.firm_name}
-                                                </SelectItem>
-                                            ))}
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -2539,57 +2565,6 @@ export default function MasterData() {
                                                 }}
                                             >
                                                 Add
-                                            </Button>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="flex flex-col gap-1.5">
-                                    <Label className="text-sm font-medium">Firm Name</Label>
-                                    <div className="flex gap-2 items-end">
-                                        <div className="flex-1">
-                                            <Select
-                                                value={editDialogForm.firm_name}
-                                                onValueChange={setEditDialogField('firm_name')}
-                                            >
-                                                <SelectTrigger className="w-full h-10">
-                                                    <SelectValue placeholder="Select Firm" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {firms.map((f) => (
-                                                        <SelectItem key={f.firm_id} value={f.firm_name}>
-                                                            {f.firm_name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-10 w-10 shrink-0"
-                                            onClick={() => setEditIsAddingFirm(!editIsAddingFirm)}
-                                        >
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {editIsAddingFirm && (
-                                        <div className="flex gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-dashed border-primary/30">
-                                            <Input
-                                                placeholder="New firm name..."
-                                                value={editNewFirmName}
-                                                onChange={(e) => setEditNewFirmName(e.target.value)}
-                                                className="h-9"
-                                                autoFocus
-                                            />
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                onClick={handleEditAddFirm}
-                                                disabled={editAddingFirm}
-                                                className="h-9 shrink-0"
-                                            >
-                                                {editAddingFirm ? <Loader size={14} color="white" /> : 'Add'}
                                             </Button>
                                         </div>
                                     )}
