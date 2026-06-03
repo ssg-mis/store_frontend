@@ -56,6 +56,7 @@ export default () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchTermDepartmentHead, setSearchTermDepartmentHead] = useState('');
     const [searchTermProductName, setSearchTermProductName] = useState('');
+    const [productGroupFilters, setProductGroupFilters] = useState<(number | null)[]>([null]);
     const [uoms, setUoms] = useState<UOMRow[]>([]);
     const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean }[]>([]);
 
@@ -132,10 +133,19 @@ export default () => {
 
     const products = form.watch('products');
     const indentType = form.watch('indentType');
-    const { fields, append, remove } = useFieldArray({
+    const { fields, append: _append, remove: _remove } = useFieldArray({
         control: form.control,
         name: 'products',
     });
+
+    const append = (data: any) => {
+        _append(data);
+        setProductGroupFilters(prev => [...prev, null]);
+    };
+    const remove = (index: number) => {
+        _remove(index);
+        setProductGroupFilters(prev => prev.filter((_, i) => i !== index));
+    };
 
     const getStock = (itemName: string, departmentHead: string) => {
         const item = inventorySheet?.find(
@@ -446,6 +456,7 @@ export default () => {
             toast.success('Indent created successfully');
             updateIndentSheet(); 
 
+            setProductGroupFilters([null]);
             form.reset({
                 firm: '',
                 indenterName: isAdmin ? '' : ((user as any)?.name || ''),
@@ -643,8 +654,24 @@ export default () => {
                         {fields.map((field, index) => {
 
                             const departmentHead = products[index]?.departmentHead;
+                            const selectedProductName = products[index]?.productName || '';
+                            const selectedGroupId = productGroupFilters[index] ?? null;
 
-                            const productOptions = master?.groupHeadItems?.[departmentHead] || [];
+                            const allProductOptions: string[] = master?.groupHeadItems?.[departmentHead] || [];
+
+                            // Filter products by selected group
+                            const productOptions = selectedGroupId != null && master?.groupToItems?.[selectedGroupId]
+                                ? allProductOptions.filter(p => (master.groupToItems[selectedGroupId] as string[]).includes(p))
+                                : allProductOptions;
+
+                            // All groups from the product_group table (authoritative list)
+                            const allGroups: { id: number; name: string }[] = master?.allProductGroups || [];
+
+                            // If a product is selected, restrict to groups that product belongs to
+                            const groupOptions: { id: number; name: string }[] =
+                                selectedProductName && master?.itemToGroups?.[selectedProductName]?.length
+                                    ? master.itemToGroups[selectedProductName] as { id: number; name: string }[]
+                                    : allGroups;
 
                             return (
                                 <div
@@ -789,6 +816,38 @@ export default () => {
                                                     </FormItem>
                                                 )}
                                             />
+                                            <FormItem>
+                                                <FormLabel>Product Group</FormLabel>
+                                                <Select
+                                                    value={selectedGroupId != null ? String(selectedGroupId) : ''}
+                                                    onValueChange={(val) => {
+                                                        const newId = Number(val);
+                                                        setProductGroupFilters(prev => {
+                                                            const next = [...prev];
+                                                            next[index] = newId;
+                                                            return next;
+                                                        });
+                                                        // If selected product is no longer in this group, clear it
+                                                        if (newId != null && selectedProductName) {
+                                                            const itemsInGroup = master?.groupToItems?.[newId] as string[] | undefined;
+                                                            if (itemsInGroup && !itemsInGroup.includes(selectedProductName)) {
+                                                                form.setValue(`products.${index}.productName` as any, '');
+                                                                form.setValue(`products.${index}.uom` as any, '');
+                                                            }
+                                                        }
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="w-full">
+                                                        <SelectValue placeholder="Filter by group (optional)" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {groupOptions.map(g => (
+                                                            <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </FormItem>
+
                                             <FormField
                                                 control={form.control}
                                                 name={`products.${index}.productCategory`}
@@ -851,6 +910,18 @@ export default () => {
                                                                         const cat = master?.itemToCategory?.[value];
                                                                         if (cat) {
                                                                             form.setValue(`products.${index}.productCategory` as any, cat);
+                                                                        }
+                                                                        // If current group filter doesn't contain the newly selected product, reset it
+                                                                        const curGroup = productGroupFilters[index];
+                                                                        if (curGroup != null) {
+                                                                            const itemsInGroup = master?.groupToItems?.[curGroup] as string[] | undefined;
+                                                                            if (itemsInGroup && !itemsInGroup.includes(value)) {
+                                                                                setProductGroupFilters(prev => {
+                                                                                    const next = [...prev];
+                                                                                    next[index] = null;
+                                                                                    return next;
+                                                                                });
+                                                                            }
                                                                         }
                                                                     }}
                                                                     value={field.value}

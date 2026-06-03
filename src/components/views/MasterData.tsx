@@ -1,7 +1,7 @@
 import { Database, Plus, Search } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
-import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -225,8 +225,8 @@ export default function MasterData() {
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'uom' | 'department' | 'departmentHead'>('item');
-    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'uom' | 'department' | 'departmentHead'>('productCategory');
+    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('item');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
 
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -234,7 +234,7 @@ export default function MasterData() {
     const [editDialogForm, setEditDialogForm] = useState<MasterForm>(emptyForm);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [simpleEditOpen, setSimpleEditOpen] = useState(false);
-    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'uom' | 'department' | 'departmentHead'>('productCategory');
+    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
     const [simpleEditId, setSimpleEditId] = useState<number | null>(null);
     const [simpleEditName, setSimpleEditName] = useState('');
     const [simpleEditActive, setSimpleEditActive] = useState('true');
@@ -262,6 +262,8 @@ export default function MasterData() {
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [addingCategory, setAddingCategory] = useState(false);
+    const [productGroups, setProductGroups] = useState<{ product_group_id: number, product_group_name: string, isActive?: boolean }[]>([]);
+    const [newGroupName, setNewGroupName] = useState('');
     const [newMasterActive, setNewMasterActive] = useState('true');
 
     const [allDepartments, setAllDepartments] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
@@ -289,6 +291,7 @@ export default function MasterData() {
     const [addInvAdditionalUOMName, setAddInvAdditionalUOMName] = useState('');
     const [addInvAdditionalUOMConversion, setAddInvAdditionalUOMConversion] = useState('');
     const [additionalUomDrafts, setAdditionalUomDrafts] = useState<{ uomName: string; uomId: number; conversionToBase: number }[]>([]);
+    const [selectedProductGroups, setSelectedProductGroups] = useState<{ id: number; name: string }[]>([]);
     const [showEditInvAdditionalUOM, setShowEditInvAdditionalUOM] = useState(false);
     const [editInvAdditionalUOMName, setEditInvAdditionalUOMName] = useState('');
     const [editInvAdditionalUOMConversion, setEditInvAdditionalUOMConversion] = useState('');
@@ -380,6 +383,7 @@ export default function MasterData() {
 
     const simpleEditLabels: Record<typeof simpleEditType, string> = {
         productCategory: 'Product Category',
+        productGroup: 'Product Group',
         uom: 'UOM',
         department: 'Department',
         departmentHead: 'Department Head',
@@ -387,11 +391,11 @@ export default function MasterData() {
 
     function openSimpleEditDialog(
         type: typeof simpleEditType,
-        row: { product_category_id?: number; product_category_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean }
+        row: { product_category_id?: number; product_category_name?: string; product_group_id?: number; product_group_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean }
     ) {
         setSimpleEditType(type);
-        setSimpleEditId(row.product_category_id ?? row.uom_id ?? row.id ?? null);
-        setSimpleEditName(row.product_category_name ?? row.uom_name ?? row.name ?? '');
+        setSimpleEditId(row.product_category_id ?? row.product_group_id ?? row.uom_id ?? row.id ?? null);
+        setSimpleEditName(row.product_category_name ?? row.product_group_name ?? row.uom_name ?? row.name ?? '');
         setSimpleEditActive(row.isActive !== false ? 'true' : 'false');
         setSimpleEditOpen(true);
     }
@@ -411,6 +415,8 @@ export default function MasterData() {
 
             if (simpleEditType === 'productCategory') {
                 result = await updateProductCategory(simpleEditId, { product_category_name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'productGroup') {
+                result = await updateProductGroup(simpleEditId, { product_group_name: simpleEditName.trim(), isActive });
             } else if (simpleEditType === 'uom') {
                 result = await updateUOM(simpleEditId, { uom_name: simpleEditName.trim(), isActive });
             } else if (simpleEditType === 'department') {
@@ -426,6 +432,7 @@ export default function MasterData() {
             setSimpleEditId(null);
 
             if (simpleEditType === 'productCategory') loadProductCategories();
+            else if (simpleEditType === 'productGroup') loadProductGroups();
             else if (simpleEditType === 'uom') loadUOMs();
             else if (simpleEditType === 'department') loadDepartments();
             else loadDepartmentHeads();
@@ -637,11 +644,6 @@ export default function MasterData() {
             header: 'UOM',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={80} />,
         },
-        {
-            accessorKey: 'firmName',
-            header: 'Firm',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={140} />,
-        },
     ], []);
 
     const vendorColumns = useMemo<ColumnDef<MasterRow>[]>(() => [
@@ -815,6 +817,47 @@ export default function MasterData() {
             cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
         },
     ], [loadProductCategories]);
+
+    const productGroupColumns = useMemo<ColumnDef<{ product_group_id: number; product_group_name: string; isActive?: boolean }>[]>(() => [
+        {
+            id: 'edit',
+            header: 'Edit',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => openSimpleEditDialog('productGroup', row.original)}
+                >
+                    Edit
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'product_group_name',
+            header: 'Group Name',
+            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
+        },
+        {
+            id: 'delete',
+            header: 'Delete Record',
+            cell: ({ row }) => (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs text-destructive hover:text-destructive"
+                    onClick={() => deleteRecord('product group', () => deleteProductGroup(row.original.product_group_id), loadProductGroups)}
+                >
+                    Remove
+                </Button>
+            ),
+        },
+        {
+            accessorKey: 'isActive',
+            header: 'Active Status',
+            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
+        },
+    ], [loadProductGroups]);
 
     const uomColumns = useMemo<ColumnDef<UOMRow>[]>(() => [
         {
@@ -992,6 +1035,11 @@ export default function MasterData() {
         setProductCategories(data || []);
     }
 
+    async function loadProductGroups() {
+        const data = await fetchProductGroups();
+        setProductGroups(data || []);
+    }
+
     async function loadDepartments() {
         const data = await fetchDepartments();
         setAllDepartments(data || []);
@@ -1007,6 +1055,7 @@ export default function MasterData() {
         loadUOMs();
         loadFirms();
         loadProductCategories();
+        loadProductGroups();
         loadDepartments();
         loadDepartmentHeads();
     }, []);
@@ -1022,6 +1071,7 @@ export default function MasterData() {
             setAddInvAdditionalUOMName('');
             setAddInvAdditionalUOMConversion('');
             setAdditionalUomDrafts([]);
+            setSelectedProductGroups([]);
         }
     }, [sheetOpen]);
 
@@ -1055,6 +1105,7 @@ export default function MasterData() {
                 ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
                 ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
                 additionalUoms: additionalUomDrafts,
+                productGroups: selectedProductGroups,
             }], 'insert', 'INVENTORY');
 
             if (!result.success) throw new Error('Failed to save inventory item');
@@ -1123,6 +1174,28 @@ export default function MasterData() {
         }
     }
 
+
+    async function handleProductGroupSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newGroupName.trim()) {
+            toast.error('Group Name is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const result = await postProductGroup(newGroupName.trim(), newMasterActive === 'true');
+            if (!result.success) throw new Error(result.error || 'Failed to save product group');
+            toast.success('Product group saved successfully!');
+            setNewGroupName('');
+            setNewMasterActive('true');
+            loadProductGroups();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save product group');
+        } finally {
+            setSubmitting(false);
+        }
+    }
 
     async function handleUOMSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -1400,9 +1473,10 @@ export default function MasterData() {
             </Heading>
 
             {/* ── Page Tabs ── */}
-            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor' | 'firm' | 'productCategory' | 'uom' | 'department' | 'departmentHead')}>
-                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 h-auto gap-1">
+            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead')}>
+                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 h-auto gap-1">
                     <TabsTrigger value="productCategory">Product Category</TabsTrigger>
+                    <TabsTrigger value="productGroup">Product Group</TabsTrigger>
                     <TabsTrigger value="uom">UOM</TabsTrigger>
                     <TabsTrigger value="department">Department</TabsTrigger>
                     <TabsTrigger value="departmentHead">Department Head</TabsTrigger>
@@ -1509,6 +1583,24 @@ export default function MasterData() {
                     </div>
                 </TabsContent>
 
+                <TabsContent value="productGroup">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={productGroups}
+                            columns={productGroupColumns}
+                            searchFields={['product_group_name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('productGroup'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Product Group
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
                 <TabsContent value="uom">
                     <div className="w-full max-w-full overflow-x-auto">
                         <DataTable
@@ -1578,11 +1670,13 @@ export default function MasterData() {
                                         ? 'Add Firm Info'
                                         : activeTab === 'productCategory'
                                             ? 'Add Product Category'
-                                            : activeTab === 'uom'
-                                                ? 'Add UOM'
-                                                : activeTab === 'department'
-                                                    ? 'Add Department'
-                                                    : 'Add Department Head'}
+                                            : activeTab === 'productGroup'
+                                                ? 'Add Product Group'
+                                                : activeTab === 'uom'
+                                                    ? 'Add UOM'
+                                                    : activeTab === 'department'
+                                                        ? 'Add Department'
+                                                        : 'Add Department Head'}
                         </DialogTitle>
                         <DialogDescription>
                             {activeTab === 'item'
@@ -1766,10 +1860,55 @@ export default function MasterData() {
                                     )}
                                 </div>
 
+                                <div className="space-y-3 rounded-md border border-dashed p-3">
+                                    <p className="text-sm font-medium">Product Groups</p>
+                                    {selectedProductGroups.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {selectedProductGroups.map(g => (
+                                                <span
+                                                    key={g.id}
+                                                    className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-xs font-medium"
+                                                >
+                                                    {g.name}
+                                                    <button
+                                                        type="button"
+                                                        className="text-muted-foreground hover:text-destructive transition-colors"
+                                                        onClick={() => setSelectedProductGroups(prev => prev.filter(x => x.id !== g.id))}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <Select
+                                        value=""
+                                        onValueChange={(val) => {
+                                            const group = productGroups.find(g => g.product_group_id.toString() === val);
+                                            if (group && !selectedProductGroups.some(s => s.id === group.product_group_id)) {
+                                                setSelectedProductGroups(prev => [...prev, { id: group.product_group_id, name: group.product_group_name }]);
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Add a product group..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {productGroups
+                                                .filter(g => !selectedProductGroups.some(s => s.id === g.product_group_id))
+                                                .map(g => (
+                                                    <SelectItem key={g.product_group_id} value={g.product_group_id.toString()}>
+                                                        {g.product_group_name}
+                                                    </SelectItem>
+                                                ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department</Label>
-                                    <Select 
-                                        value={form.department} 
+                                    <Select
+                                        value={form.department}
                                         onValueChange={(val) => {
                                             setField('department')(val);
                                         }}
@@ -1870,6 +2009,28 @@ export default function MasterData() {
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
                                         {submitting ? 'Saving Product Category...' : 'Save Product Category'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'productGroup' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleProductGroupSubmit} className="space-y-4">
+                                <Field
+                                    label="Group Name"
+                                    id="product_group_name"
+                                    value={newGroupName}
+                                    onChange={setNewGroupName}
+                                    required
+                                />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Product Group...' : 'Save Product Group'}
                                     </Button>
                                 </div>
                             </form>

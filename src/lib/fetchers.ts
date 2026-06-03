@@ -113,17 +113,20 @@ export async function uploadFile(
 
 export async function fetchIndentMasterData() {
     try {
-        const [deptsRes, headsRes, firmsRes, inventoryRes] = await Promise.all([
+        const [deptsRes, headsRes, firmsRes, inventoryRes, productGroupsRes] = await Promise.all([
             apiFetch(`${API_BASE_URL}/departments`),
             apiFetch(`${API_BASE_URL}/department-heads`),
             apiFetch(`${API_BASE_URL}/firms`),
             apiFetch(`${API_BASE_URL}/inventory`),
+            apiFetch(`${API_BASE_URL}/product-groups`),
         ]);
 
         const deptsData = deptsRes.ok ? await deptsRes.json() : [];
         const headsData = headsRes.ok ? await headsRes.json() : [];
         const firmsData = firmsRes.ok ? await firmsRes.json() : [];
         const inventoryData: any[] = inventoryRes.ok ? await inventoryRes.json() : [];
+        const productGroupsData: { product_group_id: number; product_group_name: string; isActive?: boolean }[] =
+            productGroupsRes.ok ? await productGroupsRes.json() : [];
 
         // Only include active records in dropdowns
         const activeDepts = deptsData.filter((d: any) => d.isActive !== false);
@@ -166,6 +169,23 @@ export async function fetchIndentMasterData() {
             }
         });
 
+        // Build item ↔ group lookups from Inventory productGroups JSON
+        const itemToGroups: Record<string, { id: number; name: string }[]> = {};
+        const groupToItems: Record<number, string[]> = {};
+        inventoryData.forEach((d: any) => {
+            if (!d.itemName) return;
+            const groups: { id: number; name: string }[] = Array.isArray(d.productGroups) ? d.productGroups : [];
+            itemToGroups[d.itemName] = groups;
+            groups.forEach((g) => {
+                if (!groupToItems[g.id]) groupToItems[g.id] = [];
+                if (!groupToItems[g.id].includes(d.itemName)) groupToItems[g.id].push(d.itemName);
+            });
+        });
+
+        const allProductGroups = productGroupsData
+            .filter(g => g.isActive !== false)
+            .map(g => ({ id: g.product_group_id, name: g.product_group_name }));
+
         return {
             departments,
             createGroupHeads: allDepartmentHeads,
@@ -175,6 +195,9 @@ export async function fetchIndentMasterData() {
             departmentToGroupHead: departmentToHead,
             groupHeadToDepartment: headToDepartment,
             itemToCategory,
+            itemToGroups,
+            groupToItems,
+            allProductGroups,
         };
     } catch (error) {
         console.error('Error fetching indent master data:', error);
@@ -953,6 +976,67 @@ export async function deleteProductCategory(id: number) {
         return { success: true };
     } catch (error: any) {
         console.error('Error deleting product category:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchProductGroups() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-groups`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json() as { product_group_id: number; product_group_name: string; isActive?: boolean }[];
+    } catch (error) {
+        console.error('Error fetching product groups:', error);
+        return [];
+    }
+}
+
+export async function postProductGroup(name: string, isActive: boolean = true) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-groups`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_group_name: name, isActive })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create product group');
+        }
+        return { success: true, data: await response.json() as { product_group_id: number; product_group_name: string; isActive?: boolean } };
+    } catch (error: any) {
+        console.error('Error creating product group:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateProductGroup(id: number, data: { product_group_name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-groups/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update product group');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating product group:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteProductGroup(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-groups/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete product group');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting product group:', error);
         return { success: false, error: error.message };
     }
 }

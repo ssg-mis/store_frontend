@@ -123,6 +123,7 @@ export type InventorySheet = {
     uom: string;
     uomId?: number | null;
     additionalUoms?: { uomName: string; uomId: number; conversionToBase: number }[] | null;
+    productGroups?: { id: number; name: string }[] | null;
     individualRate: number;
     indented: number;
     approved: number;
