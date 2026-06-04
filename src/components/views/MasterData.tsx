@@ -296,6 +296,7 @@ export default function MasterData() {
     const [editInvAdditionalUOMName, setEditInvAdditionalUOMName] = useState('');
     const [editInvAdditionalUOMConversion, setEditInvAdditionalUOMConversion] = useState('');
     const [editAdditionalUomDrafts, setEditAdditionalUomDrafts] = useState<{ uomName: string; uomId: number; conversionToBase: number }[]>([]);
+    const [editSelectedProductGroups, setEditSelectedProductGroups] = useState<{ id: number; name: string }[]>([]);
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
 
@@ -515,6 +516,11 @@ export default function MasterData() {
                 ? row.additionalUoms
                 : []
         );
+        setEditSelectedProductGroups(
+            type === 'inventory' && Array.isArray(row.productGroups)
+                ? row.productGroups
+                : []
+        );
         setEditDialogOpen(true);
     }
 
@@ -535,6 +541,7 @@ export default function MasterData() {
                     uom: editDialogForm.uom || '',
                     itemCategoryId: editDialogForm.itemCategoryId ? parseInt(editDialogForm.itemCategoryId) : undefined,
                     additionalUoms: editAdditionalUomDrafts,
+                    productGroups: editSelectedProductGroups,
                     ...(selectedDept && { departmentId: Number(selectedDept.id) }),
                     ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
                     ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
@@ -2548,6 +2555,51 @@ export default function MasterData() {
                                             </div>
                                         </div>
                                     )}
+                                </div>
+
+                                <div className="space-y-3 rounded-md border border-dashed p-3">
+                                    <p className="text-sm font-medium">Product Groups</p>
+                                    {editSelectedProductGroups.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {editSelectedProductGroups.map(g => (
+                                                <span
+                                                    key={g.id}
+                                                    className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-xs font-medium"
+                                                >
+                                                    {g.name}
+                                                    <button
+                                                        type="button"
+                                                        className="text-muted-foreground hover:text-destructive transition-colors"
+                                                        onClick={() => setEditSelectedProductGroups(prev => prev.filter(x => x.id !== g.id))}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <Select
+                                        value=""
+                                        onValueChange={(val) => {
+                                            const group = productGroups.find(g => g.product_group_id.toString() === val);
+                                            if (group && !editSelectedProductGroups.some(s => s.id === group.product_group_id)) {
+                                                setEditSelectedProductGroups(prev => [...prev, { id: group.product_group_id, name: group.product_group_name }]);
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Add a product group..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {productGroups
+                                                .filter(g => !editSelectedProductGroups.some(s => s.id === g.product_group_id))
+                                                .map(g => (
+                                                    <SelectItem key={g.product_group_id} value={g.product_group_id.toString()}>
+                                                        {g.product_group_name}
+                                                    </SelectItem>
+                                                ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
