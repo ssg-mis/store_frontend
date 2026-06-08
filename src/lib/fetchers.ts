@@ -930,12 +930,12 @@ export async function fetchProductCategories() {
     }
 }
 
-export async function postProductCategory(name: string, isActive: boolean = true) {
+export async function postProductCategory(name: string, isActive: boolean = true, specificationId?: number | null) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_category_name: name, isActive })
+            body: JSON.stringify({ product_category_name: name, isActive, specificationId: specificationId ?? null })
         });
         if (!response.ok) {
             const errorText = await response.text();
@@ -948,7 +948,7 @@ export async function postProductCategory(name: string, isActive: boolean = true
     }
 }
 
-export async function updateProductCategory(id: number, data: { product_category_name?: string; isActive?: boolean }) {
+export async function updateProductCategory(id: number, data: { product_category_name?: string; isActive?: boolean; specificationId?: number | null }) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories/${id}`, {
             method: 'PUT',
@@ -1047,6 +1047,8 @@ export type ProductSubCategoryRow = {
     isActive?: boolean;
     productCategoryId?: number | null;
     productCategory?: { product_category_id: number; product_category_name: string } | null;
+    specificationId?: number | null;
+    specification?: { id: number; name: string } | null;
 };
 
 export async function fetchProductSubCategories() {
@@ -1060,12 +1062,12 @@ export async function fetchProductSubCategories() {
     }
 }
 
-export async function postProductSubCategory(name: string, isActive: boolean = true, productCategoryId?: number | null) {
+export async function postProductSubCategory(name: string, isActive: boolean = true, productCategoryId?: number | null, specificationId?: number | null) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-sub-categories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_sub_category_name: name, isActive, productCategoryId: productCategoryId ?? null })
+            body: JSON.stringify({ product_sub_category_name: name, isActive, productCategoryId: productCategoryId ?? null, specificationId: specificationId ?? null })
         });
         if (!response.ok) {
             const errorText = await response.text();
@@ -1078,7 +1080,7 @@ export async function postProductSubCategory(name: string, isActive: boolean = t
     }
 }
 
-export async function updateProductSubCategory(id: number, data: { product_sub_category_name?: string; isActive?: boolean; productCategoryId?: number | null }) {
+export async function updateProductSubCategory(id: number, data: { product_sub_category_name?: string; isActive?: boolean; productCategoryId?: number | null; specificationId?: number | null }) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-sub-categories/${id}`, {
             method: 'PUT',
@@ -1134,6 +1136,64 @@ export async function deleteDepartmentHead(id: number) {
         return { success: true };
     } catch (error: any) {
         console.error('Error deleting department head:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchSpecifications() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/specifications`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching specifications:', error);
+        return [];
+    }
+}
+
+export async function postSpecification(name: string, isActive: boolean = true) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/specifications`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, isActive })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting specification:', error);
+        throw error;
+    }
+}
+
+export async function updateSpecification(id: number, data: { name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/specifications/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update specification');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating specification:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteSpecification(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/specifications/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete specification');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting specification:', error);
         return { success: false, error: error.message };
     }
 }

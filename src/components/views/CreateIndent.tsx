@@ -58,7 +58,7 @@ export default () => {
     const [searchTermProductName, setSearchTermProductName] = useState('');
     const [productGroupFilters, setProductGroupFilters] = useState<(number | null)[]>([null]);
     const [uoms, setUoms] = useState<UOMRow[]>([]);
-    const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean }[]>([]);
+    const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
 
     const refreshMaster = async () => {
         const data = await fetchIndentMasterData();
@@ -99,6 +99,7 @@ export default () => {
                     uom: z.string().nonempty(),
                     areaOfUse: z.string().nonempty(),
                     productCategory: z.string().nonempty('Product category is required'),
+                    productSubCategory: z.string().optional(),
                     attachment: z.instanceof(File).optional(),
                     specifications: z.string().optional(),
                 })
@@ -121,6 +122,7 @@ export default () => {
                     uom: '',
                     productName: '',
                     productCategory: '',
+                    productSubCategory: '',
                     specifications: '',
                     quantity: 1,
                     areaOfUse: '',
@@ -429,6 +431,7 @@ export default () => {
                     departmentHead: product.departmentHead,
                     productName: product.productName,
                     productCategory: product.productCategory || null,
+                    productSubCategory: (product.productSubCategory && product.productSubCategory !== '__none__') ? product.productSubCategory : null,
                     quantity: product.quantity,
                     uom: product.uom,
                     specifications: product.specifications || '',
@@ -470,6 +473,7 @@ export default () => {
                         uom: '',
                         productName: '',
                         productCategory: '',
+                        productSubCategory: '',
                         specifications: '',
                         quantity: 1,
                         areaOfUse: '',
@@ -639,6 +643,7 @@ export default () => {
                                         departmentHead: lastProduct.departmentHead || '',
                                         productName: '',
                                         productCategory: lastProduct.productCategory || '',
+                                        productSubCategory: '',
                                         quantity: 1,
                                         uom: '',
                                         areaOfUse: lastProduct.areaOfUse || '',
@@ -656,6 +661,9 @@ export default () => {
                             const departmentHead = products[index]?.departmentHead;
                             const selectedProductName = products[index]?.productName || '';
                             const selectedGroupId = productGroupFilters[index] ?? null;
+                            const selectedCategoryName = products[index]?.productCategory || '';
+                            const selectedCategory = productCategories.find(c => c.product_category_name === selectedCategoryName);
+                            const subCategoryOptions = (selectedCategory?.productSubCategories || []).filter(s => s.isActive !== false);
 
                             const allProductOptions: string[] = master?.groupHeadItems?.[departmentHead] || [];
 
@@ -857,6 +865,7 @@ export default () => {
                                                         <Select
                                                             onValueChange={(val) => {
                                                                 field.onChange(val);
+                                                                form.setValue(`products.${index}.productSubCategory` as any, '');
                                                                 const currentProd = form.getValues(`products.${index}.productName` as any);
                                                                 if (currentProd && master?.itemToCategory?.[currentProd] !== val) {
                                                                     form.setValue(`products.${index}.productName` as any, '');
@@ -886,6 +895,34 @@ export default () => {
                                             />
                                             <FormField
                                                 control={form.control}
+                                                name={`products.${index}.productSubCategory`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Product Sub Category</FormLabel>
+                                                        <Select
+                                                            onValueChange={field.onChange}
+                                                            value={field.value || ''}
+                                                            disabled={subCategoryOptions.length === 0}
+                                                        >
+                                                            <FormControl>
+                                                                <SelectTrigger className="w-full">
+                                                                    <SelectValue placeholder={subCategoryOptions.length === 0 ? 'No sub categories' : 'Select sub category'} />
+                                                                </SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                <SelectItem value="__none__">— None —</SelectItem>
+                                                                {subCategoryOptions.map(s => (
+                                                                    <SelectItem key={s.product_sub_category_id} value={s.product_sub_category_name}>
+                                                                        {s.product_sub_category_name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
                                                 name={`products.${index}.productName`}
                                                 render={({ field }) => {
                                                     const stock = getStock(field.value, departmentHead);
@@ -902,6 +939,7 @@ export default () => {
                                                                     onValueChange={(value) => {
                                                                         field.onChange(value);
                                                                         form.setValue(`products.${index}.uom` as any, '');
+                                                                        form.setValue(`products.${index}.productSubCategory` as any, '');
                                                                         const uom = master?.uomLookup?.[departmentHead]?.[value];
                                                                         if (uom) {
                                                                             form.setValue(`products.${index}.uom` as any, uom);

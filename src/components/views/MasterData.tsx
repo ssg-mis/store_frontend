@@ -1,7 +1,7 @@
 import { Database, Plus, Search, Pencil, Trash2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
-import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, type ProductSubCategoryRow } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, fetchSpecifications, postSpecification, updateSpecification, deleteSpecification, type ProductSubCategoryRow } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -94,6 +94,7 @@ interface MasterForm {
     pin_code: string;
     isActive: string;
     itemCategoryId: string;
+    productSubCategoryId: string;
     inventory_status: string;
 }
 
@@ -119,6 +120,7 @@ const emptyForm: MasterForm = {
     pin_code: '',
     isActive: 'true',
     itemCategoryId: '',
+    productSubCategoryId: '',
     inventory_status: 'Show',
 };
 
@@ -258,8 +260,8 @@ export default function MasterData() {
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('item');
-    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
+    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification'>('item');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification'>('productCategory');
 
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -267,11 +269,12 @@ export default function MasterData() {
     const [editDialogForm, setEditDialogForm] = useState<MasterForm>(emptyForm);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [simpleEditOpen, setSimpleEditOpen] = useState(false);
-    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
+    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification'>('productCategory');
     const [simpleEditId, setSimpleEditId] = useState<number | null>(null);
     const [simpleEditName, setSimpleEditName] = useState('');
     const [simpleEditActive, setSimpleEditActive] = useState('true');
     const [simpleEditProductCategoryId, setSimpleEditProductCategoryId] = useState<string>('none');
+    const [simpleEditSpecificationId, setSimpleEditSpecificationId] = useState<string>('none');
     const [postAddReturn, setPostAddReturn] = useState<'item' | 'vendor' | 'editInventory' | null>(null);
 
     const [isAddingDepartment, setIsAddingDepartment] = useState(false);
@@ -292,21 +295,25 @@ export default function MasterData() {
     const [newUOMName, setNewUOMName] = useState('');
     const [addingUOM, setAddingUOM] = useState(false);
     const [firms, setFirms] = useState<FirmRow[]>([]);
-    const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string, isActive?: boolean, productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
+    const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string, isActive?: boolean, specificationId?: number | null, specification?: { id: number; name: string } | null, productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
+    const [newCategorySpecificationId, setNewCategorySpecificationId] = useState<string>('none');
     const [addingCategory, setAddingCategory] = useState(false);
     const [productGroups, setProductGroups] = useState<{ product_group_id: number, product_group_name: string, isActive?: boolean }[]>([]);
     const [newGroupName, setNewGroupName] = useState('');
     const [productSubCategories, setProductSubCategories] = useState<ProductSubCategoryRow[]>([]);
     const [newSubCategoryName, setNewSubCategoryName] = useState('');
     const [newSubCategoryProductCategoryId, setNewSubCategoryProductCategoryId] = useState<string>('none');
+    const [newSubCategorySpecificationId, setNewSubCategorySpecificationId] = useState<string>('none');
     const [newMasterActive, setNewMasterActive] = useState('true');
 
     const [allDepartments, setAllDepartments] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
     const [allDepartmentHeads, setAllDepartmentHeads] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
     const [addingDepartment, setAddingDepartment] = useState(false);
     const [addingHead, setAddingHead] = useState(false);
+    const [allSpecifications, setAllSpecifications] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
+    const [newSpecificationName, setNewSpecificationName] = useState('');
 
     // Edit dialog UOM/Firm add state (separate from add dialog)
     const [editIsAddingUOM, setEditIsAddingUOM] = useState(false);
@@ -426,17 +433,19 @@ export default function MasterData() {
         uom: 'UOM',
         department: 'Department',
         departmentHead: 'Department Head',
+        specification: 'Specification',
     };
 
     function openSimpleEditDialog(
         type: typeof simpleEditType,
-        row: { product_category_id?: number; product_category_name?: string; product_sub_category_id?: number; product_sub_category_name?: string; productCategoryId?: number | null; product_group_id?: number; product_group_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean }
+        row: { product_category_id?: number; product_category_name?: string; product_sub_category_id?: number; product_sub_category_name?: string; productCategoryId?: number | null; product_group_id?: number; product_group_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean; specificationId?: number | null }
     ) {
         setSimpleEditType(type);
         setSimpleEditId(row.product_category_id ?? row.product_sub_category_id ?? row.product_group_id ?? row.uom_id ?? row.id ?? null);
         setSimpleEditName(row.product_category_name ?? row.product_sub_category_name ?? row.product_group_name ?? row.uom_name ?? row.name ?? '');
         setSimpleEditActive(row.isActive !== false ? 'true' : 'false');
         setSimpleEditProductCategoryId(row.productCategoryId != null ? String(row.productCategoryId) : 'none');
+        setSimpleEditSpecificationId(row.specificationId != null ? String(row.specificationId) : 'none');
         setSimpleEditOpen(true);
     }
 
@@ -454,12 +463,17 @@ export default function MasterData() {
             let result: { success: boolean; error?: string };
 
             if (simpleEditType === 'productCategory') {
-                result = await updateProductCategory(simpleEditId, { product_category_name: simpleEditName.trim(), isActive });
+                result = await updateProductCategory(simpleEditId, {
+                    product_category_name: simpleEditName.trim(),
+                    isActive,
+                    specificationId: simpleEditSpecificationId !== 'none' ? parseInt(simpleEditSpecificationId) : null,
+                });
             } else if (simpleEditType === 'productSubCategory') {
                 result = await updateProductSubCategory(simpleEditId, {
                     product_sub_category_name: simpleEditName.trim(),
                     isActive,
                     productCategoryId: simpleEditProductCategoryId !== 'none' ? parseInt(simpleEditProductCategoryId) : null,
+                    specificationId: simpleEditSpecificationId !== 'none' ? parseInt(simpleEditSpecificationId) : null,
                 });
             } else if (simpleEditType === 'productGroup') {
                 result = await updateProductGroup(simpleEditId, { product_group_name: simpleEditName.trim(), isActive });
@@ -467,6 +481,8 @@ export default function MasterData() {
                 result = await updateUOM(simpleEditId, { uom_name: simpleEditName.trim(), isActive });
             } else if (simpleEditType === 'department') {
                 result = await updateDepartment(simpleEditId, { name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'specification') {
+                result = await updateSpecification(simpleEditId, { name: simpleEditName.trim(), isActive });
             } else {
                 result = await updateDepartmentHead(simpleEditId, { name: simpleEditName.trim(), isActive });
             }
@@ -482,6 +498,7 @@ export default function MasterData() {
             else if (simpleEditType === 'productGroup') loadProductGroups();
             else if (simpleEditType === 'uom') loadUOMs();
             else if (simpleEditType === 'department') loadDepartments();
+            else if (simpleEditType === 'specification') loadSpecifications();
             else loadDepartmentHeads();
         } catch (err: any) {
             toast.error(err?.message ?? 'Failed to update record');
@@ -506,6 +523,7 @@ export default function MasterData() {
                 uom: row.uom || '',
                 firm_name: row.firmName || '',
                 itemCategoryId: row.itemCategoryId?.toString() || '',
+                productSubCategoryId: row.productSubCategoryId?.toString() || '',
             });
         } else if (type === 'vendor') {
             setEditDialogForm({
@@ -586,6 +604,7 @@ export default function MasterData() {
                     itemName: editDialogForm.item_name.trim(),
                     uom: editDialogForm.uom || '',
                     itemCategoryId: editDialogForm.itemCategoryId ? parseInt(editDialogForm.itemCategoryId) : undefined,
+                    productSubCategoryId: editDialogForm.productSubCategoryId ? parseInt(editDialogForm.productSubCategoryId) : null,
                     additionalUoms: editAdditionalUomDrafts,
                     productGroups: editSelectedProductGroups,
                     ...(selectedDept && { departmentId: Number(selectedDept.id) }),
@@ -816,8 +835,9 @@ export default function MasterData() {
         },
     ], []);
 
-    const productCategoryColumns = useMemo<ColumnDef<{ product_category_id: number; product_category_name: string; isActive?: boolean }>[]>(() => [
-        { accessorKey: 'product_category_name', header: 'Product Category', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+    const productCategoryColumns = useMemo<ColumnDef<{ product_category_id: number; product_category_name: string; isActive?: boolean; specificationId?: number | null; specification?: { id: number; name: string } | null }>[]>(() => [
+        { accessorKey: 'product_category_name', header: 'Product Category', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={220} /> },
+        { id: 'specification', header: 'Specification', cell: ({ row }) => <TruncCell value={row.original.specification?.name ?? '—'} width={160} /> },
         activeStatusCol(),
         rowActionsCol(
             row => openSimpleEditDialog('productCategory', row),
@@ -827,7 +847,8 @@ export default function MasterData() {
 
     const productSubCategoryColumns = useMemo<ColumnDef<ProductSubCategoryRow>[]>(() => [
         { accessorKey: 'product_sub_category_name', header: 'Product Sub Category', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={200} /> },
-        { id: 'productCategory', header: 'Product Category', cell: ({ row }) => <TruncCell value={row.original.productCategory?.product_category_name ?? '—'} width={180} /> },
+        { id: 'productCategory', header: 'Product Category', cell: ({ row }) => <TruncCell value={row.original.productCategory?.product_category_name ?? '—'} width={160} /> },
+        { id: 'specification', header: 'Specification', cell: ({ row }) => <TruncCell value={row.original.specification?.name ?? '—'} width={140} /> },
         activeStatusCol(),
         rowActionsCol(
             row => openSimpleEditDialog('productSubCategory', row),
@@ -888,6 +909,15 @@ export default function MasterData() {
         ),
     ], [loadDepartmentHeads]);
 
+    const specificationColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
+        { accessorKey: 'name', header: 'Specification', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('specification', row),
+            row => deleteRecord('specification', () => deleteSpecification(row.id), loadSpecifications),
+        ),
+    ], [loadSpecifications]);
+
     /* fetch */
     async function fetchData() {
         setDataLoading(true);
@@ -941,6 +971,11 @@ export default function MasterData() {
         setAllDepartmentHeads(data || []);
     }
 
+    async function loadSpecifications() {
+        const data = await fetchSpecifications();
+        setAllSpecifications(data || []);
+    }
+
     useEffect(() => {
         fetchData();
         loadUOMs();
@@ -950,6 +985,7 @@ export default function MasterData() {
         loadProductSubCategories();
         loadDepartments();
         loadDepartmentHeads();
+        loadSpecifications();
     }, []);
 
     /* reset form when sheet closes */
@@ -960,6 +996,9 @@ export default function MasterData() {
             setNewDepartmentName('');
             setNewSubCategoryName('');
             setNewSubCategoryProductCategoryId('none');
+            setNewSubCategorySpecificationId('none');
+            setNewCategorySpecificationId('none');
+            setNewSpecificationName('');
             setNewMasterActive('true');
             setShowAddInvAdditionalUOM(false);
             setAddInvAdditionalUOMName('');
@@ -995,6 +1034,7 @@ export default function MasterData() {
                 itemName: form.item_name.trim(),
                 uom: form.uom || '',
                 itemCategoryId: parseInt(form.itemCategoryId),
+                productSubCategoryId: form.productSubCategoryId ? parseInt(form.productSubCategoryId) : null,
                 ...(selectedDept && { departmentId: Number(selectedDept.id) }),
                 ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
                 ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
@@ -1054,10 +1094,12 @@ export default function MasterData() {
         }
         setSubmitting(true);
         try {
-            const result = await postProductCategory(newCategoryName.trim(), newMasterActive === 'true');
+            const specId = newCategorySpecificationId !== 'none' ? parseInt(newCategorySpecificationId) : null;
+            const result = await postProductCategory(newCategoryName.trim(), newMasterActive === 'true', specId);
             if (!result.success) throw new Error(result.error || 'Failed to save product category');
             toast.success('Product category saved successfully!');
             setNewCategoryName('');
+            setNewCategorySpecificationId('none');
             setNewMasterActive('true');
             loadProductCategories();
             closeOrReturnAfterRelatedAdd();
@@ -1100,11 +1142,13 @@ export default function MasterData() {
         setSubmitting(true);
         try {
             const catId = newSubCategoryProductCategoryId !== 'none' ? parseInt(newSubCategoryProductCategoryId) : null;
-            const result = await postProductSubCategory(newSubCategoryName.trim(), newMasterActive === 'true', catId);
+            const specId = newSubCategorySpecificationId !== 'none' ? parseInt(newSubCategorySpecificationId) : null;
+            const result = await postProductSubCategory(newSubCategoryName.trim(), newMasterActive === 'true', catId, specId);
             if (!result.success) throw new Error(result.error || 'Failed to save product sub category');
             toast.success('Product sub category saved successfully!');
             setNewSubCategoryName('');
             setNewSubCategoryProductCategoryId('none');
+            setNewSubCategorySpecificationId('none');
             setNewMasterActive('true');
             loadProductSubCategories();
             closeOrReturnAfterRelatedAdd();
@@ -1174,6 +1218,27 @@ export default function MasterData() {
             closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
             toast.error(err?.message ?? 'Failed to save department head');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleSpecificationSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newSpecificationName.trim()) {
+            toast.error('Specification is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            await postSpecification(newSpecificationName.trim(), newMasterActive === 'true');
+            toast.success('Specification saved successfully!');
+            setNewSpecificationName('');
+            setNewMasterActive('true');
+            loadSpecifications();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save specification');
         } finally {
             setSubmitting(false);
         }
@@ -1404,6 +1469,7 @@ export default function MasterData() {
                             <SelectItem value="uom">UOM</SelectItem>
                             <SelectItem value="department">Department</SelectItem>
                             <SelectItem value="departmentHead">Department Head</SelectItem>
+                            <SelectItem value="specification">Specification</SelectItem>
                             <SelectItem value="inventory">Inventory Info</SelectItem>
                             <SelectItem value="vendor">Vendor Info</SelectItem>
                             <SelectItem value="firm">Firm Info</SelectItem>
@@ -1599,6 +1665,24 @@ export default function MasterData() {
                     </div>
                 </TabsContent>
 
+                <TabsContent value="specification">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={allSpecifications}
+                            columns={specificationColumns}
+                            searchFields={['name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('specification'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Specification
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
             </Tabs>
 
             {/* ── Add Dialog ── */}
@@ -1622,7 +1706,9 @@ export default function MasterData() {
                                                         ? 'Add UOM'
                                                         : activeTab === 'department'
                                                             ? 'Add Department'
-                                                            : 'Add Department Head'}
+                                                            : activeTab === 'specification'
+                                                                ? 'Add Specification'
+                                                                : 'Add Department Head'}
                         </DialogTitle>
                         <DialogDescription>
                             {activeTab === 'item'
@@ -1652,7 +1738,7 @@ export default function MasterData() {
                                     </Label>
                                     <Select
                                         value={form.itemCategoryId}
-                                        onValueChange={setField('itemCategoryId')}
+                                        onValueChange={(val) => { setField('itemCategoryId')(val); setForm(prev => ({ ...prev, productSubCategoryId: '' })); }}
                                     >
                                         <div className="flex gap-2 items-end">
                                             <SelectTrigger className="w-full h-10">
@@ -1671,6 +1757,32 @@ export default function MasterData() {
                                         </SelectContent>
                                     </Select>
                                 </div>
+
+                                {(() => {
+                                    const addSubCatOptions = (productCategories.find(c => c.product_category_id.toString() === form.itemCategoryId)?.productSubCategories || []).filter(s => s.isActive !== false);
+                                    return (
+                                        <div className="flex flex-col gap-1.5">
+                                            <Label className="text-sm font-medium">Product Sub Category</Label>
+                                            <Select
+                                                value={form.productSubCategoryId || 'none'}
+                                                onValueChange={(val) => setForm(prev => ({ ...prev, productSubCategoryId: val === 'none' ? '' : val }))}
+                                                disabled={addSubCatOptions.length === 0}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder={addSubCatOptions.length === 0 ? 'No sub categories' : 'Select sub category'} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">— None —</SelectItem>
+                                                    {addSubCatOptions.map(s => (
+                                                        <SelectItem key={s.product_sub_category_id} value={s.product_sub_category_id.toString()}>
+                                                            {s.product_sub_category_name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    );
+                                })()}
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
@@ -1947,6 +2059,20 @@ export default function MasterData() {
                                     onChange={setNewCategoryName}
                                     required
                                 />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Specification</Label>
+                                    <Select value={newCategorySpecificationId} onValueChange={setNewCategorySpecificationId}>
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Select specification" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">— None —</SelectItem>
+                                            {allSpecifications.filter(s => s.isActive !== false).map(s => (
+                                                <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                                 <ActiveStatusField
                                     value={newMasterActive}
                                     onChange={setNewMasterActive}
@@ -1981,6 +2107,20 @@ export default function MasterData() {
                                                 <SelectItem key={c.product_category_id} value={String(c.product_category_id)}>
                                                     {c.product_category_name}
                                                 </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Specification</Label>
+                                    <Select value={newSubCategorySpecificationId} onValueChange={setNewSubCategorySpecificationId}>
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Select specification" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">— None —</SelectItem>
+                                            {allSpecifications.filter(s => s.isActive !== false).map(s => (
+                                                <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -2081,6 +2221,28 @@ export default function MasterData() {
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
                                         {submitting ? 'Saving Department Head...' : 'Save Department Head'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'specification' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleSpecificationSubmit} className="space-y-4">
+                                <Field
+                                    label="Specification"
+                                    id="specification_name"
+                                    value={newSpecificationName}
+                                    onChange={setNewSpecificationName}
+                                    required
+                                />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Specification...' : 'Save Specification'}
                                     </Button>
                                 </div>
                             </form>
@@ -2340,6 +2502,23 @@ export default function MasterData() {
                             </div>
                         )}
 
+                        {(simpleEditType === 'productCategory' || simpleEditType === 'productSubCategory') && (
+                            <div className="flex flex-col gap-1.5">
+                                <Label className="text-sm font-medium">Specification</Label>
+                                <Select value={simpleEditSpecificationId} onValueChange={setSimpleEditSpecificationId}>
+                                    <SelectTrigger className="w-full h-10">
+                                        <SelectValue placeholder="Select specification" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">— None —</SelectItem>
+                                        {allSpecifications.filter(s => s.isActive !== false).map(s => (
+                                            <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+
                         <div className="flex flex-col gap-1.5">
                             <Label className="text-sm font-medium">Active Status</Label>
                             <Select value={simpleEditActive} onValueChange={setSimpleEditActive}>
@@ -2422,7 +2601,7 @@ export default function MasterData() {
                                     </Label>
                                     <Select
                                         value={editDialogForm.itemCategoryId}
-                                        onValueChange={setEditDialogField('itemCategoryId')}
+                                        onValueChange={(val) => { setEditDialogField('itemCategoryId')(val); setEditDialogForm(prev => ({ ...prev, productSubCategoryId: '' })); }}
                                     >
                                         <div className="flex gap-2 items-end">
                                             <SelectTrigger className="w-full h-10">
@@ -2441,6 +2620,32 @@ export default function MasterData() {
                                         </SelectContent>
                                     </Select>
                                 </div>
+
+                                {(() => {
+                                    const editSubCatOptions = (productCategories.find(c => c.product_category_id.toString() === editDialogForm.itemCategoryId)?.productSubCategories || []).filter(s => s.isActive !== false);
+                                    return (
+                                        <div className="flex flex-col gap-1.5">
+                                            <Label className="text-sm font-medium">Product Sub Category</Label>
+                                            <Select
+                                                value={editDialogForm.productSubCategoryId || 'none'}
+                                                onValueChange={(val) => setEditDialogForm(prev => ({ ...prev, productSubCategoryId: val === 'none' ? '' : val }))}
+                                                disabled={editSubCatOptions.length === 0}
+                                            >
+                                                <SelectTrigger className="w-full h-10">
+                                                    <SelectValue placeholder={editSubCatOptions.length === 0 ? 'No sub categories' : 'Select sub category'} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">— None —</SelectItem>
+                                                    {editSubCatOptions.map(s => (
+                                                        <SelectItem key={s.product_sub_category_id} value={s.product_sub_category_id.toString()}>
+                                                            {s.product_sub_category_name}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    );
+                                })()}
 
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">UOM</Label>
