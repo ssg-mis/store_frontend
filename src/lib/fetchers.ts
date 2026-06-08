@@ -923,7 +923,7 @@ export async function fetchProductCategories() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean }[];
+        return await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[];
     } catch (error) {
         console.error('Error fetching product categories:', error);
         return [];
@@ -1037,6 +1037,75 @@ export async function deleteProductGroup(id: number) {
         return { success: true };
     } catch (error: any) {
         console.error('Error deleting product group:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export type ProductSubCategoryRow = {
+    product_sub_category_id: number;
+    product_sub_category_name: string;
+    isActive?: boolean;
+    productCategoryId?: number | null;
+    productCategory?: { product_category_id: number; product_category_name: string } | null;
+};
+
+export async function fetchProductSubCategories() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-sub-categories`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json() as ProductSubCategoryRow[];
+    } catch (error) {
+        console.error('Error fetching product sub categories:', error);
+        return [];
+    }
+}
+
+export async function postProductSubCategory(name: string, isActive: boolean = true, productCategoryId?: number | null) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-sub-categories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_sub_category_name: name, isActive, productCategoryId: productCategoryId ?? null })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create product sub category');
+        }
+        return { success: true, data: await response.json() as ProductSubCategoryRow };
+    } catch (error: any) {
+        console.error('Error creating product sub category:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateProductSubCategory(id: number, data: { product_sub_category_name?: string; isActive?: boolean; productCategoryId?: number | null }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-sub-categories/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update product sub category');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating product sub category:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteProductSubCategory(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/product-sub-categories/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete product sub category');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting product sub category:', error);
         return { success: false, error: error.message };
     }
 }

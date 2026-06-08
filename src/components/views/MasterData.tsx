@@ -1,7 +1,7 @@
-import { Database, Plus, Search } from 'lucide-react';
+import { Database, Plus, Search, Pencil, Trash2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
-import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, type ProductSubCategoryRow } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -202,7 +202,7 @@ function TruncCell({ value, width = 140 }: { value: string | null; width?: numbe
         <span
             title={value}
             style={{ maxWidth: width }}
-            className="truncate block"
+            className="truncate inline-block"
         >
             {value}
         </span>
@@ -212,6 +212,39 @@ function TruncCell({ value, width = 140 }: { value: string | null; width?: numbe
 function normalizePaymentTerm(value: string | string[] | null | undefined) {
     if (Array.isArray(value)) return value[0] || '';
     return value || '';
+}
+
+function activeStatusCol<T>(): ColumnDef<T> {
+    return {
+        accessorKey: 'isActive',
+        header: 'Active Status',
+        cell: ({ getValue }) => {
+            const val = (getValue() as boolean) !== false;
+            return <Pill variant={val ? 'secondary' : 'reject'}>{val ? 'True' : 'False'}</Pill>;
+        },
+    };
+}
+
+function rowActionsCol<T>(
+    onEdit: (row: T) => void,
+    onRemove: (row: T) => void,
+): ColumnDef<T> {
+    return {
+        id: 'actions',
+        header: () => <div className="text-center">Actions</div>,
+        cell: ({ row }) => (
+            <div className="flex justify-center gap-1">
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit"
+                    onClick={() => onEdit(row.original)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                    title="Remove" onClick={() => onRemove(row.original)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+            </div>
+        ),
+    };
 }
 
 
@@ -225,8 +258,8 @@ export default function MasterData() {
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('item');
-    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
+    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('item');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
 
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -234,10 +267,11 @@ export default function MasterData() {
     const [editDialogForm, setEditDialogForm] = useState<MasterForm>(emptyForm);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [simpleEditOpen, setSimpleEditOpen] = useState(false);
-    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
+    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead'>('productCategory');
     const [simpleEditId, setSimpleEditId] = useState<number | null>(null);
     const [simpleEditName, setSimpleEditName] = useState('');
     const [simpleEditActive, setSimpleEditActive] = useState('true');
+    const [simpleEditProductCategoryId, setSimpleEditProductCategoryId] = useState<string>('none');
     const [postAddReturn, setPostAddReturn] = useState<'item' | 'vendor' | 'editInventory' | null>(null);
 
     const [isAddingDepartment, setIsAddingDepartment] = useState(false);
@@ -258,12 +292,15 @@ export default function MasterData() {
     const [newUOMName, setNewUOMName] = useState('');
     const [addingUOM, setAddingUOM] = useState(false);
     const [firms, setFirms] = useState<FirmRow[]>([]);
-    const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string, isActive?: boolean }[]>([]);
+    const [productCategories, setProductCategories] = useState<{ product_category_id: number, product_category_name: string, isActive?: boolean, productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
     const [isAddingCategory, setIsAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [addingCategory, setAddingCategory] = useState(false);
     const [productGroups, setProductGroups] = useState<{ product_group_id: number, product_group_name: string, isActive?: boolean }[]>([]);
     const [newGroupName, setNewGroupName] = useState('');
+    const [productSubCategories, setProductSubCategories] = useState<ProductSubCategoryRow[]>([]);
+    const [newSubCategoryName, setNewSubCategoryName] = useState('');
+    const [newSubCategoryProductCategoryId, setNewSubCategoryProductCategoryId] = useState<string>('none');
     const [newMasterActive, setNewMasterActive] = useState('true');
 
     const [allDepartments, setAllDepartments] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
@@ -312,11 +349,11 @@ export default function MasterData() {
     }, [tableData]);
 
     const uniqueDepartments = useMemo(() =>
-        allDepartments.map(d => d.name).sort() as string[],
+        allDepartments.filter(d => d.isActive !== false).map(d => d.name).sort() as string[],
     [allDepartments]);
 
     const uniqueHeads = useMemo(() =>
-        allDepartmentHeads.map(h => h.name).sort() as string[],
+        allDepartmentHeads.filter(h => h.isActive !== false).map(h => h.name).sort() as string[],
     [allDepartmentHeads]);
 
     const inventoryData = useMemo(() => inventoryTableData, [inventoryTableData]);
@@ -384,6 +421,7 @@ export default function MasterData() {
 
     const simpleEditLabels: Record<typeof simpleEditType, string> = {
         productCategory: 'Product Category',
+        productSubCategory: 'Product Sub Category',
         productGroup: 'Product Group',
         uom: 'UOM',
         department: 'Department',
@@ -392,12 +430,13 @@ export default function MasterData() {
 
     function openSimpleEditDialog(
         type: typeof simpleEditType,
-        row: { product_category_id?: number; product_category_name?: string; product_group_id?: number; product_group_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean }
+        row: { product_category_id?: number; product_category_name?: string; product_sub_category_id?: number; product_sub_category_name?: string; productCategoryId?: number | null; product_group_id?: number; product_group_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean }
     ) {
         setSimpleEditType(type);
-        setSimpleEditId(row.product_category_id ?? row.product_group_id ?? row.uom_id ?? row.id ?? null);
-        setSimpleEditName(row.product_category_name ?? row.product_group_name ?? row.uom_name ?? row.name ?? '');
+        setSimpleEditId(row.product_category_id ?? row.product_sub_category_id ?? row.product_group_id ?? row.uom_id ?? row.id ?? null);
+        setSimpleEditName(row.product_category_name ?? row.product_sub_category_name ?? row.product_group_name ?? row.uom_name ?? row.name ?? '');
         setSimpleEditActive(row.isActive !== false ? 'true' : 'false');
+        setSimpleEditProductCategoryId(row.productCategoryId != null ? String(row.productCategoryId) : 'none');
         setSimpleEditOpen(true);
     }
 
@@ -416,6 +455,12 @@ export default function MasterData() {
 
             if (simpleEditType === 'productCategory') {
                 result = await updateProductCategory(simpleEditId, { product_category_name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'productSubCategory') {
+                result = await updateProductSubCategory(simpleEditId, {
+                    product_sub_category_name: simpleEditName.trim(),
+                    isActive,
+                    productCategoryId: simpleEditProductCategoryId !== 'none' ? parseInt(simpleEditProductCategoryId) : null,
+                });
             } else if (simpleEditType === 'productGroup') {
                 result = await updateProductGroup(simpleEditId, { product_group_name: simpleEditName.trim(), isActive });
             } else if (simpleEditType === 'uom') {
@@ -433,6 +478,7 @@ export default function MasterData() {
             setSimpleEditId(null);
 
             if (simpleEditType === 'productCategory') loadProductCategories();
+            else if (simpleEditType === 'productSubCategory') loadProductSubCategories();
             else if (simpleEditType === 'productGroup') loadProductGroups();
             else if (simpleEditType === 'uom') loadUOMs();
             else if (simpleEditType === 'department') loadDepartments();
@@ -613,20 +659,6 @@ export default function MasterData() {
 
     const inventoryColumns = useMemo<ColumnDef<any>[]>(() => [
         {
-            id: 'actions',
-            header: 'Actions',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openEditDialog(row.original, 'inventory')}
-                >
-                    Edit
-                </Button>
-            ),
-        },
-        {
             accessorKey: 'itemName',
             header: 'Item Name',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={200} />,
@@ -651,23 +683,21 @@ export default function MasterData() {
             header: 'UOM',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={80} />,
         },
+        {
+            id: 'actions',
+            header: () => <div className="text-center">Actions</div>,
+            cell: ({ row }) => (
+                <div className="flex justify-center">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit"
+                        onClick={() => openEditDialog(row.original, 'inventory')}>
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            ),
+        },
     ], []);
 
     const vendorColumns = useMemo<ColumnDef<MasterRow>[]>(() => [
-        {
-            id: 'actions',
-            header: 'Actions',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openEditDialog(row.original, 'vendor')}
-                >
-                    Edit
-                </Button>
-            ),
-        },
         {
             accessorKey: 'vendor_name',
             header: 'Vendor Name',
@@ -711,30 +741,24 @@ export default function MasterData() {
             header: 'Status',
             cell: ({ getValue }) => {
                 const val = getValue() as boolean;
-                return (
-                    <Pill variant={val ? 'secondary' : 'reject'}>
-                        {val ? 'Active' : 'Inactive'}
-                    </Pill>
-                );
+                return <Pill variant={val ? 'secondary' : 'reject'}>{val ? 'Active' : 'Inactive'}</Pill>;
             },
+        },
+        {
+            id: 'actions',
+            header: () => <div className="text-center">Actions</div>,
+            cell: ({ row }) => (
+                <div className="flex justify-center">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit"
+                        onClick={() => openEditDialog(row.original, 'vendor')}>
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            ),
         },
     ], []);
 
     const firmColumns = useMemo<ColumnDef<FirmRow>[]>(() => [
-        {
-            id: 'actions',
-            header: 'Actions',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openEditDialog(row.original, 'firm')}
-                >
-                    Edit
-                </Button>
-            ),
-        },
         {
             accessorKey: 'firm_name',
             header: 'Firm Name',
@@ -775,238 +799,93 @@ export default function MasterData() {
             header: 'Status',
             cell: ({ getValue }) => {
                 const val = getValue() as boolean;
-                return (
-                    <Pill variant={val ? 'secondary' : 'reject'}>
-                        {val ? 'Active' : 'Inactive'}
-                    </Pill>
-                );
+                return <Pill variant={val ? 'secondary' : 'reject'}>{val ? 'Active' : 'Inactive'}</Pill>;
             },
+        },
+        {
+            id: 'actions',
+            header: () => <div className="text-center">Actions</div>,
+            cell: ({ row }) => (
+                <div className="flex justify-center">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit"
+                        onClick={() => openEditDialog(row.original, 'firm')}>
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            ),
         },
     ], []);
 
     const productCategoryColumns = useMemo<ColumnDef<{ product_category_id: number; product_category_name: string; isActive?: boolean }>[]>(() => [
-        {
-            id: 'edit',
-            header: 'Edit',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openSimpleEditDialog('productCategory', row.original)}
-                >
-                    Edit
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'product_category_name',
-            header: 'Product Category',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
-        },
-        {
-            id: 'delete',
-            header: 'Delete Record',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs text-destructive hover:text-destructive"
-                    onClick={() => deleteRecord('product category', () => deleteProductCategory(row.original.product_category_id), loadProductCategories)}
-                >
-                    Remove
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'isActive',
-            header: 'Active Status',
-            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
-        },
+        { accessorKey: 'product_category_name', header: 'Product Category', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('productCategory', row),
+            row => deleteRecord('product category', () => deleteProductCategory(row.product_category_id), loadProductCategories),
+        ),
     ], [loadProductCategories]);
 
+    const productSubCategoryColumns = useMemo<ColumnDef<ProductSubCategoryRow>[]>(() => [
+        { accessorKey: 'product_sub_category_name', header: 'Product Sub Category', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={200} /> },
+        { id: 'productCategory', header: 'Product Category', cell: ({ row }) => <TruncCell value={row.original.productCategory?.product_category_name ?? '—'} width={180} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('productSubCategory', row),
+            row => deleteRecord('product sub category', () => deleteProductSubCategory(row.product_sub_category_id), loadProductSubCategories),
+        ),
+    ], [loadProductSubCategories]);
+
     const productGroupColumns = useMemo<ColumnDef<{ product_group_id: number; product_group_name: string; isActive?: boolean }>[]>(() => [
-        {
-            id: 'edit',
-            header: 'Edit',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openSimpleEditDialog('productGroup', row.original)}
-                >
-                    Edit
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'product_group_name',
-            header: 'Group Name',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
-        },
-        {
-            id: 'delete',
-            header: 'Delete Record',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs text-destructive hover:text-destructive"
-                    onClick={() => deleteRecord('product group', () => deleteProductGroup(row.original.product_group_id), loadProductGroups)}
-                >
-                    Remove
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'isActive',
-            header: 'Active Status',
-            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
-        },
+        { accessorKey: 'product_group_name', header: 'Group Name', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('productGroup', row),
+            row => deleteRecord('product group', () => deleteProductGroup(row.product_group_id), loadProductGroups),
+        ),
     ], [loadProductGroups]);
 
     const uomColumns = useMemo<ColumnDef<UOMRow>[]>(() => [
-        {
-            id: 'edit',
-            header: 'Edit',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openSimpleEditDialog('uom', row.original)}
-                >
-                    Edit
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'uom_name',
-            header: 'UOM',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={180} />,
-        },
+        { accessorKey: 'uom_name', header: 'UOM', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={180} /> },
         {
             id: 'additionalUoms',
             header: 'Additional UOM',
             cell: ({ row }) => {
                 const conversions = row.original.baseConversions || [];
-                if (conversions.length === 0) {
-                    return <span className="text-muted-foreground">-</span>;
-                }
-
+                if (conversions.length === 0) return <span className="text-muted-foreground">-</span>;
                 return (
                     <div className="space-y-1">
-                        {conversions.map((conversion) => (
-                            <div key={conversion.conversion_id} className="text-xs">
-                                1 {conversion.alternateUom?.uom_name || '-'} = {Number(conversion.conversionToBase).toLocaleString()} {row.original.uom_name}
+                        {conversions.map(c => (
+                            <div key={c.conversion_id} className="text-xs">
+                                1 {c.alternateUom?.uom_name || '-'} = {Number(c.conversionToBase).toLocaleString()} {row.original.uom_name}
                             </div>
                         ))}
                     </div>
                 );
             },
         },
-        {
-            id: 'delete',
-            header: 'Delete Record',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs text-destructive hover:text-destructive"
-                    onClick={() => deleteRecord('UOM', () => deleteUOM(row.original.uom_id), loadUOMs)}
-                >
-                    Remove
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'isActive',
-            header: 'Active Status',
-            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
-        },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('uom', row),
+            row => deleteRecord('UOM', () => deleteUOM(row.uom_id), loadUOMs),
+        ),
     ], [loadUOMs]);
 
     const departmentColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
-        {
-            id: 'edit',
-            header: 'Edit',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openSimpleEditDialog('department', row.original)}
-                >
-                    Edit
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'name',
-            header: 'Department',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
-        },
-        {
-            id: 'delete',
-            header: 'Delete Record',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs text-destructive hover:text-destructive"
-                    onClick={() => deleteRecord('department', () => deleteDepartment(row.original.id), loadDepartments)}
-                >
-                    Remove
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'isActive',
-            header: 'Active Status',
-            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
-        },
+        { accessorKey: 'name', header: 'Department', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('department', row),
+            row => deleteRecord('department', () => deleteDepartment(row.id), loadDepartments),
+        ),
     ], [loadDepartments]);
 
     const departmentHeadColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
-        {
-            id: 'edit',
-            header: 'Edit',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => openSimpleEditDialog('departmentHead', row.original)}
-                >
-                    Edit
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'name',
-            header: 'Department Head',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} />,
-        },
-        {
-            id: 'delete',
-            header: 'Delete Record',
-            cell: ({ row }) => (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs text-destructive hover:text-destructive"
-                    onClick={() => deleteRecord('department head', () => deleteDepartmentHead(row.original.id), loadDepartmentHeads)}
-                >
-                    Remove
-                </Button>
-            ),
-        },
-        {
-            accessorKey: 'isActive',
-            header: 'Active Status',
-            cell: ({ getValue }) => <Pill variant={(getValue() as boolean) !== false ? 'secondary' : 'reject'}>{(getValue() as boolean) !== false ? 'True' : 'False'}</Pill>,
-        },
+        { accessorKey: 'name', header: 'Department Head', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('departmentHead', row),
+            row => deleteRecord('department head', () => deleteDepartmentHead(row.id), loadDepartmentHeads),
+        ),
     ], [loadDepartmentHeads]);
 
     /* fetch */
@@ -1047,6 +926,11 @@ export default function MasterData() {
         setProductGroups(data || []);
     }
 
+    async function loadProductSubCategories() {
+        const data = await fetchProductSubCategories();
+        setProductSubCategories(data || []);
+    }
+
     async function loadDepartments() {
         const data = await fetchDepartments();
         setAllDepartments(data || []);
@@ -1063,6 +947,7 @@ export default function MasterData() {
         loadFirms();
         loadProductCategories();
         loadProductGroups();
+        loadProductSubCategories();
         loadDepartments();
         loadDepartmentHeads();
     }, []);
@@ -1073,6 +958,8 @@ export default function MasterData() {
             setForm(emptyForm);
             setIsAddingDepartment(false);
             setNewDepartmentName('');
+            setNewSubCategoryName('');
+            setNewSubCategoryProductCategoryId('none');
             setNewMasterActive('true');
             setShowAddInvAdditionalUOM(false);
             setAddInvAdditionalUOMName('');
@@ -1199,6 +1086,30 @@ export default function MasterData() {
             closeOrReturnAfterRelatedAdd();
         } catch (err: any) {
             toast.error(err?.message ?? 'Failed to save product group');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleProductSubCategorySubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newSubCategoryName.trim()) {
+            toast.error('Product Sub Category is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const catId = newSubCategoryProductCategoryId !== 'none' ? parseInt(newSubCategoryProductCategoryId) : null;
+            const result = await postProductSubCategory(newSubCategoryName.trim(), newMasterActive === 'true', catId);
+            if (!result.success) throw new Error(result.error || 'Failed to save product sub category');
+            toast.success('Product sub category saved successfully!');
+            setNewSubCategoryName('');
+            setNewSubCategoryProductCategoryId('none');
+            setNewMasterActive('true');
+            loadProductSubCategories();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save product sub category');
         } finally {
             setSubmitting(false);
         }
@@ -1480,17 +1391,25 @@ export default function MasterData() {
             </Heading>
 
             {/* ── Page Tabs ── */}
-            <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead')}>
-                <TabsList className="mb-4 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 h-auto gap-1">
-                    <TabsTrigger value="productCategory">Product Category</TabsTrigger>
-                    <TabsTrigger value="productGroup">Product Group</TabsTrigger>
-                    <TabsTrigger value="uom">UOM</TabsTrigger>
-                    <TabsTrigger value="department">Department</TabsTrigger>
-                    <TabsTrigger value="departmentHead">Department Head</TabsTrigger>
-                    <TabsTrigger value="inventory">Inventory Info</TabsTrigger>
-                    <TabsTrigger value="vendor">Vendor Info</TabsTrigger>
-                    <TabsTrigger value="firm">Firm Info</TabsTrigger>
-                </TabsList>
+            <Tabs value={pageTab}>
+                <div className="mb-4 w-48">
+                    <Select value={pageTab} onValueChange={(v) => setPageTab(v as typeof pageTab)}>
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select section" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="productCategory">Product Category</SelectItem>
+                            <SelectItem value="productSubCategory">Product Sub Category</SelectItem>
+                            <SelectItem value="productGroup">Product Group</SelectItem>
+                            <SelectItem value="uom">UOM</SelectItem>
+                            <SelectItem value="department">Department</SelectItem>
+                            <SelectItem value="departmentHead">Department Head</SelectItem>
+                            <SelectItem value="inventory">Inventory Info</SelectItem>
+                            <SelectItem value="vendor">Vendor Info</SelectItem>
+                            <SelectItem value="firm">Firm Info</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
 
                 <TabsContent value="inventory">
                     <div className="w-full max-w-full overflow-x-auto">
@@ -1590,6 +1509,24 @@ export default function MasterData() {
                     </div>
                 </TabsContent>
 
+                <TabsContent value="productSubCategory">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={productSubCategories}
+                            columns={productSubCategoryColumns}
+                            searchFields={['product_sub_category_name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('productSubCategory'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Product Sub Category
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
                 <TabsContent value="productGroup">
                     <div className="w-full max-w-full overflow-x-auto">
                         <DataTable
@@ -1677,13 +1614,15 @@ export default function MasterData() {
                                         ? 'Add Firm Info'
                                         : activeTab === 'productCategory'
                                             ? 'Add Product Category'
-                                            : activeTab === 'productGroup'
-                                                ? 'Add Product Group'
-                                                : activeTab === 'uom'
-                                                    ? 'Add UOM'
-                                                    : activeTab === 'department'
-                                                        ? 'Add Department'
-                                                        : 'Add Department Head'}
+                                            : activeTab === 'productSubCategory'
+                                                ? 'Add Product Sub Category'
+                                                : activeTab === 'productGroup'
+                                                    ? 'Add Product Group'
+                                                    : activeTab === 'uom'
+                                                        ? 'Add UOM'
+                                                        : activeTab === 'department'
+                                                            ? 'Add Department'
+                                                            : 'Add Department Head'}
                         </DialogTitle>
                         <DialogDescription>
                             {activeTab === 'item'
@@ -1724,7 +1663,7 @@ export default function MasterData() {
                                             </Button>
                                         </div>
                                         <SelectContent>
-                                            {productCategories.map((c) => (
+                                            {productCategories.filter(c => c.isActive !== false).map((c) => (
                                                 <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
                                                     {c.product_category_name}
                                                 </SelectItem>
@@ -1745,7 +1684,7 @@ export default function MasterData() {
                                             </Button>
                                         </div>
                                         <SelectContent>
-                                            {uoms.map((u) => (
+                                            {uoms.filter(u => u.isActive !== false).map((u) => (
                                                 <SelectItem key={u.uom_id} value={u.uom_name}>
                                                     {u.uom_name}
                                                 </SelectItem>
@@ -1902,7 +1841,7 @@ export default function MasterData() {
                                         </SelectTrigger>
                                         <SelectContent>
                                             {productGroups
-                                                .filter(g => !selectedProductGroups.some(s => s.id === g.product_group_id))
+                                                .filter(g => g.isActive !== false && !selectedProductGroups.some(s => s.id === g.product_group_id))
                                                 .map(g => (
                                                     <SelectItem key={g.product_group_id} value={g.product_group_id.toString()}>
                                                         {g.product_group_name}
@@ -2016,6 +1955,44 @@ export default function MasterData() {
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
                                         {submitting ? 'Saving Product Category...' : 'Save Product Category'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'productSubCategory' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleProductSubCategorySubmit} className="space-y-4">
+                                <Field
+                                    label="Product Sub Category"
+                                    id="product_sub_category_name"
+                                    value={newSubCategoryName}
+                                    onChange={setNewSubCategoryName}
+                                    required
+                                />
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">Product Category</Label>
+                                    <Select value={newSubCategoryProductCategoryId} onValueChange={setNewSubCategoryProductCategoryId}>
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Select product category" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">— None —</SelectItem>
+                                            {productCategories.filter(c => c.isActive !== false).map(c => (
+                                                <SelectItem key={c.product_category_id} value={String(c.product_category_id)}>
+                                                    {c.product_category_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Product Sub Category...' : 'Save Product Sub Category'}
                                     </Button>
                                 </div>
                             </form>
@@ -2344,6 +2321,25 @@ export default function MasterData() {
                             required
                         />
 
+                        {simpleEditType === 'productSubCategory' && (
+                            <div className="flex flex-col gap-1.5">
+                                <Label className="text-sm font-medium">Product Category</Label>
+                                <Select value={simpleEditProductCategoryId} onValueChange={setSimpleEditProductCategoryId}>
+                                    <SelectTrigger className="w-full h-10">
+                                        <SelectValue placeholder="Select product category" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">— None —</SelectItem>
+                                        {productCategories.filter(c => c.isActive !== false).map(c => (
+                                            <SelectItem key={c.product_category_id} value={String(c.product_category_id)}>
+                                                {c.product_category_name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+
                         <div className="flex flex-col gap-1.5">
                             <Label className="text-sm font-medium">Active Status</Label>
                             <Select value={simpleEditActive} onValueChange={setSimpleEditActive}>
@@ -2356,6 +2352,29 @@ export default function MasterData() {
                                 </SelectContent>
                             </Select>
                         </div>
+
+                        {simpleEditType === 'productCategory' && (() => {
+                            const subs = productCategories.find(c => c.product_category_id === simpleEditId)?.productSubCategories ?? [];
+                            return (
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-sm font-medium">
+                                        Mapped Sub Categories
+                                        <span className="ml-2 text-xs font-normal text-muted-foreground">({subs.length})</span>
+                                    </Label>
+                                    {subs.length === 0 ? (
+                                        <p className="text-sm text-muted-foreground">None assigned yet.</p>
+                                    ) : (
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {subs.map(s => (
+                                                <Pill key={s.product_sub_category_id} variant={s.isActive ? 'secondary' : 'reject'}>
+                                                    {s.product_sub_category_name}
+                                                </Pill>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         <div className="pt-2 flex gap-2">
                             <Button type="submit" disabled={submitting} className="flex-1 h-10">
@@ -2414,7 +2433,7 @@ export default function MasterData() {
                                             </Button>
                                         </div>
                                         <SelectContent>
-                                            {productCategories.map((c) => (
+                                            {productCategories.filter(c => c.isActive !== false).map((c) => (
                                                 <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
                                                     {c.product_category_name}
                                                 </SelectItem>
@@ -2435,7 +2454,7 @@ export default function MasterData() {
                                             </Button>
                                         </div>
                                         <SelectContent>
-                                            {uoms.map((u) => (
+                                            {uoms.filter(u => u.isActive !== false).map((u) => (
                                                 <SelectItem key={u.uom_id} value={u.uom_name}>
                                                     {u.uom_name}
                                                 </SelectItem>
