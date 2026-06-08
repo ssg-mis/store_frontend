@@ -544,6 +544,7 @@ export default function MasterData() {
                 pin_code: row.pin_code || '',
                 isActive: row.isActive !== false ? 'true' : 'false',
                 itemCategoryId: row.itemCategoryId?.toString() || '',
+                productSubCategoryId: '',
                 inventory_status: row.inventoryStatus || 'Show',
                 alias: '',
                 firm_gstin: '',
