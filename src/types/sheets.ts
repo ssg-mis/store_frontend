@@ -248,6 +248,7 @@ export type UserPermissions = {
     role?: string;
     modifyAccess?: 'EDIT' | 'VIEW';
     modify_access?: 'EDIT' | 'VIEW';
+    pageModifyAccess?: Record<string, 'EDIT' | 'VIEW'>;
 
     administrate: boolean;
     createIndent: boolean;

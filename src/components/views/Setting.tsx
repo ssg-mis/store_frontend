@@ -43,7 +43,24 @@ interface UsersTableData {
     modifyAccess: 'EDIT' | 'VIEW';
     permissions: string[];
     firmAccess: string[];
+    pageModifyAccess: Record<string, 'EDIT' | 'VIEW'>;
 }
+
+// Pages that support per-page modify access override
+const PAGE_MODIFY_ITEMS = [
+    { key: 'inventory',          label: 'Inventory' },
+    { key: 'createIndent',       label: 'Create Indent' },
+    { key: 'approveIndent',      label: 'Approve Indent' },
+    { key: 'vendorRateUpdate',   label: 'Vendor Rate Update' },
+    { key: 'threePartyApproval', label: 'Three Party Approval' },
+    { key: 'pendingPos',         label: 'Pending POs' },
+    { key: 'createPo',           label: 'Create PO' },
+    { key: 'poMaster',           label: 'PO Master' },
+    { key: 'receiveItems',       label: 'Receive Items' },
+    { key: 'storeOutApproval',   label: 'Store Out / Approval' },
+    { key: 'quotation',          label: 'Quotation' },
+    { key: 'masterData',         label: 'Master Data' },
+];
 
 const permissionLabels: Record<(typeof allPermissionKeys)[number], string> = {
     administrate: 'Administration',
@@ -104,6 +121,11 @@ export default () => {
                         try { extractedFirmAccess = JSON.parse(user.firms); } catch (e) {}
                     }
 
+                    const extractedPageModifyAccess: Record<string, 'EDIT' | 'VIEW'> =
+                        user.pageModifyAccess && typeof user.pageModifyAccess === 'object'
+                            ? (user.pageModifyAccess as Record<string, 'EDIT' | 'VIEW'>)
+                            : {};
+
                     return {
                         id: user.id,
                         username: user.username,
@@ -113,6 +135,7 @@ export default () => {
                         modifyAccess: (String(user.modifyAccess || user.modify_access || 'EDIT').toUpperCase() === 'VIEW' ? 'VIEW' : 'EDIT'),
                         permissions: permissionKeys,
                         firmAccess: extractedFirmAccess,
+                        pageModifyAccess: extractedPageModifyAccess,
                     };
                 })
             );
@@ -134,15 +157,6 @@ export default () => {
             cell: ({ row }) => (
                 <Pill className={row.original.role === 'ADMIN' ? 'bg-primary/10 text-primary' : ''}>
                     {row.original.role}
-                </Pill>
-            ),
-        },
-        {
-            accessorKey: 'modifyAccess',
-            header: 'Action Access',
-            cell: ({ row }) => (
-                <Pill className={row.original.modifyAccess === 'VIEW' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}>
-                    {row.original.modifyAccess}
                 </Pill>
             ),
         },
@@ -225,6 +239,7 @@ export default () => {
         modifyAccess: z.enum(['EDIT', 'VIEW']).default('EDIT'),
         permissions: z.array(z.string()),
         firmAccess: z.array(z.string()).default([]),
+        pageModifyAccess: z.record(z.enum(['EDIT', 'VIEW'])).default({}),
     });
 
     const form = useForm({ resolver: zodResolver(schema) });
@@ -239,6 +254,7 @@ export default () => {
                 modifyAccess: selectedUser.modifyAccess || 'EDIT',
                 permissions: selectedUser.permissions,
                 firmAccess: selectedUser.firmAccess || [],
+                pageModifyAccess: selectedUser.pageModifyAccess || {},
             });
             return;
         }
@@ -250,6 +266,7 @@ export default () => {
             modifyAccess: 'EDIT',
             permissions: [],
             firmAccess: [],
+            pageModifyAccess: {},
         });
     }, [selectedUser]);
 
@@ -267,6 +284,7 @@ export default () => {
                 allPermissionKeys.forEach((perm) => {
                     pageAccess[perm] = value.permissions.includes(perm);
                 });
+                pageAccess.pageModifyAccess = value.pageModifyAccess || {};
 
                 const payload = {
                     id: selectedUser.id,
@@ -274,7 +292,7 @@ export default () => {
                     name: value.name,
                     password: value.password,
                     role: value.role,
-                    modifyAccess: value.modifyAccess,
+                    modifyAccess: 'EDIT',
                     pageAccess,
                     firmAccess: value.firmAccess,
                 };
@@ -293,6 +311,7 @@ export default () => {
             allPermissionKeys.forEach((perm) => {
                 pageAccess[perm] = value.permissions.includes(perm);
             });
+            pageAccess.pageModifyAccess = value.pageModifyAccess || {};
 
             const payload = {
                 username: value.username,
@@ -437,26 +456,6 @@ export default () => {
                                         </FormItem>
                                     )}
                                 />
-                                <FormField
-                                    control={form.control}
-                                    name="modifyAccess"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Action Access</FormLabel>
-                                            <Select onValueChange={field.onChange} value={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select access" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    <SelectItem value="EDIT">EDIT - Can view and modify</SelectItem>
-                                                    <SelectItem value="VIEW">VIEW - View only</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </FormItem>
-                                    )}
-                                />
                             </div>
                             <FormField
                                 control={form.control}
@@ -522,6 +521,53 @@ export default () => {
                                                         </FormItem>
                                                     )}
                                                 />
+                                            ))}
+                                        </div>
+                                    </FormItem>
+                                )}
+                            />
+
+                            <FormField
+                                control={form.control}
+                                name="pageModifyAccess"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <div className="flex justify-between items-end">
+                                            <FormLabel className="text-md">Page-wise Modify Access</FormLabel>
+                                            <button
+                                                type="button"
+                                                className="text-xs text-muted-foreground underline pb-1"
+                                                onClick={() => {
+                                                    const reset: Record<string, 'EDIT' | 'VIEW'> = {};
+                                                    PAGE_MODIFY_ITEMS.forEach(p => { reset[p.key] = 'VIEW'; });
+                                                    field.onChange(reset);
+                                                }}
+                                            >
+                                                Reset all to VIEW
+                                            </button>
+                                        </div>
+                                        <div className="grid md:grid-cols-2 gap-3 p-4 border rounded-sm max-h-[240px] overflow-y-auto">
+                                            {PAGE_MODIFY_ITEMS.map(page => (
+                                                <div key={page.key} className="flex items-center justify-between gap-2">
+                                                    <span className="text-sm font-light">{page.label}</span>
+                                                    <Select
+                                                        value={field.value?.[page.key] || 'EDIT'}
+                                                        onValueChange={(val) => {
+                                                            field.onChange({
+                                                                ...field.value,
+                                                                [page.key]: val as 'EDIT' | 'VIEW',
+                                                            });
+                                                        }}
+                                                    >
+                                                        <SelectTrigger className="w-24 h-7 text-xs">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="EDIT">EDIT</SelectItem>
+                                                            <SelectItem value="VIEW">VIEW</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
                                             ))}
                                         </div>
                                     </FormItem>

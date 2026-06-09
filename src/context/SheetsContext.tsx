@@ -195,7 +195,7 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     function updateCounts() {
-        setBadgeCounts(computeBadgeCounts(indentSheet, receivedSheet, poMasterSheet));
+        // Counts are recomputed reactively by the useEffect below; this is a no-op kept for interface compatibility.
     }
 
     function updateThreePartyApprovalSheet() {
@@ -215,7 +215,6 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         updateReceivedSheet();
         updatePoMasterSheet();
         updateInventorySheet(true);
-        updateCounts();
     }
 
     function updateAll() {
@@ -228,7 +227,6 @@ export const SheetsProvider = ({ children }: { children: React.ReactNode }) => {
         updateRateUpdateSheet();
         updateThreePartyApprovalSheet();
         updateApprovedIndentSheet();
-        updateCounts();
         setAllLoading(false);
     }
 

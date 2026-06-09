@@ -13,6 +13,7 @@ import { ClipboardCheck, PenSquare, Search, Send } from 'lucide-react';
 import { formatDate, debounce } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
+import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
 import Heading from '../element/Heading';
 import { Pill } from '../ui/pill';
 import { Input } from '../ui/input';
@@ -72,6 +73,7 @@ interface HistoryData {
 export default () => {
     const { user } = useAuth();
     const { updateIndentSheet, updateRelatedSheets } = useSheets();
+    const isViewOnly = usePageViewOnly();
 
     const [pendingItems, setPendingItems] = useState<ApproveTableData[]>([]);
     const [historyItems, setHistoryItems] = useState<HistoryData[]>([]);
@@ -329,6 +331,10 @@ export default () => {
     };
 
     const handleSubmitBulkUpdates = async () => {
+        if (isViewOnly) {
+            toast.info('View-only access: you cannot approve indents on this page.');
+            return;
+        }
         // Collect all product IDs across selected indents
         const selectedProductIds = pendingItems
             .filter(item => selectedIndents.has(item.indentNo))

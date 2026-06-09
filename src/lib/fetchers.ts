@@ -923,32 +923,32 @@ export async function fetchProductCategories() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[];
+        return await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[]; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[];
     } catch (error) {
         console.error('Error fetching product categories:', error);
         return [];
     }
 }
 
-export async function postProductCategory(name: string, isActive: boolean = true, specificationId?: number | null) {
+export async function postProductCategory(name: string, isActive: boolean = true, specificationIds?: number[]) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_category_name: name, isActive, specificationId: specificationId ?? null })
+            body: JSON.stringify({ product_category_name: name, isActive, specificationIds: specificationIds ?? [] })
         });
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(errorText || 'Failed to create product category');
         }
-        return { success: true, data: await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean } };
+        return { success: true, data: await response.json() as { product_category_id: number; product_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[] } };
     } catch (error: any) {
         console.error('Error creating product category:', error);
         return { success: false, error: error.message };
     }
 }
 
-export async function updateProductCategory(id: number, data: { product_category_name?: string; isActive?: boolean; specificationId?: number | null }) {
+export async function updateProductCategory(id: number, data: { product_category_name?: string; isActive?: boolean; specificationIds?: number[] }) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-categories/${id}`, {
             method: 'PUT',
@@ -1047,8 +1047,7 @@ export type ProductSubCategoryRow = {
     isActive?: boolean;
     productCategoryId?: number | null;
     productCategory?: { product_category_id: number; product_category_name: string } | null;
-    specificationId?: number | null;
-    specification?: { id: number; name: string } | null;
+    specifications?: { id: number; name: string }[];
 };
 
 export async function fetchProductSubCategories() {
@@ -1062,12 +1061,12 @@ export async function fetchProductSubCategories() {
     }
 }
 
-export async function postProductSubCategory(name: string, isActive: boolean = true, productCategoryId?: number | null, specificationId?: number | null) {
+export async function postProductSubCategory(name: string, isActive: boolean = true, productCategoryId?: number | null, specificationIds?: number[]) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-sub-categories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_sub_category_name: name, isActive, productCategoryId: productCategoryId ?? null, specificationId: specificationId ?? null })
+            body: JSON.stringify({ product_sub_category_name: name, isActive, productCategoryId: productCategoryId ?? null, specificationIds: specificationIds ?? [] })
         });
         if (!response.ok) {
             const errorText = await response.text();
@@ -1080,7 +1079,7 @@ export async function postProductSubCategory(name: string, isActive: boolean = t
     }
 }
 
-export async function updateProductSubCategory(id: number, data: { product_sub_category_name?: string; isActive?: boolean; productCategoryId?: number | null; specificationId?: number | null }) {
+export async function updateProductSubCategory(id: number, data: { product_sub_category_name?: string; isActive?: boolean; productCategoryId?: number | null; specificationIds?: number[] }) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/product-sub-categories/${id}`, {
             method: 'PUT',

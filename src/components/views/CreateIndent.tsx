@@ -14,13 +14,15 @@ import {
     SelectValue,
     SelectContent,
     SelectItem,
+    SelectGroup,
+    SelectLabel,
 } from '@/components/ui/select';
 import { ClipLoader as Loader } from 'react-spinners';
 import { ClipboardList, Trash, Search } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
-import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchUsers } from '@/lib/fetchers';
+import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchProductSubCategories, fetchUsers, fetchSpecifications } from '@/lib/fetchers';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
 import { useEffect, useState } from 'react';
@@ -58,7 +60,9 @@ export default () => {
     const [searchTermProductName, setSearchTermProductName] = useState('');
     const [productGroupFilters, setProductGroupFilters] = useState<(number | null)[]>([null]);
     const [uoms, setUoms] = useState<UOMRow[]>([]);
-    const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
+    const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[]; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
+    const [productSubCategoriesData, setProductSubCategoriesData] = useState<{ product_sub_category_id: number; product_sub_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[] }[]>([]);
+    const [allSpecifications, setAllSpecifications] = useState<{ id: number; name: string }[]>([]);
 
     const refreshMaster = async () => {
         const data = await fetchIndentMasterData();
@@ -73,6 +77,8 @@ export default () => {
         fetchIndentMasterData().then(setMaster);
         fetchUOMs().then((data) => setUoms(data.filter((u) => u.isActive !== false)));
         fetchProductCategories().then((data) => setProductCategories(data.filter((c) => c.isActive !== false)));
+        fetchProductSubCategories().then((data) => setProductSubCategoriesData(data.filter((s) => s.isActive !== false)));
+        fetchSpecifications().then((data: { id: number; name: string; isActive?: boolean }[]) => setAllSpecifications(data.filter((s) => s.isActive !== false)));
         updateInventorySheet(true); // silent refresh so stock check uses latest data
     }, []);
 
@@ -150,12 +156,13 @@ export default () => {
     };
 
     const getStock = (itemName: string, departmentHead: string) => {
-        const item = inventorySheet?.find(
+        const items = inventorySheet?.filter(
             (i) =>
                 i.itemName?.toLowerCase().trim() === itemName?.toLowerCase().trim() &&
                 (!departmentHead || i.departmentHead?.toLowerCase().trim() === departmentHead?.toLowerCase().trim())
-        );
-        return Number(item?.current || 0);
+        ) ?? [];
+        // Sum across all matching rows so duplicate inventory records don't cause false zero-stock
+        return items.reduce((sum, i) => sum + Number(i.current || 0), 0);
     };
 
     const normalizeLookupValue = (value?: string | null) => value?.toLowerCase().trim() || '';
@@ -664,6 +671,13 @@ export default () => {
                             const selectedCategoryName = products[index]?.productCategory || '';
                             const selectedCategory = productCategories.find(c => c.product_category_name === selectedCategoryName);
                             const subCategoryOptions = (selectedCategory?.productSubCategories || []).filter(s => s.isActive !== false);
+                            const selectedSubCategoryName = products[index]?.productSubCategory || '';
+                            const selectedSubCategory = productSubCategoriesData.find(s => s.product_sub_category_name === selectedSubCategoryName);
+                            const specificationOptions = (
+                                selectedSubCategory?.specifications?.length
+                                    ? selectedSubCategory.specifications
+                                    : selectedCategory?.specifications || []
+                            );
 
                             const allProductOptions: string[] = master?.groupHeadItems?.[departmentHead] || [];
 
@@ -866,6 +880,7 @@ export default () => {
                                                             onValueChange={(val) => {
                                                                 field.onChange(val);
                                                                 form.setValue(`products.${index}.productSubCategory` as any, '');
+                                                                form.setValue(`products.${index}.specifications` as any, '');
                                                                 const currentProd = form.getValues(`products.${index}.productName` as any);
                                                                 if (currentProd && master?.itemToCategory?.[currentProd] !== val) {
                                                                     form.setValue(`products.${index}.productName` as any, '');
@@ -900,7 +915,10 @@ export default () => {
                                                     <FormItem>
                                                         <FormLabel>Product Sub Category</FormLabel>
                                                         <Select
-                                                            onValueChange={field.onChange}
+                                                            onValueChange={(val) => {
+                                                                field.onChange(val);
+                                                                form.setValue(`products.${index}.specifications` as any, '');
+                                                            }}
                                                             value={field.value || ''}
                                                             disabled={subCategoryOptions.length === 0}
                                                         >
@@ -920,6 +938,48 @@ export default () => {
                                                         </Select>
                                                     </FormItem>
                                                 )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`products.${index}.specifications`}
+                                                render={({ field }) => {
+                                                    const linkedIds = new Set(specificationOptions.map(s => s.id));
+                                                    const otherSpecs = allSpecifications.filter(s => !linkedIds.has(s.id));
+                                                    return (
+                                                        <FormItem>
+                                                            <FormLabel>Specifications</FormLabel>
+                                                            <Select
+                                                                onValueChange={field.onChange}
+                                                                value={field.value || ''}
+                                                            >
+                                                                <FormControl>
+                                                                    <SelectTrigger className="w-full">
+                                                                        <SelectValue placeholder="Select specification" />
+                                                                    </SelectTrigger>
+                                                                </FormControl>
+                                                                <SelectContent>
+                                                                    <SelectItem value="__none__">— None —</SelectItem>
+                                                                    {specificationOptions.length > 0 && (
+                                                                        <SelectGroup>
+                                                                            <SelectLabel className="text-green-500">Linked to Category</SelectLabel>
+                                                                            {specificationOptions.map(s => (
+                                                                                <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                                                                            ))}
+                                                                        </SelectGroup>
+                                                                    )}
+                                                                    {otherSpecs.length > 0 && (
+                                                                        <SelectGroup>
+                                                                            <SelectLabel className="text-blue-500">Other Specifications</SelectLabel>
+                                                                            {otherSpecs.map(s => (
+                                                                                <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                                                                            ))}
+                                                                        </SelectGroup>
+                                                                    )}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </FormItem>
+                                                    );
+                                                }}
                                             />
                                             <FormField
                                                 control={form.control}
@@ -1109,22 +1169,6 @@ export default () => {
                                                             onChange={(e) =>
                                                                 field.onChange(e.target.files?.[0])
                                                             }
-                                                        />
-                                                    </FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name={`products.${index}.specifications`}
-                                            render={({ field }) => (
-                                                <FormItem className="w-full">
-                                                    <FormLabel>Specifications</FormLabel>
-                                                    <FormControl>
-                                                        <Textarea
-                                                            placeholder="Enter specifications"
-                                                            className="resize-y"
-                                                            {...field}
                                                         />
                                                     </FormControl>
                                                 </FormItem>
