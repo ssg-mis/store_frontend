@@ -17,8 +17,10 @@ import {
     SelectGroup,
     SelectLabel,
 } from '@/components/ui/select';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ClipLoader as Loader } from 'react-spinners';
-import { ClipboardList, Trash, Search } from 'lucide-react';
+import { ClipboardList, Trash, Search, ChevronDown } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
@@ -945,38 +947,70 @@ export default () => {
                                                 render={({ field }) => {
                                                     const linkedIds = new Set(specificationOptions.map(s => s.id));
                                                     const otherSpecs = allSpecifications.filter(s => !linkedIds.has(s.id));
+                                                    const selected = (field.value || '')
+                                                        .split(',')
+                                                        .map((s: string) => s.trim())
+                                                        .filter(Boolean);
+                                                    const toggle = (name: string) => {
+                                                        const next = selected.includes(name)
+                                                            ? selected.filter((s: string) => s !== name)
+                                                            : [...selected, name];
+                                                        field.onChange(next.join(', '));
+                                                    };
                                                     return (
                                                         <FormItem>
                                                             <FormLabel>Specifications</FormLabel>
-                                                            <Select
-                                                                onValueChange={field.onChange}
-                                                                value={field.value || ''}
-                                                            >
-                                                                <FormControl>
-                                                                    <SelectTrigger className="w-full">
-                                                                        <SelectValue placeholder="Select specification" />
-                                                                    </SelectTrigger>
-                                                                </FormControl>
-                                                                <SelectContent>
-                                                                    <SelectItem value="__none__">— None —</SelectItem>
+                                                            <Popover>
+                                                                <PopoverTrigger asChild>
+                                                                    <FormControl>
+                                                                        <Button
+                                                                            type="button"
+                                                                            variant="outline"
+                                                                            className="w-full justify-between font-normal"
+                                                                        >
+                                                                            <span className="truncate text-left">
+                                                                                {selected.length > 0
+                                                                                    ? selected.join(', ')
+                                                                                    : 'Select specifications'}
+                                                                            </span>
+                                                                            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                                        </Button>
+                                                                    </FormControl>
+                                                                </PopoverTrigger>
+                                                                <PopoverContent className="w-[--radix-popover-trigger-width] max-h-72 overflow-y-auto p-2" align="start">
                                                                     {specificationOptions.length > 0 && (
-                                                                        <SelectGroup>
-                                                                            <SelectLabel className="text-green-500">Linked to Category</SelectLabel>
+                                                                        <div className="mb-1">
+                                                                            <p className="px-2 py-1 text-xs font-semibold text-green-500">Linked to Category</p>
                                                                             {specificationOptions.map(s => (
-                                                                                <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                                                                                <label key={s.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer">
+                                                                                    <Checkbox
+                                                                                        checked={selected.includes(s.name)}
+                                                                                        onCheckedChange={() => toggle(s.name)}
+                                                                                    />
+                                                                                    {s.name}
+                                                                                </label>
                                                                             ))}
-                                                                        </SelectGroup>
+                                                                        </div>
                                                                     )}
                                                                     {otherSpecs.length > 0 && (
-                                                                        <SelectGroup>
-                                                                            <SelectLabel className="text-blue-500">Other Specifications</SelectLabel>
+                                                                        <div>
+                                                                            <p className="px-2 py-1 text-xs font-semibold text-blue-500">Other Specifications</p>
                                                                             {otherSpecs.map(s => (
-                                                                                <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                                                                                <label key={s.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer">
+                                                                                    <Checkbox
+                                                                                        checked={selected.includes(s.name)}
+                                                                                        onCheckedChange={() => toggle(s.name)}
+                                                                                    />
+                                                                                    {s.name}
+                                                                                </label>
                                                                             ))}
-                                                                        </SelectGroup>
+                                                                        </div>
                                                                     )}
-                                                                </SelectContent>
-                                                            </Select>
+                                                                    {specificationOptions.length === 0 && otherSpecs.length === 0 && (
+                                                                        <p className="px-2 py-1.5 text-sm text-muted-foreground">No specifications available</p>
+                                                                    )}
+                                                                </PopoverContent>
+                                                            </Popover>
                                                         </FormItem>
                                                     );
                                                 }}
