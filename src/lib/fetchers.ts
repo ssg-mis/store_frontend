@@ -186,6 +186,14 @@ export async function fetchIndentMasterData() {
             .filter(g => g.isActive !== false)
             .map(g => ({ id: g.product_group_id, name: g.product_group_name }));
 
+        // Build item → specifications lookup from Inventory specifications JSON
+        const itemToSpecifications: Record<string, { id: number; name: string }[]> = {};
+        inventoryData.forEach((d: any) => {
+            if (!d.itemName) return;
+            const specs: { id: number; name: string }[] = Array.isArray(d.specifications) ? d.specifications : [];
+            if (specs.length) itemToSpecifications[d.itemName] = specs;
+        });
+
         return {
             departments,
             createGroupHeads: allDepartmentHeads,
@@ -198,6 +206,7 @@ export async function fetchIndentMasterData() {
             itemToGroups,
             groupToItems,
             allProductGroups,
+            itemToSpecifications,
         };
     } catch (error) {
         console.error('Error fetching indent master data:', error);

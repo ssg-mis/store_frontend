@@ -338,11 +338,13 @@ export default function MasterData() {
     const [addInvAdditionalUOMConversion, setAddInvAdditionalUOMConversion] = useState('');
     const [additionalUomDrafts, setAdditionalUomDrafts] = useState<{ uomName: string; uomId: number; conversionToBase: number }[]>([]);
     const [selectedProductGroups, setSelectedProductGroups] = useState<{ id: number; name: string }[]>([]);
+    const [selectedInventorySpecifications, setSelectedInventorySpecifications] = useState<{ id: number; name: string }[]>([]);
     const [showEditInvAdditionalUOM, setShowEditInvAdditionalUOM] = useState(false);
     const [editInvAdditionalUOMName, setEditInvAdditionalUOMName] = useState('');
     const [editInvAdditionalUOMConversion, setEditInvAdditionalUOMConversion] = useState('');
     const [editAdditionalUomDrafts, setEditAdditionalUomDrafts] = useState<{ uomName: string; uomId: number; conversionToBase: number }[]>([]);
     const [editSelectedProductGroups, setEditSelectedProductGroups] = useState<{ id: number; name: string }[]>([]);
+    const [editSelectedInventorySpecifications, setEditSelectedInventorySpecifications] = useState<{ id: number; name: string }[]>([]);
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
 
@@ -588,6 +590,11 @@ export default function MasterData() {
                 ? row.productGroups
                 : []
         );
+        setEditSelectedInventorySpecifications(
+            type === 'inventory' && Array.isArray((row as any).specifications)
+                ? (row as any).specifications
+                : []
+        );
         setEditDialogOpen(true);
     }
 
@@ -614,6 +621,7 @@ export default function MasterData() {
                     productSubCategoryId: editDialogForm.productSubCategoryId ? parseInt(editDialogForm.productSubCategoryId) : null,
                     additionalUoms: editAdditionalUomDrafts,
                     productGroups: editSelectedProductGroups,
+                    specifications: editSelectedInventorySpecifications,
                     ...(selectedDept && { departmentId: Number(selectedDept.id) }),
                     ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
                     ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
@@ -1012,6 +1020,7 @@ export default function MasterData() {
             setAddInvAdditionalUOMConversion('');
             setAdditionalUomDrafts([]);
             setSelectedProductGroups([]);
+            setSelectedInventorySpecifications([]);
         }
     }, [sheetOpen]);
 
@@ -1047,6 +1056,7 @@ export default function MasterData() {
                 ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
                 additionalUoms: additionalUomDrafts,
                 productGroups: selectedProductGroups,
+                specifications: selectedInventorySpecifications,
             }], 'insert', 'INVENTORY');
 
             if (!result.success) throw new Error('Failed to save inventory item');
@@ -1968,6 +1978,51 @@ export default function MasterData() {
                                     </Select>
                                 </div>
 
+                                <div className="space-y-3 rounded-md border border-dashed p-3">
+                                    <p className="text-sm font-medium">Specifications</p>
+                                    {selectedInventorySpecifications.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {selectedInventorySpecifications.map(s => (
+                                                <span
+                                                    key={s.id}
+                                                    className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-xs font-medium"
+                                                >
+                                                    {s.name}
+                                                    <button
+                                                        type="button"
+                                                        className="text-muted-foreground hover:text-destructive transition-colors"
+                                                        onClick={() => setSelectedInventorySpecifications(prev => prev.filter(x => x.id !== s.id))}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <Select
+                                        value=""
+                                        onValueChange={(val) => {
+                                            const spec = allSpecifications.find(s => s.id.toString() === val);
+                                            if (spec && !selectedInventorySpecifications.some(s => s.id === spec.id)) {
+                                                setSelectedInventorySpecifications(prev => [...prev, { id: spec.id, name: spec.name }]);
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Add a specification..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {allSpecifications
+                                                .filter(s => s.isActive !== false && !selectedInventorySpecifications.some(x => x.id === s.id))
+                                                .map(s => (
+                                                    <SelectItem key={s.id} value={s.id.toString()}>
+                                                        {s.name}
+                                                    </SelectItem>
+                                                ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
                                 <div className="flex flex-col gap-1.5">
                                     <Label className="text-sm font-medium">Department</Label>
                                     <Select
@@ -2869,6 +2924,51 @@ export default function MasterData() {
                                                 .map(g => (
                                                     <SelectItem key={g.product_group_id} value={g.product_group_id.toString()}>
                                                         {g.product_group_name}
+                                                    </SelectItem>
+                                                ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-3 rounded-md border border-dashed p-3">
+                                    <p className="text-sm font-medium">Specifications</p>
+                                    {editSelectedInventorySpecifications.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {editSelectedInventorySpecifications.map(s => (
+                                                <span
+                                                    key={s.id}
+                                                    className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-xs font-medium"
+                                                >
+                                                    {s.name}
+                                                    <button
+                                                        type="button"
+                                                        className="text-muted-foreground hover:text-destructive transition-colors"
+                                                        onClick={() => setEditSelectedInventorySpecifications(prev => prev.filter(x => x.id !== s.id))}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <Select
+                                        value=""
+                                        onValueChange={(val) => {
+                                            const spec = allSpecifications.find(s => s.id.toString() === val);
+                                            if (spec && !editSelectedInventorySpecifications.some(s => s.id === spec.id)) {
+                                                setEditSelectedInventorySpecifications(prev => [...prev, { id: spec.id, name: spec.name }]);
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Add a specification..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {allSpecifications
+                                                .filter(s => s.isActive !== false && !editSelectedInventorySpecifications.some(x => x.id === s.id))
+                                                .map(s => (
+                                                    <SelectItem key={s.id} value={s.id.toString()}>
+                                                        {s.name}
                                                     </SelectItem>
                                                 ))}
                                         </SelectContent>

@@ -17,10 +17,8 @@ import {
     SelectGroup,
     SelectLabel,
 } from '@/components/ui/select';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ClipLoader as Loader } from 'react-spinners';
-import { ClipboardList, Trash, Search, ChevronDown } from 'lucide-react';
+import { ClipboardList, Trash, Search } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
@@ -945,72 +943,68 @@ export default () => {
                                                 control={form.control}
                                                 name={`products.${index}.specifications`}
                                                 render={({ field }) => {
-                                                    const linkedIds = new Set(specificationOptions.map(s => s.id));
-                                                    const otherSpecs = allSpecifications.filter(s => !linkedIds.has(s.id));
                                                     const selected = (field.value || '')
                                                         .split(',')
                                                         .map((s: string) => s.trim())
                                                         .filter(Boolean);
-                                                    const toggle = (name: string) => {
-                                                        const next = selected.includes(name)
-                                                            ? selected.filter((s: string) => s !== name)
-                                                            : [...selected, name];
-                                                        field.onChange(next.join(', '));
+                                                    // All specifications available to add (linked-to-category first,
+                                                    // then any other master spec) — deduped by name, minus already-selected.
+                                                    const optionMap = new Map<string, { id: number; name: string }>();
+                                                    [...specificationOptions, ...allSpecifications].forEach(s => {
+                                                        if (s?.name && !optionMap.has(s.name)) optionMap.set(s.name, s);
+                                                    });
+                                                    const available = Array.from(optionMap.values())
+                                                        .filter(s => !selected.includes(s.name));
+                                                    const addSpec = (name: string) => {
+                                                        if (name && !selected.includes(name)) {
+                                                            field.onChange([...selected, name].join(', '));
+                                                        }
+                                                    };
+                                                    const removeSpec = (name: string) => {
+                                                        field.onChange(selected.filter((s: string) => s !== name).join(', '));
                                                     };
                                                     return (
                                                         <FormItem>
                                                             <FormLabel>Specifications</FormLabel>
-                                                            <Popover>
-                                                                <PopoverTrigger asChild>
-                                                                    <FormControl>
-                                                                        <Button
-                                                                            type="button"
-                                                                            variant="outline"
-                                                                            className="w-full justify-between font-normal"
+                                                            <Select value="" onValueChange={addSpec}>
+                                                                <FormControl>
+                                                                    <SelectTrigger className="w-full">
+                                                                        <SelectValue placeholder="Add specification" />
+                                                                    </SelectTrigger>
+                                                                </FormControl>
+                                                                <SelectContent className="max-h-72">
+                                                                    {available.length > 0 ? (
+                                                                        available.map(s => (
+                                                                            <SelectItem key={s.id} value={s.name}>
+                                                                                {s.name}
+                                                                            </SelectItem>
+                                                                        ))
+                                                                    ) : (
+                                                                        <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                                                                            {selected.length > 0 ? 'No more specifications' : 'No specifications available'}
+                                                                        </p>
+                                                                    )}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            {selected.length > 0 && (
+                                                                <div className="flex flex-wrap gap-2 pt-2">
+                                                                    {selected.map((name: string) => (
+                                                                        <span
+                                                                            key={name}
+                                                                            className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-xs font-medium"
                                                                         >
-                                                                            <span className="truncate text-left">
-                                                                                {selected.length > 0
-                                                                                    ? selected.join(', ')
-                                                                                    : 'Select specifications'}
-                                                                            </span>
-                                                                            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                                        </Button>
-                                                                    </FormControl>
-                                                                </PopoverTrigger>
-                                                                <PopoverContent className="w-[--radix-popover-trigger-width] max-h-72 overflow-y-auto p-2" align="start">
-                                                                    {specificationOptions.length > 0 && (
-                                                                        <div className="mb-1">
-                                                                            <p className="px-2 py-1 text-xs font-semibold text-green-500">Linked to Category</p>
-                                                                            {specificationOptions.map(s => (
-                                                                                <label key={s.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer">
-                                                                                    <Checkbox
-                                                                                        checked={selected.includes(s.name)}
-                                                                                        onCheckedChange={() => toggle(s.name)}
-                                                                                    />
-                                                                                    {s.name}
-                                                                                </label>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                    {otherSpecs.length > 0 && (
-                                                                        <div>
-                                                                            <p className="px-2 py-1 text-xs font-semibold text-blue-500">Other Specifications</p>
-                                                                            {otherSpecs.map(s => (
-                                                                                <label key={s.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer">
-                                                                                    <Checkbox
-                                                                                        checked={selected.includes(s.name)}
-                                                                                        onCheckedChange={() => toggle(s.name)}
-                                                                                    />
-                                                                                    {s.name}
-                                                                                </label>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                    {specificationOptions.length === 0 && otherSpecs.length === 0 && (
-                                                                        <p className="px-2 py-1.5 text-sm text-muted-foreground">No specifications available</p>
-                                                                    )}
-                                                                </PopoverContent>
-                                                            </Popover>
+                                                                            {name}
+                                                                            <button
+                                                                                type="button"
+                                                                                className="text-muted-foreground hover:text-destructive transition-colors"
+                                                                                onClick={() => removeSpec(name)}
+                                                                            >
+                                                                                ×
+                                                                            </button>
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </FormItem>
                                                     );
                                                 }}
@@ -1042,6 +1036,14 @@ export default () => {
                                                                         const cat = master?.itemToCategory?.[value];
                                                                         if (cat) {
                                                                             form.setValue(`products.${index}.productCategory` as any, cat);
+                                                                        }
+                                                                        // Auto-fill specifications linked to this product (inventory item)
+                                                                        const linkedSpecs = master?.itemToSpecifications?.[value] as { id: number; name: string }[] | undefined;
+                                                                        if (linkedSpecs && linkedSpecs.length) {
+                                                                            form.setValue(
+                                                                                `products.${index}.specifications` as any,
+                                                                                linkedSpecs.map(s => s.name).join(', ')
+                                                                            );
                                                                         }
                                                                         // If current group filter doesn't contain the newly selected product, reset it
                                                                         const curGroup = productGroupFilters[index];

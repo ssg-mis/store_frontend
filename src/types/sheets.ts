@@ -124,6 +124,7 @@ export type InventorySheet = {
     uomId?: number | null;
     additionalUoms?: { uomName: string; uomId: number; conversionToBase: number }[] | null;
     productGroups?: { id: number; name: string }[] | null;
+    specifications?: { id: number; name: string }[] | null;
     itemCategoryId?: number | null;
     productSubCategoryId?: number | null;
     individualRate: number;
