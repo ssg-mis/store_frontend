@@ -122,7 +122,6 @@ export default () => {
     const [uploadingFileId, setUploadingFileId] = useState<number | null>(null);
     const [excelEditorConfig, setExcelEditorConfig] = useState<{ open: boolean; historyItemId: number | null; indentNo: string; fileUrl: string | null; }>({ open: false, historyItemId: null, indentNo: '', fileUrl: null });
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
-    const [vendorSearch, setVendorSearch] = useState('');
     const [vendors, setVendors] = useState<any[]>([]);
     const [vendorsLoading, setVendorsLoading] = useState(true);
     const PAYMENT_TERMS = ['ADVANCE', 'CASH', 'BANK', 'ONLINE'];
@@ -760,20 +759,25 @@ export default () => {
         },
     ];
 
-    // Creating Regular Vendor form
+    // Creating Regular Vendor form (multi-product, per-product vendor/rate/payment term)
     const regularSchema = z.object({
-        vendorName: z.string().nonempty(),
-        rate: z.coerce.number().gt(0),
-        paymentTerm: z.string().nonempty(),
+        products: z.array(z.object({
+            vendorName: z.string().nonempty('Vendor is required'),
+            rate: z.coerce.number().gt(0, 'Rate must be > 0'),
+            paymentTerm: z.string().nonempty('Payment term required'),
+        })).min(1),
     });
 
     const regularForm = useForm<z.infer<typeof regularSchema>>({
         resolver: zodResolver(regularSchema),
         defaultValues: {
-            vendorName: '',
-            rate: 0,
-            paymentTerm: '',
+            products: [],
         },
+    });
+
+    const { fields: regularProductFields } = useFieldArray({
+        control: regularForm.control,
+        name: 'products',
     });
 
     const getCurrentFormattedDateOnly = () => {
@@ -792,14 +796,14 @@ export default () => {
     async function onSubmitRegular(values: z.infer<typeof regularSchema>) {
         if (!selectedGroup) return;
         try {
-            const results = await Promise.all(selectedGroup.items.map(item =>
+            const results = await Promise.all(selectedGroup.items.map((item, i) =>
                 postToSheet([{
                     indent_id: item.indentId,
                     indent_number: item.indentNo,
                     product_code: item.productCode,
-                    approvedVendorName: values.vendorName,
-                    approvedRate: values.rate,
-                    approvedPaymentTerm: values.paymentTerm,
+                    approvedVendorName: values.products[i].vendorName,
+                    approvedRate: values.products[i].rate,
+                    approvedPaymentTerm: values.products[i].paymentTerm,
                 } as any], 'insert', 'THREE_PARTY_APPROVAL')
             ));
 
@@ -872,6 +876,9 @@ export default () => {
                 paymentTerm1: '', paymentTerm2: '', paymentTerm3: '',
                 deliveryTime1: 0, deliveryTime2: 0, deliveryTime3: 0,
                 products: selectedGroup.items.map(() => ({ rate1: 0, rate2: 0, rate3: 0 })),
+            });
+            regularForm.reset({
+                products: selectedGroup.items.map(() => ({ vendorName: '', rate: 0, paymentTerm: '' })),
             });
         }
     }, [selectedGroup]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1484,90 +1491,101 @@ export default () => {
                                                 <p className="text-sm font-light">{selectedGroup.department}</p>
                                             </div>
                                         </div>
-                                        <div className="grid gap-3">
-                                            <FormField
-                                                control={regularForm.control}
-                                                name="vendorName"
-                                                render={({ field }) => {
-                                                    const filteredVendors = vendors?.filter(vendor =>
-                                                        vendor.vendorName.toLowerCase().includes(vendorSearch.toLowerCase())
-                                                    );
-                                                    return (
-                                                        <FormItem>
-                                                            <FormLabel>Vendor Name</FormLabel>
-                                                            <Select
-                                                                onValueChange={field.onChange}
-                                                                value={field.value}
-                                                                onOpenChange={(open) => { if (!open) setVendorSearch(""); }}
-                                                            >
-                                                                <FormControl>
-                                                                    <SelectTrigger className="w-full">
-                                                                        <SelectValue placeholder="Select vendor" />
-                                                                    </SelectTrigger>
-                                                                </FormControl>
-                                                                <SelectContent>
-                                                                    <div className="p-2 border-b space-y-2">
-                                                                        <div className="flex items-center border-b px-2 pb-1">
-                                                                            <Input
-                                                                                placeholder="Search vendors..."
-                                                                                className="h-8 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                                                                                value={vendorSearch}
-                                                                                onChange={(e) => setVendorSearch(e.target.value)}
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                                onKeyDown={(e) => e.stopPropagation()}
-                                                                            />
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="max-h-[200px] overflow-y-auto">
-                                                                        {vendorsLoading ? (
-                                                                            <div className="py-6 text-center text-sm text-muted-foreground">Loading vendors...</div>
-                                                                        ) : filteredVendors?.length > 0 ? (
-                                                                            filteredVendors.map((vendor, i) => (
-                                                                                <SelectItem key={i} value={vendor.vendorName}>{vendor.vendorName}</SelectItem>
-                                                                            ))
-                                                                        ) : (
-                                                                            <div className="py-6 text-center text-sm text-muted-foreground">No vendors found</div>
-                                                                        )}
-                                                                    </div>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </FormItem>
-                                                    );
-                                                }}
-                                            />
-                                            <FormField
-                                                control={regularForm.control}
-                                                name="rate"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Rate</FormLabel>
-                                                        <FormControl>
-                                                            <Input type="number" {...field} />
-                                                        </FormControl>
-                                                    </FormItem>
-                                                )}
-                                            />
-                                            <FormField
-                                                control={regularForm.control}
-                                                name="paymentTerm"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <Select onValueChange={field.onChange} value={field.value}>
-                                                            <FormLabel>Payment Term</FormLabel>
-                                                            <FormControl>
-                                                                <SelectTrigger className="w-full">
-                                                                    <SelectValue placeholder="Select payment term" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                {PAYMENT_TERMS.map((term) => (
-                                                                    <SelectItem key={term} value={term}>{term}</SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </FormItem>
-                                                )}
-                                            />
+                                        <div className="border rounded-md overflow-x-auto">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow className="bg-muted/40">
+                                                        <TableHead className="w-40 text-xs font-semibold">Product Name</TableHead>
+                                                        <TableHead className="text-xs font-semibold">Vendor Name <span className="text-red-500">*</span></TableHead>
+                                                        <TableHead className="text-xs font-semibold">Rate <span className="text-red-500">*</span></TableHead>
+                                                        <TableHead className="text-xs font-semibold">Payment Term <span className="text-red-500">*</span></TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {regularProductFields.map((field, i) => (
+                                                        <TableRow key={field.id}>
+                                                            <TableCell className="text-xs font-medium align-top pt-3">
+                                                                <div className="space-y-1">
+                                                                    {selectedGroup.items[i]?.productCode && (
+                                                                        <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">
+                                                                            {selectedGroup.items[i].productCode}
+                                                                        </span>
+                                                                    )}
+                                                                    <div>{selectedGroup.items[i]?.product}</div>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell className="min-w-[200px] align-top">
+                                                                <FormField
+                                                                    control={regularForm.control}
+                                                                    name={`products.${i}.vendorName`}
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                                <FormControl>
+                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                        <SelectValue placeholder="Select vendor" />
+                                                                                    </SelectTrigger>
+                                                                                </FormControl>
+                                                                                <SelectContent>
+                                                                                    <div className="max-h-[300px] overflow-y-auto">
+                                                                                        {vendorsLoading ? (
+                                                                                            <div className="py-6 text-center text-sm text-muted-foreground">Loading vendors...</div>
+                                                                                        ) : vendors?.length > 0 ? (
+                                                                                            vendors.map((vendor, vi) => (
+                                                                                                <SelectItem key={vi} value={vendor.vendorName}>{vendor.vendorName}</SelectItem>
+                                                                                            ))
+                                                                                        ) : (
+                                                                                            <div className="py-6 text-center text-sm text-muted-foreground">No vendors available</div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                            <FormMessage className="text-[10px]" />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell className="min-w-[140px] align-top">
+                                                                <FormField
+                                                                    control={regularForm.control}
+                                                                    name={`products.${i}.rate`}
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <FormControl>
+                                                                                <Input type="number" placeholder="Enter rate" className="h-8 text-xs" {...field} />
+                                                                            </FormControl>
+                                                                            <FormMessage className="text-[10px]" />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell className="min-w-[160px] align-top">
+                                                                <FormField
+                                                                    control={regularForm.control}
+                                                                    name={`products.${i}.paymentTerm`}
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                                <FormControl>
+                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                        <SelectValue placeholder="Select term" />
+                                                                                    </SelectTrigger>
+                                                                                </FormControl>
+                                                                                <SelectContent>
+                                                                                    {PAYMENT_TERMS.map((term) => (
+                                                                                        <SelectItem key={term} value={term}>{term}</SelectItem>
+                                                                                    ))}
+                                                                                </SelectContent>
+                                                                            </Select>
+                                                                            <FormMessage className="text-[10px]" />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
                                         </div>
                                         <DialogFooter>
                                             <Button variant="outline" onClick={() => setSelectedGroup(null)}>Back to list</Button>
