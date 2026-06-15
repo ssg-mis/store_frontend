@@ -17,6 +17,7 @@ import {
     SelectGroup,
     SelectLabel,
 } from '@/components/ui/select';
+import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { ClipLoader as Loader } from 'react-spinners';
 import { ClipboardList, Trash, Search } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
@@ -523,14 +524,14 @@ export default () => {
                                                 <SelectValue placeholder="Select firm" />
                                             </SelectTrigger>
                                         </FormControl>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search firms...">
                                             {(master?.firms || [])
                                                 .map((firm: string, i: number) => (
                                                 <SelectItem key={i} value={firm}>
                                                     {firm}
                                                 </SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </FormItem>
                             )}
@@ -559,13 +560,13 @@ export default () => {
                                                     <SelectValue placeholder="Select indenter" />
                                                 </SelectTrigger>
                                             </FormControl>
-                                            <SelectContent>
+                                            <SearchableSelectContent searchPlaceholder="Search indenters...">
                                                 {users.map((u) => (
                                                     <SelectItem key={u.id} value={String(u.id)}>
                                                         {u.name}
                                                     </SelectItem>
                                                 ))}
-                                            </SelectContent>
+                                            </SearchableSelectContent>
                                         </Select>
                                     </FormItem>
                                 )}
@@ -862,11 +863,11 @@ export default () => {
                                                     <SelectTrigger className="w-full">
                                                         <SelectValue placeholder="Filter by group (optional)" />
                                                     </SelectTrigger>
-                                                    <SelectContent>
+                                                    <SearchableSelectContent searchPlaceholder="Search groups...">
                                                         {groupOptions.map(g => (
                                                             <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>
                                                         ))}
-                                                    </SelectContent>
+                                                    </SearchableSelectContent>
                                                 </Select>
                                             </FormItem>
 
@@ -894,7 +895,7 @@ export default () => {
                                                                     <SelectValue placeholder="Select category" />
                                                                 </SelectTrigger>
                                                             </FormControl>
-                                                            <SelectContent>
+                                                            <SearchableSelectContent searchPlaceholder="Search categories...">
                                                                 {productCategories.map((c) => (
                                                                     <SelectItem
                                                                         key={c.product_category_id}
@@ -903,7 +904,7 @@ export default () => {
                                                                         {c.product_category_name}
                                                                     </SelectItem>
                                                                 ))}
-                                                            </SelectContent>
+                                                            </SearchableSelectContent>
                                                         </Select>
                                                     </FormItem>
                                                 )}
@@ -927,14 +928,14 @@ export default () => {
                                                                     <SelectValue placeholder={subCategoryOptions.length === 0 ? 'No sub categories' : 'Select sub category'} />
                                                                 </SelectTrigger>
                                                             </FormControl>
-                                                            <SelectContent>
+                                                            <SearchableSelectContent searchPlaceholder="Search sub categories...">
                                                                 <SelectItem value="__none__">— None —</SelectItem>
                                                                 {subCategoryOptions.map(s => (
                                                                     <SelectItem key={s.product_sub_category_id} value={s.product_sub_category_name}>
                                                                         {s.product_sub_category_name}
                                                                     </SelectItem>
                                                                 ))}
-                                                            </SelectContent>
+                                                            </SearchableSelectContent>
                                                         </Select>
                                                     </FormItem>
                                                 )}
@@ -972,7 +973,7 @@ export default () => {
                                                                         <SelectValue placeholder="Add specification" />
                                                                     </SelectTrigger>
                                                                 </FormControl>
-                                                                <SelectContent className="max-h-72">
+                                                                <SearchableSelectContent searchPlaceholder="Search specifications..." className="max-h-72">
                                                                     {available.length > 0 ? (
                                                                         available.map(s => (
                                                                             <SelectItem key={s.id} value={s.name}>
@@ -984,7 +985,7 @@ export default () => {
                                                                             {selected.length > 0 ? 'No more specifications' : 'No specifications available'}
                                                                         </p>
                                                                     )}
-                                                                </SelectContent>
+                                                                </SearchableSelectContent>
                                                             </Select>
                                                             {selected.length > 0 && (
                                                                 <div className="flex flex-wrap gap-2 pt-2">
@@ -1156,7 +1157,7 @@ export default () => {
                                                                         <SelectValue placeholder="Select UOM" />
                                                                     </SelectTrigger>
                                                                 </FormControl>
-                                                                <SelectContent>
+                                                                <SearchableSelectContent searchPlaceholder="Search UOM...">
                                                                     {uomOptions.map((u) => (
                                                                         <SelectItem
                                                                             key={u.uom_id}
@@ -1165,7 +1166,7 @@ export default () => {
                                                                             {u.uom_name}
                                                                         </SelectItem>
                                                                     ))}
-                                                                </SelectContent>
+                                                                </SearchableSelectContent>
                                                             </Select>
                                                         </FormItem>
                                                     );

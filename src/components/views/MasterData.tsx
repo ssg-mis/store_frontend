@@ -1,6 +1,7 @@
-import { Database, Plus, Search, Pencil, Trash2 } from 'lucide-react';
+import { Database, Plus, Pencil, Trash2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
+import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, fetchSpecifications, postSpecification, updateSpecification, deleteSpecification, type ProductSubCategoryRow } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -289,8 +290,6 @@ export default function MasterData() {
     const [editIsAddingHead, setEditIsAddingHead] = useState(false);
     const [editNewHeadName, setEditNewHeadName] = useState('');
 
-    const [searchTermDept, setSearchTermDept] = useState('');
-    const [searchTermHead, setSearchTermHead] = useState('');
 
     const [uoms, setUoms] = useState<UOMRow[]>([]);
     const [isAddingUOM, setIsAddingUOM] = useState(false);
@@ -1763,13 +1762,13 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search categories...">
                                             {productCategories.filter(c => c.isActive !== false).map((c) => (
                                                 <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
                                                     {c.product_category_name}
                                                 </SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -1786,14 +1785,14 @@ export default function MasterData() {
                                                 <SelectTrigger className="w-full h-10">
                                                     <SelectValue placeholder={addSubCatOptions.length === 0 ? 'No sub categories' : 'Select sub category'} />
                                                 </SelectTrigger>
-                                                <SelectContent>
+                                                <SearchableSelectContent searchPlaceholder="Search sub categories...">
                                                     <SelectItem value="none">— None —</SelectItem>
                                                     {addSubCatOptions.map(s => (
                                                         <SelectItem key={s.product_sub_category_id} value={s.product_sub_category_id.toString()}>
                                                             {s.product_sub_category_name}
                                                         </SelectItem>
                                                     ))}
-                                                </SelectContent>
+                                                </SearchableSelectContent>
                                             </Select>
                                         </div>
                                     );
@@ -1810,13 +1809,13 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search UOM...">
                                             {uoms.filter(u => u.isActive !== false).map((u) => (
                                                 <SelectItem key={u.uom_id} value={u.uom_name}>
                                                     {u.uom_name}
                                                 </SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -1871,13 +1870,13 @@ export default function MasterData() {
                                                     <SelectTrigger className="h-9">
                                                         <SelectValue placeholder="Select UOM" />
                                                     </SelectTrigger>
-                                                    <SelectContent>
+                                                    <SearchableSelectContent searchPlaceholder="Search UOM...">
                                                         {uoms
                                                             .filter(u => u.uom_name !== form.uom && !additionalUomDrafts.some(d => d.uomName === u.uom_name))
                                                             .map(u => (
                                                                 <SelectItem key={u.uom_id} value={u.uom_name}>{u.uom_name}</SelectItem>
                                                             ))}
-                                                    </SelectContent>
+                                                    </SearchableSelectContent>
                                                 </Select>
                                             </div>
                                             <div className="flex flex-col gap-1.5">
@@ -1966,7 +1965,7 @@ export default function MasterData() {
                                         <SelectTrigger className="w-full h-10">
                                             <SelectValue placeholder="Add a product group..." />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search product groups...">
                                             {productGroups
                                                 .filter(g => g.isActive !== false && !selectedProductGroups.some(s => s.id === g.product_group_id))
                                                 .map(g => (
@@ -1974,7 +1973,7 @@ export default function MasterData() {
                                                         {g.product_group_name}
                                                     </SelectItem>
                                                 ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -2011,7 +2010,7 @@ export default function MasterData() {
                                         <SelectTrigger className="w-full h-10">
                                             <SelectValue placeholder="Add a specification..." />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search specifications...">
                                             {allSpecifications
                                                 .filter(s => s.isActive !== false && !selectedInventorySpecifications.some(x => x.id === s.id))
                                                 .map(s => (
@@ -2019,7 +2018,7 @@ export default function MasterData() {
                                                         {s.name}
                                                     </SelectItem>
                                                 ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -2039,23 +2038,11 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
-                                            <div className="flex items-center border-b px-3 pb-3">
-                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                <input
-                                                    placeholder="Search departments..."
-                                                    value={searchTermDept}
-                                                    onChange={(e) => setSearchTermDept(e.target.value)}
-                                                    onKeyDown={(e) => e.stopPropagation()}
-                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                />
-                                            </div>
-                                            <div className="max-h-[300px] overflow-y-auto no-scrollbar">
-                                                {uniqueDepartments.filter(d => d.toLowerCase().includes(searchTermDept.toLowerCase())).map(dept => (
-                                                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                                                ))}
-                                            </div>
-                                        </SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search departments...">
+                                            {uniqueDepartments.map(dept => (
+                                                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                                            ))}
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
                                 
@@ -2075,23 +2062,11 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
-                                            <div className="flex items-center border-b px-3 pb-3">
-                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                <input
-                                                    placeholder="Search heads..."
-                                                    value={searchTermHead}
-                                                    onChange={(e) => setSearchTermHead(e.target.value)}
-                                                    onKeyDown={(e) => e.stopPropagation()}
-                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                />
-                                            </div>
-                                            <div className="max-h-[300px] overflow-y-auto no-scrollbar">
-                                                {uniqueHeads.filter(h => h.toLowerCase().includes(searchTermHead.toLowerCase())).map(head => (
-                                                    <SelectItem key={head} value={head}>{head}</SelectItem>
-                                                ))}
-                                            </div>
-                                        </SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search heads...">
+                                            {uniqueHeads.map(head => (
+                                                <SelectItem key={head} value={head}>{head}</SelectItem>
+                                            ))}
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
                                 <div className="pt-4 flex gap-2">
@@ -2138,11 +2113,11 @@ export default function MasterData() {
                                         <SelectTrigger className="w-full h-10">
                                             <SelectValue placeholder="Add a specification..." />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search specifications...">
                                             {allSpecifications.filter(s => s.isActive !== false && !newCategorySpecificationIds.includes(s.id)).map(s => (
                                                 <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
                                 <ActiveStatusField
@@ -2177,14 +2152,14 @@ export default function MasterData() {
                                         <SelectTrigger className="w-full h-10">
                                             <SelectValue placeholder="Select product category" />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search categories...">
                                             <SelectItem value="none">— None —</SelectItem>
                                             {productCategories.filter(c => c.isActive !== false).map(c => (
                                                 <SelectItem key={c.product_category_id} value={String(c.product_category_id)}>
                                                     {c.product_category_name}
                                                 </SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
                                 <div className="space-y-2 rounded-md border border-dashed p-3">
@@ -2206,11 +2181,11 @@ export default function MasterData() {
                                         <SelectTrigger className="w-full h-10">
                                             <SelectValue placeholder="Add a specification..." />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search specifications...">
                                             {allSpecifications.filter(s => s.isActive !== false && !newSubCategorySpecificationIds.includes(s.id)).map(s => (
                                                 <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
                                 <ActiveStatusField
@@ -2582,14 +2557,14 @@ export default function MasterData() {
                                     <SelectTrigger className="w-full h-10">
                                         <SelectValue placeholder="Select product category" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SearchableSelectContent searchPlaceholder="Search categories...">
                                         <SelectItem value="none">— None —</SelectItem>
                                         {productCategories.filter(c => c.isActive !== false).map(c => (
                                             <SelectItem key={c.product_category_id} value={String(c.product_category_id)}>
                                                 {c.product_category_name}
                                             </SelectItem>
                                         ))}
-                                    </SelectContent>
+                                    </SearchableSelectContent>
                                 </Select>
                             </div>
                         )}
@@ -2614,11 +2589,11 @@ export default function MasterData() {
                                     <SelectTrigger className="w-full h-10">
                                         <SelectValue placeholder="Add a specification..." />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SearchableSelectContent searchPlaceholder="Search specifications...">
                                         {allSpecifications.filter(s => s.isActive !== false && !simpleEditSpecificationIds.includes(s.id)).map(s => (
                                             <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                                         ))}
-                                    </SelectContent>
+                                    </SearchableSelectContent>
                                 </Select>
                             </div>
                         )}
@@ -2715,13 +2690,13 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search categories...">
                                             {productCategories.filter(c => c.isActive !== false).map((c) => (
                                                 <SelectItem key={c.product_category_id} value={c.product_category_id.toString()}>
                                                     {c.product_category_name}
                                                 </SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -2738,14 +2713,14 @@ export default function MasterData() {
                                                 <SelectTrigger className="w-full h-10">
                                                     <SelectValue placeholder={editSubCatOptions.length === 0 ? 'No sub categories' : 'Select sub category'} />
                                                 </SelectTrigger>
-                                                <SelectContent>
+                                                <SearchableSelectContent searchPlaceholder="Search sub categories...">
                                                     <SelectItem value="none">— None —</SelectItem>
                                                     {editSubCatOptions.map(s => (
                                                         <SelectItem key={s.product_sub_category_id} value={s.product_sub_category_id.toString()}>
                                                             {s.product_sub_category_name}
                                                         </SelectItem>
                                                     ))}
-                                                </SelectContent>
+                                                </SearchableSelectContent>
                                             </Select>
                                         </div>
                                     );
@@ -2762,13 +2737,13 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search UOM...">
                                             {uoms.filter(u => u.isActive !== false).map((u) => (
                                                 <SelectItem key={u.uom_id} value={u.uom_name}>
                                                     {u.uom_name}
                                                 </SelectItem>
                                             ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -2823,13 +2798,13 @@ export default function MasterData() {
                                                     <SelectTrigger className="h-9">
                                                         <SelectValue placeholder="Select UOM" />
                                                     </SelectTrigger>
-                                                    <SelectContent>
+                                                    <SearchableSelectContent searchPlaceholder="Search UOM...">
                                                         {uoms
                                                             .filter(u => u.uom_name !== editDialogForm.uom && !editAdditionalUomDrafts.some(d => d.uomName === u.uom_name))
                                                             .map(u => (
                                                                 <SelectItem key={u.uom_id} value={u.uom_name}>{u.uom_name}</SelectItem>
                                                             ))}
-                                                    </SelectContent>
+                                                    </SearchableSelectContent>
                                                 </Select>
                                             </div>
                                             <div className="flex flex-col gap-1.5">
@@ -2918,7 +2893,7 @@ export default function MasterData() {
                                         <SelectTrigger className="w-full h-10">
                                             <SelectValue placeholder="Add a product group..." />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search product groups...">
                                             {productGroups
                                                 .filter(g => !editSelectedProductGroups.some(s => s.id === g.product_group_id))
                                                 .map(g => (
@@ -2926,7 +2901,7 @@ export default function MasterData() {
                                                         {g.product_group_name}
                                                     </SelectItem>
                                                 ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -2963,7 +2938,7 @@ export default function MasterData() {
                                         <SelectTrigger className="w-full h-10">
                                             <SelectValue placeholder="Add a specification..." />
                                         </SelectTrigger>
-                                        <SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search specifications...">
                                             {allSpecifications
                                                 .filter(s => s.isActive !== false && !editSelectedInventorySpecifications.some(x => x.id === s.id))
                                                 .map(s => (
@@ -2971,7 +2946,7 @@ export default function MasterData() {
                                                         {s.name}
                                                     </SelectItem>
                                                 ))}
-                                        </SelectContent>
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -2991,25 +2966,11 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
-                                            <div className="flex items-center border-b px-3 pb-3">
-                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                <input
-                                                    placeholder="Search departments..."
-                                                    value={searchTermDept}
-                                                    onChange={(e) => setSearchTermDept(e.target.value)}
-                                                    onKeyDown={(e) => e.stopPropagation()}
-                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                />
-                                            </div>
-
-                                            <div className="max-h-[300px] overflow-y-auto">
-                                                {uniqueDepartments.filter(d => d.toLowerCase().includes(searchTermDept.toLowerCase())).map(dept => (
-                                                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                                                ))}
-                                            </div>
-
-                                        </SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search departments...">
+                                            {uniqueDepartments.map(dept => (
+                                                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                                            ))}
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -3030,25 +2991,11 @@ export default function MasterData() {
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <SelectContent>
-                                            <div className="flex items-center border-b px-3 pb-3">
-                                                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                                                <input
-                                                    placeholder="Search heads..."
-                                                    value={searchTermHead}
-                                                    onChange={(e) => setSearchTermHead(e.target.value)}
-                                                    onKeyDown={(e) => e.stopPropagation()}
-                                                    className="flex h-10 w-full rounded-md border-0 bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
-                                                />
-                                            </div>
-
-                                            <div className="max-h-[300px] overflow-y-auto">
-                                                {uniqueHeads.filter(h => h.toLowerCase().includes(searchTermHead.toLowerCase())).map(head => (
-                                                    <SelectItem key={head} value={head}>{head}</SelectItem>
-                                                ))}
-                                            </div>
-
-                                        </SelectContent>
+                                        <SearchableSelectContent searchPlaceholder="Search heads...">
+                                            {uniqueHeads.map(head => (
+                                                <SelectItem key={head} value={head}>{head}</SelectItem>
+                                            ))}
+                                        </SearchableSelectContent>
                                     </Select>
                                 </div>
 
@@ -3099,11 +3046,11 @@ export default function MasterData() {
                                                 <SelectTrigger className="w-full h-10">
                                                     <SelectValue placeholder="Select payment term" />
                                                 </SelectTrigger>
-                                                <SelectContent>
+                                                <SearchableSelectContent searchPlaceholder="Search payment terms...">
                                                     {uniquePaymentTerms.map((t) => (
                                                         <SelectItem key={t} value={t}>{t}</SelectItem>
                                                     ))}
-                                                </SelectContent>
+                                                </SearchableSelectContent>
                                             </Select>
                                         </div>
                                         <Button
