@@ -2,7 +2,7 @@ import { Database, Plus, Pencil, Trash2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
-import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, fetchSpecifications, postSpecification, updateSpecification, deleteSpecification, type ProductSubCategoryRow } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, fetchSpecifications, postSpecification, updateSpecification, deleteSpecification, fetchPaymentTerms, postPaymentTerm, updatePaymentTerm, deletePaymentTerm, fetchDeliveryTerms, postDeliveryTerm, updateDeliveryTerm, deleteDeliveryTerm, fetchTransportationTerms, postTransportationTerm, updateTransportationTerm, deleteTransportationTerm, type ProductSubCategoryRow } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -263,8 +263,8 @@ export default function MasterData() {
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification'>('item');
-    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification'>('productCategory');
+    const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('item');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('productCategory');
 
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -272,7 +272,7 @@ export default function MasterData() {
     const [editDialogForm, setEditDialogForm] = useState<MasterForm>(emptyForm);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [simpleEditOpen, setSimpleEditOpen] = useState(false);
-    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification'>('productCategory');
+    const [simpleEditType, setSimpleEditType] = useState<'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('productCategory');
     const [simpleEditId, setSimpleEditId] = useState<number | null>(null);
     const [simpleEditName, setSimpleEditName] = useState('');
     const [simpleEditActive, setSimpleEditActive] = useState('true');
@@ -315,6 +315,12 @@ export default function MasterData() {
     const [addingHead, setAddingHead] = useState(false);
     const [allSpecifications, setAllSpecifications] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
     const [newSpecificationName, setNewSpecificationName] = useState('');
+    const [allPaymentTerms, setAllPaymentTerms] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
+    const [newPaymentTermMasterName, setNewPaymentTermMasterName] = useState('');
+    const [allDeliveryTerms, setAllDeliveryTerms] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
+    const [newDeliveryTermName, setNewDeliveryTermName] = useState('');
+    const [allTransportationTerms, setAllTransportationTerms] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
+    const [newTransportationTermName, setNewTransportationTermName] = useState('');
 
     // Edit dialog UOM/Firm add state (separate from add dialog)
     const [editIsAddingUOM, setEditIsAddingUOM] = useState(false);
@@ -347,16 +353,10 @@ export default function MasterData() {
 
     const uniqueVendors = Array.from(new Set(tableData.map(r => r.vendor_name).filter(Boolean))).sort();
 
-    // Derive unique payment terms from all master records (payment_term is String[])
-    const uniquePaymentTerms = useMemo(() => {
-        const terms = new Set<string>();
-        tableData.forEach(r => {
-            const pt = r.payment_term;
-            if (Array.isArray(pt)) pt.forEach(t => { if (t) terms.add(t); });
-            else if (typeof pt === 'string' && pt) terms.add(pt);
-        });
-        return Array.from(terms).sort();
-    }, [tableData]);
+    // Derive unique payment terms from the PaymentTerm master registry (source of truth)
+    const uniquePaymentTerms = useMemo(() =>
+        allPaymentTerms.filter(t => t.isActive !== false).map(t => t.name).sort(),
+    [allPaymentTerms]);
 
     const uniqueDepartments = useMemo(() =>
         allDepartments.filter(d => d.isActive !== false).map(d => d.name).sort() as string[],
@@ -437,6 +437,9 @@ export default function MasterData() {
         department: 'Department',
         departmentHead: 'Department Head',
         specification: 'Specification',
+        paymentTerm: 'Payment Term',
+        deliveryTerm: 'Delivery Term',
+        transportationTerm: 'Transportation Term',
     };
 
     function openSimpleEditDialog(
@@ -486,6 +489,12 @@ export default function MasterData() {
                 result = await updateDepartment(simpleEditId, { name: simpleEditName.trim(), isActive });
             } else if (simpleEditType === 'specification') {
                 result = await updateSpecification(simpleEditId, { name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'paymentTerm') {
+                result = await updatePaymentTerm(simpleEditId, { name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'deliveryTerm') {
+                result = await updateDeliveryTerm(simpleEditId, { name: simpleEditName.trim(), isActive });
+            } else if (simpleEditType === 'transportationTerm') {
+                result = await updateTransportationTerm(simpleEditId, { name: simpleEditName.trim(), isActive });
             } else {
                 result = await updateDepartmentHead(simpleEditId, { name: simpleEditName.trim(), isActive });
             }
@@ -502,6 +511,9 @@ export default function MasterData() {
             else if (simpleEditType === 'uom') loadUOMs();
             else if (simpleEditType === 'department') loadDepartments();
             else if (simpleEditType === 'specification') loadSpecifications();
+            else if (simpleEditType === 'paymentTerm') loadPaymentTerms();
+            else if (simpleEditType === 'deliveryTerm') loadDeliveryTerms();
+            else if (simpleEditType === 'transportationTerm') loadTransportationTerms();
             else loadDepartmentHeads();
         } catch (err: any) {
             toast.error(err?.message ?? 'Failed to update record');
@@ -932,6 +944,33 @@ export default function MasterData() {
         ),
     ], [loadSpecifications]);
 
+    const paymentTermColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
+        { accessorKey: 'name', header: 'Payment Term', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('paymentTerm', row),
+            row => deleteRecord('payment term', () => deletePaymentTerm(row.id), loadPaymentTerms),
+        ),
+    ], [loadPaymentTerms]);
+
+    const deliveryTermColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
+        { accessorKey: 'name', header: 'Delivery Term', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('deliveryTerm', row),
+            row => deleteRecord('delivery term', () => deleteDeliveryTerm(row.id), loadDeliveryTerms),
+        ),
+    ], [loadDeliveryTerms]);
+
+    const transportationTermColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
+        { accessorKey: 'name', header: 'Transportation Term', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        activeStatusCol(),
+        rowActionsCol(
+            row => openSimpleEditDialog('transportationTerm', row),
+            row => deleteRecord('transportation term', () => deleteTransportationTerm(row.id), loadTransportationTerms),
+        ),
+    ], [loadTransportationTerms]);
+
     /* fetch */
     async function fetchData() {
         setDataLoading(true);
@@ -990,6 +1029,21 @@ export default function MasterData() {
         setAllSpecifications(data || []);
     }
 
+    async function loadPaymentTerms() {
+        const data = await fetchPaymentTerms();
+        setAllPaymentTerms(data || []);
+    }
+
+    async function loadDeliveryTerms() {
+        const data = await fetchDeliveryTerms();
+        setAllDeliveryTerms(data || []);
+    }
+
+    async function loadTransportationTerms() {
+        const data = await fetchTransportationTerms();
+        setAllTransportationTerms(data || []);
+    }
+
     useEffect(() => {
         fetchData();
         loadUOMs();
@@ -1000,6 +1054,9 @@ export default function MasterData() {
         loadDepartments();
         loadDepartmentHeads();
         loadSpecifications();
+        loadPaymentTerms();
+        loadDeliveryTerms();
+        loadTransportationTerms();
     }, []);
 
     /* reset form when sheet closes */
@@ -1013,6 +1070,9 @@ export default function MasterData() {
             setNewSubCategorySpecificationIds([]);
             setNewCategorySpecificationIds([]);
             setNewSpecificationName('');
+            setNewPaymentTermMasterName('');
+            setNewDeliveryTermName('');
+            setNewTransportationTermName('');
             setNewMasterActive('true');
             setShowAddInvAdditionalUOM(false);
             setAddInvAdditionalUOMName('');
@@ -1258,6 +1318,69 @@ export default function MasterData() {
         }
     }
 
+    async function handlePaymentTermSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newPaymentTermMasterName.trim()) {
+            toast.error('Payment Term is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            await postPaymentTerm(newPaymentTermMasterName.trim(), newMasterActive === 'true');
+            toast.success('Payment term saved successfully!');
+            setNewPaymentTermMasterName('');
+            setNewMasterActive('true');
+            loadPaymentTerms();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save payment term');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleDeliveryTermSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newDeliveryTermName.trim()) {
+            toast.error('Delivery Term is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            await postDeliveryTerm(newDeliveryTermName.trim(), newMasterActive === 'true');
+            toast.success('Delivery term saved successfully!');
+            setNewDeliveryTermName('');
+            setNewMasterActive('true');
+            loadDeliveryTerms();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save delivery term');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleTransportationTermSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newTransportationTermName.trim()) {
+            toast.error('Transportation Term is required');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            await postTransportationTerm(newTransportationTermName.trim(), newMasterActive === 'true');
+            toast.success('Transportation term saved successfully!');
+            setNewTransportationTermName('');
+            setNewMasterActive('true');
+            loadTransportationTerms();
+            closeOrReturnAfterRelatedAdd();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to save transportation term');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
     async function handleAddUOM() {
         if (!newUOMName.trim()) return;
         setAddingUOM(true);
@@ -1484,6 +1607,9 @@ export default function MasterData() {
                             <SelectItem value="department">Department</SelectItem>
                             <SelectItem value="departmentHead">Department Head</SelectItem>
                             <SelectItem value="specification">Specification</SelectItem>
+                            <SelectItem value="paymentTerm">Payment Term</SelectItem>
+                            <SelectItem value="deliveryTerm">Delivery Term</SelectItem>
+                            <SelectItem value="transportationTerm">Transportation Term</SelectItem>
                             <SelectItem value="inventory">Inventory Info</SelectItem>
                             <SelectItem value="vendor">Vendor Info</SelectItem>
                             <SelectItem value="firm">Firm Info</SelectItem>
@@ -1697,6 +1823,60 @@ export default function MasterData() {
                     </div>
                 </TabsContent>
 
+                <TabsContent value="paymentTerm">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={allPaymentTerms}
+                            columns={paymentTermColumns}
+                            searchFields={['name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('paymentTerm'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Payment Term
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="deliveryTerm">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={allDeliveryTerms}
+                            columns={deliveryTermColumns}
+                            searchFields={['name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('deliveryTerm'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Delivery Term
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="transportationTerm">
+                    <div className="w-full max-w-full overflow-x-auto">
+                        <DataTable
+                            data={allTransportationTerms}
+                            columns={transportationTermColumns}
+                            searchFields={['name']}
+                            dataLoading={dataLoading}
+                            pagination={true}
+                            extraActions={
+                                <Button className="h-9 shrink-0 whitespace-nowrap" onClick={() => { setActiveTab('transportationTerm'); setSheetOpen(true); }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Transportation Term
+                                </Button>
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
             </Tabs>
 
             {/* ── Add Dialog ── */}
@@ -1722,7 +1902,13 @@ export default function MasterData() {
                                                             ? 'Add Department'
                                                             : activeTab === 'specification'
                                                                 ? 'Add Specification'
-                                                                : 'Add Department Head'}
+                                                                : activeTab === 'paymentTerm'
+                                                                    ? 'Add Payment Term'
+                                                                    : activeTab === 'deliveryTerm'
+                                                                        ? 'Add Delivery Term'
+                                                                        : activeTab === 'transportationTerm'
+                                                                            ? 'Add Transportation Term'
+                                                                            : 'Add Department Head'}
                         </DialogTitle>
                         <DialogDescription>
                             {activeTab === 'item'
@@ -2306,6 +2492,72 @@ export default function MasterData() {
                                     <Button type="submit" disabled={submitting} className="flex-1 h-11">
                                         {submitting && <Loader size={16} color="white" className="mr-2" />}
                                         {submitting ? 'Saving Specification...' : 'Save Specification'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'paymentTerm' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handlePaymentTermSubmit} className="space-y-4">
+                                <Field
+                                    label="Payment Term"
+                                    id="payment_term_name"
+                                    value={newPaymentTermMasterName}
+                                    onChange={setNewPaymentTermMasterName}
+                                    required
+                                />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Payment Term...' : 'Save Payment Term'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'deliveryTerm' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleDeliveryTermSubmit} className="space-y-4">
+                                <Field
+                                    label="Delivery Term"
+                                    id="delivery_term_name"
+                                    value={newDeliveryTermName}
+                                    onChange={setNewDeliveryTermName}
+                                    required
+                                />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Delivery Term...' : 'Save Delivery Term'}
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    ) : activeTab === 'transportationTerm' ? (
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 py-4">
+                            <form onSubmit={handleTransportationTermSubmit} className="space-y-4">
+                                <Field
+                                    label="Transportation Term"
+                                    id="transportation_term_name"
+                                    value={newTransportationTermName}
+                                    onChange={setNewTransportationTermName}
+                                    required
+                                />
+                                <ActiveStatusField
+                                    value={newMasterActive}
+                                    onChange={setNewMasterActive}
+                                />
+                                <div className="pt-4 flex gap-2">
+                                    <Button type="submit" disabled={submitting} className="flex-1 h-11">
+                                        {submitting && <Loader size={16} color="white" className="mr-2" />}
+                                        {submitting ? 'Saving Transportation Term...' : 'Save Transportation Term'}
                                     </Button>
                                 </div>
                             </form>

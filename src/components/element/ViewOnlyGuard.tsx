@@ -9,7 +9,7 @@ const ROUTE_PAGE_KEY: Record<string, string> = {
     'create-indent': 'createIndent',
     'approve-indent': 'approveIndent',
     'vendor-rate-update': 'vendorRateUpdate',
-    'three-party-approval': 'threePartyApproval',
+    'multi-party-approval': 'threePartyApproval',
     'pending-pos': 'pendingPos',
     'create-po': 'createPo',
     'po-master': 'poMaster',

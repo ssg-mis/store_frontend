@@ -145,7 +145,7 @@ export default () => {
     return (
         <>
         <div className="w-full max-w-full pb-10 overflow-x-hidden">
-            <Heading heading="Pending POs" subtext="View pending purchase orders">
+            <Heading heading="Pending for PO" subtext="View pending purchase orders">
                 <ListTodo size={50} className="text-primary" />
             </Heading>
 

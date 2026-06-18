@@ -34,6 +34,7 @@ export type IndentSheet = {
     rate3: number;
     paymentTerm3: string;
     comparisonSheet: string;
+    quotes?: { slot: number; vendorName: string | null; vendorId: number | null; rate: number | null; paymentTerm: string | null; deliveryTime: number | null; comparisonSheet: string | null }[];
     planned3: string;
     actual3: string;
     timeDelay3: string;
@@ -267,6 +268,7 @@ export type UserPermissions = {
     storeOutApprovalAction: boolean;
     quotation: boolean;
     pendingIndentsView: boolean;
+    poApprovalView: boolean;
     ordersView: boolean;
     poMaster: boolean;
 
@@ -295,6 +297,7 @@ export const allPermissionKeys = [
     "storeOutApprovalAction",
     "quotation",
     "pendingIndentsView",
+    "poApprovalView",
     "ordersView",
     "poMaster",
     "dashboard",

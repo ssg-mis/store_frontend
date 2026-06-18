@@ -45,6 +45,7 @@ import type { UserPermissions } from './types/sheets';
 import Loading from './components/views/Loading';
 import Setting from './components/views/Setting';
 import CreatePO from './components/views/CreatePO';
+import ApprovalPO from './components/views/ApprovalPO';
 import PendingPOs from './components/views/PendingPOs';
 import Order from './components/views/Order';
 import Inventory from './components/views/Inventory';
@@ -187,9 +188,9 @@ const routes: RouteAttributes[] = [
         notifications: () => 0,
     },
     {
-        path: 'three-party-approval',
+        path: 'multi-party-approval',
         gateKey: 'threePartyApprovalView',
-        name: 'Three Party Approval',
+        name: 'Multi-Party Approval',
         icon: <Users size={20} />,
         element: <ThreePartyApproval />,
         notifications: () => 0,
@@ -197,7 +198,7 @@ const routes: RouteAttributes[] = [
     {
         path: 'pending-pos',
         gateKey: 'pendingIndentsView',
-        name: 'Pending POs',
+        name: 'Pending for PO',
         icon: <ListTodo size={20} />,
         element: <PendingPOs />,
         notifications: () => 0,
@@ -208,6 +209,14 @@ const routes: RouteAttributes[] = [
         name: 'Create PO',
         icon: <FilePlus2 size={20} />,
         element: <CreatePO />,
+        notifications: () => 0,
+    },
+    {
+        path: 'approval-po',
+        gateKey: 'poApprovalView',
+        name: 'Approval of PO',
+        icon: <ClipboardCheck size={20} />,
+        element: <ApprovalPO />,
         notifications: () => 0,
     },
     {

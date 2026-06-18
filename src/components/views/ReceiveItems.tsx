@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DownloadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
-import { uploadFile, fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
+import { uploadFile, fetchFromSupabasePaginated, postToSheet, fetchPaymentTerms } from '@/lib/fetchers';
 import {
     Dialog,
     DialogContent,
@@ -87,7 +87,14 @@ const ReceiveItems = () => {
     const [localReceivedLoading, setLocalReceivedLoading] = useState(false);
     const { user } = useAuth();
     const { updateIndentSheet, updateReceivedSheet, updateRelatedSheets } = useSheets();
-    const PAYMENT_TERMS = ['ADVANCE', 'CASH', 'BANK', 'ONLINE'];
+    // Payment terms now come from the Payment Term master tab (not a hardcoded list).
+    const [PAYMENT_TERMS, setPaymentTerms] = useState<string[]>([]);
+
+    useEffect(() => {
+        fetchPaymentTerms().then((data: any[]) =>
+            setPaymentTerms((data || []).filter((t: any) => t.isActive !== false).map((t: any) => t.name))
+        );
+    }, []);
 
     const [tableData, setTableData] = useState<RecieveItemsData[]>([]);
     const [historyData, setHistoryData] = useState<HistoryData[]>([]);

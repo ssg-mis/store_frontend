@@ -25,7 +25,7 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
     const countKeyMap: Record<string, keyof typeof badgeCounts> = {
         'approve-indent':       'approveIndent',
         'vendor-rate-update':   'vendorRateUpdate',
-        'three-party-approval': 'threePartyApproval',
+        'multi-party-approval': 'threePartyApproval',
         'pending-pos':          'pendingPOs',
         'receive-items':        'receiveItems',
         'store-out-approval':   'storeOut',

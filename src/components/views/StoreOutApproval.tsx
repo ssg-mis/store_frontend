@@ -373,7 +373,7 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
                         <SelectValue placeholder="All" />
@@ -386,7 +386,7 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
                 </SelectContent>
             </Select>
             <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
                         <SelectValue placeholder="All" />
@@ -399,7 +399,7 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
                 </SelectContent>
             </Select>
             <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Product:</span>
                         <SelectValue placeholder="All" />

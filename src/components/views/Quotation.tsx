@@ -146,7 +146,6 @@ export default function QuotationPage() {
     const fetchLatestQuotationNumbers = async () => {
       try {
         const quotationHistory = await fetchSheet('QUOTATION HISTORY');
-        console.log('Fetched QUOTATION HISTORY:', quotationHistory);
 
         if (Array.isArray(quotationHistory)) {
           setAllHistory(quotationHistory as unknown as QuotationHistorySheet[]);
@@ -155,7 +154,6 @@ export default function QuotationPage() {
             .filter((no: string) => no && no.trim() !== '');
 
           setLatestQuotationNumbers(quotationNos);
-          console.log('Latest quotation numbers:', quotationNos);
         }
       } catch (error) {
         console.error('Error fetching quotation numbers:', error);
@@ -174,13 +172,9 @@ export default function QuotationPage() {
 
     const fetchMasterSuppliers = async () => {
       try {
-        console.log('Fetching MASTER sheet data...');
-
         const masterData = await fetchSheet('MASTER');
         const rawMasterForFilter = await fetchSheet('MASTER_DATA') as unknown as MasterDataRow[];
 
-        console.log('MASTER sheet raw data:', masterData);
-        console.log('Raw Master Data for filtering:', rawMasterForFilter);
 
         if (Array.isArray(rawMasterForFilter)) {
           setFullMasterData(rawMasterForFilter);
@@ -207,14 +201,11 @@ export default function QuotationPage() {
             return name && typeof name === 'string' && name.trim() !== '';
           });
 
-        console.log('Processed suppliers:', suppliers);
         setMasterSuppliers(suppliers);
 
         if (suppliers.length === 0) {
-          console.warn('No suppliers found in MASTER sheet');
           toast.warning('No suppliers found in MASTER sheet');
         } else {
-          console.log(`Successfully loaded ${suppliers.length} suppliers from MASTER sheet`);
           toast.success(`Loaded ${suppliers.length} suppliers`);
         }
 
@@ -230,7 +221,6 @@ export default function QuotationPage() {
 
   // Filter eligible items - planned2 NOT NULL and actual2 effectively empty
   const eligibleItems = useMemo(() => {
-    console.log('Total indentSheet items:', indentSheet.length);
 
     const isEmpty = (value: any) => {
       if (value === null || value === undefined) return true;
@@ -270,7 +260,6 @@ export default function QuotationPage() {
         (!isAlreadyInNextStage || isPartOfCurrentQuotation);
     }).reverse();
 
-    console.log('Filtered eligible items:', filtered.length);
     return filtered;
   }, [indentSheet, mode, selectedQuotationNo, allHistory]);
 
@@ -303,7 +292,6 @@ export default function QuotationPage() {
       const allNumbers = [...filterUniqueQuotationNumbers(poMasterSheet), ...latestQuotationNumbers];
       const nextNumber = generateNextQuotationNumber(allNumbers);
       form.setValue('quotationNumber', nextNumber);
-      console.log('Generated next quotation number:', nextNumber);
     }
   }, [mode, poMasterSheet, latestQuotationNumbers, form]);
 
@@ -523,10 +511,6 @@ export default function QuotationPage() {
         allQuotationRows.push(...quotationHistoryRows);
       }
 
-      console.log('Submitting to QUOTATION HISTORY:', allQuotationRows);
-      console.log('Total rows:', allQuotationRows.length);
-      console.log('First row:', allQuotationRows[0]);
-
       await postToSheet(allQuotationRows, 'insert', 'QUOTATION HISTORY');
 
       toast.success(`Successfully created ${supplierInfos.length} unique quotation(s) for ${supplierInfos.length} supplier(s)`);
@@ -545,7 +529,7 @@ export default function QuotationPage() {
   }
 
   function onError(e: any) {
-    console.log('Form errors:', e);
+    console.error('Form validation errors:', e);
     toast.error('Please check the form');
   }
 

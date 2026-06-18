@@ -11,6 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
 import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms } from '@/lib/fetchers';
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useSheets } from '@/context/SheetsContext';
 import { useAuth } from '@/context/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -305,6 +306,20 @@ export default () => {
     const poDate = form.watch('poDate');
     const poNumber = form.watch('poNumber');
 
+    // When navigated here from the Approval of PO page's "Revise" action,
+    // switch to Revise mode and preselect the rejected PO once data is loaded.
+    const location = useLocation();
+    const revisePoFromNav = (location.state as any)?.revisePoNumber as string | undefined;
+    const [reviseNavApplied, setReviseNavApplied] = useState(false);
+    useEffect(() => {
+        if (reviseNavApplied || !revisePoFromNav) return;
+        const exists = poMasterSheetData.some((p: any) => (p.poNumber || p.po_number) === revisePoFromNav);
+        if (!exists) return;
+        setMode('revise');
+        form.setValue('poNumber', revisePoFromNav);
+        setReviseNavApplied(true);
+    }, [revisePoFromNav, poMasterSheetData, reviseNavApplied]);
+
     const findIndentById = (id?: number) => indentSheetData.find((indent: any) => indent.id === id);
 
     const selectedIndentRows = useMemo(() => {
@@ -317,6 +332,12 @@ export default () => {
         if (indents[0]?.id) return findIndentById(indents[0].id);
         return selectedIndentRows[0];
     }, [indents, selectedIndentRows, indentSheetData]);
+
+    const selectedPoRejectionReason = useMemo(() => {
+        if (mode !== 'revise' || !poNumber) return null;
+        const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber);
+        return po?.rejectionReason || po?.rejection_reason || null;
+    }, [mode, poNumber, poMasterSheetData]);
 
     const displayFirm = useMemo(() => {
         let firmName = "Shri Shyam Oil Extractions Pvt Ltd"; // Default
@@ -853,7 +874,6 @@ export default () => {
                 };
             });
 
-            console.log('PO Data to be inserted:', poData); // Debug log
 
             // Insert each PO record into the database using API
             const poResult = await postToSheet(poData, 'insert', 'PO_MASTER');
@@ -865,11 +885,11 @@ export default () => {
                 return {
                     id: indent.id,
                     indentNumber: v.indentNumber,
-                    actual_4: getCurrentFormattedDateTime(), // PO Completion Date
-                    planned_5: getCurrentFormattedDateTime(), // Enable Receive Items stage
+                    actual_4: getCurrentFormattedDateTime(), // PO Completion Date (removes from "Pending for PO")
+                    // planned_5 (Receive Items) is enabled only after the PO is approved
+                    // on the Approval of PO page — not at creation time.
                     po_number: poNumber,
                     po_copy: url,
-                    planned_7: getCurrentFormattedDateTime(), // Enable Billing (Get Purchase) stage
                 };
             });
 
@@ -996,6 +1016,8 @@ export default () => {
                                                                     poMasterSheetData.filter((i: any) => {
                                                                         const poNum = i.poNumber || i.po_number;
                                                                         if (receivedPoNumbers.has(poNum)) return false;
+                                                                        // Only rejected POs can be revised
+                                                                        if ((i.approvalStatus || i.approval_status) !== 'Rejected') return false;
                                                                         const indentNum = i.internalCode || i.internal_code || i.indent_number;
                                                                         const matchedIndent = allIndentsData.find((ind: any) =>
                                                                             (ind.indentNumber || ind.indent_number) === indentNum
@@ -1053,6 +1075,14 @@ export default () => {
                                         )}
                                     />
                                 </div>
+
+                                {/* Rejection Reason Alert Box */}
+                                {selectedPoRejectionReason && (
+                                    <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg px-4 py-3 text-xs flex flex-col gap-1.5 animate-in fade-in duration-200">
+                                        <div className="font-semibold uppercase tracking-wider text-[10px] text-red-500">Rejection Reason</div>
+                                        <div className="font-medium">{selectedPoRejectionReason}</div>
+                                    </div>
+                                )}
 
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                     {mode === 'create' && (

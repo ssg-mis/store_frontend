@@ -837,7 +837,7 @@ export default () => {
                                                                         <SelectContent>
                                                                             <SelectItem value="Select">Select</SelectItem>
                                                                             <SelectItem value="Regular">Regular</SelectItem>
-                                                                            <SelectItem value="Three Party">Three Party</SelectItem>
+                                                                            <SelectItem value="Three Party">Multi-Party</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
                                                                 </TableCell>

@@ -149,11 +149,22 @@ export default () => {
                     if (seenProductIds.has(r.indentId)) return;
                     seenProductIds.add(r.indentId);
 
-                    const productVendors: [string, string, string, number?][] = [
-                        [r.vendorName1 || '', String(r.rate1 || 0), r.paymentTerm1 || '', r.deliveryTime1 ?? undefined],
-                        [r.vendorName2 || '', String(r.rate2 || 0), r.paymentTerm2 || '', r.deliveryTime2 ?? undefined],
-                        [r.vendorName3 || '', String(r.rate3 || 0), r.paymentTerm3 || '', r.deliveryTime3 ?? undefined],
-                    ];
+                    // Build the vendor comparison list dynamically from quotes (1..N).
+                    // Falls back to the legacy vendorName1/2/3 columns for older rows.
+                    const productVendors: [string, string, string, number?][] = (
+                        Array.isArray(r.quotes) && r.quotes.length
+                            ? r.quotes.map((q: any) => [
+                                q.vendorName || '',
+                                String(q.rate || 0),
+                                q.paymentTerm || '',
+                                q.deliveryTime ?? undefined,
+                            ] as [string, string, string, number?])
+                            : [
+                                [r.vendorName1 || '', String(r.rate1 || 0), r.paymentTerm1 || '', r.deliveryTime1 ?? undefined],
+                                [r.vendorName2 || '', String(r.rate2 || 0), r.paymentTerm2 || '', r.deliveryTime2 ?? undefined],
+                                [r.vendorName3 || '', String(r.rate3 || 0), r.paymentTerm3 || '', r.deliveryTime3 ?? undefined],
+                            ]
+                    ).filter((v: [string, string, string, number?]) => v[0]);
 
                     grouped[indentNo].products.push({
                         id: r.id,
@@ -314,7 +325,7 @@ export default () => {
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
                         <SelectValue placeholder="All" />
@@ -327,7 +338,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
                         <SelectValue placeholder="All" />
@@ -634,7 +645,7 @@ export default () => {
             }}>
                 <Tabs defaultValue="pending">
                     <Heading
-                        heading="Three Party Rate Approval"
+                        heading="Multi-Party Rate Approval"
                         subtext="Approve rates for three party vendors"
                         tabs
                     >

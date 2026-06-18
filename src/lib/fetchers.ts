@@ -717,7 +717,8 @@ export async function postToSheet(
             ? `${API_BASE_URL}${endpoint}/${(row as any).id}`
             : `${API_BASE_URL}${endpoint}`;
 
-        console.log(`[postToSheet] Calling ${method} ${url} for ${sheet}`, row);
+
+
 
         try {
             const response = await apiFetch(url, {
@@ -1202,6 +1203,231 @@ export async function deleteSpecification(id: number) {
         return { success: true };
     } catch (error: any) {
         console.error('Error deleting specification:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/* ───── Payment Terms ───── */
+export async function fetchPaymentTerms() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/payment-terms`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching payment terms:', error);
+        return [];
+    }
+}
+
+export async function postPaymentTerm(name: string, isActive: boolean = true) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/payment-terms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, isActive })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting payment term:', error);
+        throw error;
+    }
+}
+
+export async function updatePaymentTerm(id: number, data: { name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/payment-terms/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update payment term');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating payment term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deletePaymentTerm(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/payment-terms/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete payment term');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting payment term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/* ───── Delivery Terms ───── */
+export async function fetchDeliveryTerms() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/delivery-terms`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching delivery terms:', error);
+        return [];
+    }
+}
+
+export async function postDeliveryTerm(name: string, isActive: boolean = true) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/delivery-terms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, isActive })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting delivery term:', error);
+        throw error;
+    }
+}
+
+export async function updateDeliveryTerm(id: number, data: { name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/delivery-terms/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update delivery term');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating delivery term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteDeliveryTerm(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/delivery-terms/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete delivery term');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting delivery term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/* ───── Transportation Terms ───── */
+export async function fetchTransportationTerms() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/transportation-terms`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching transportation terms:', error);
+        return [];
+    }
+}
+
+export async function postTransportationTerm(name: string, isActive: boolean = true) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/transportation-terms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, isActive })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting transportation term:', error);
+        throw error;
+    }
+}
+
+export async function updateTransportationTerm(id: number, data: { name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/transportation-terms/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update transportation term');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating transportation term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteTransportationTerm(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/transportation-terms/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete transportation term');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting transportation term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/* ───── PO Approval ───── */
+export async function fetchPOApprovals(status: 'Pending' | 'Rejected' | 'Approved' = 'Pending') {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-approvals?status=${encodeURIComponent(status)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching PO approvals:', error);
+        return [];
+    }
+}
+
+export async function approvePO(poNumber: string, approvedBy?: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-approvals/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ poNumber, approvedBy })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to approve PO');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error approving PO:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function rejectPO(poNumber: string, reason: string, rejectedBy?: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-approvals/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ poNumber, reason, rejectedBy })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to reject PO');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error rejecting PO:', error);
         return { success: false, error: error.message };
     }
 }

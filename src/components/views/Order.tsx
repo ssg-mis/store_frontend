@@ -94,9 +94,8 @@ export default () => {
 
         if (!confirmDelete) return;
 
-        try {
-            console.log('Deleting row with ID:', id);
 
+        try {
             const result = await postToSheet([{ id }], 'delete', 'PO_MASTER');
             if (!result.success) throw new Error('API delete failed');
 

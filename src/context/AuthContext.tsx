@@ -47,6 +47,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                             const camelPermissions = toCamelCase(pageAccess);
                             
                             const userData = {
+                                // Default-enable the new Approval of PO page for existing users
+                                // whose stored permissions predate this key; an explicit value
+                                // from pageAccess/camelPermissions (set via Setting) overrides it.
+                                poApprovalView: true,
                                 ...toCamelCase(latestUser),
                                 ...pageAccess,
                                 ...camelPermissions,
@@ -96,6 +100,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 const camelPermissions = toCamelCase(pageAccess);
                 
                 const userData = {
+                    // Default-enable Approval of PO; explicit pageAccess values override below.
+                    poApprovalView: true,
                     ...toCamelCase(data.user),
                     ...pageAccess, // keeping snake_case as fallback
                     ...camelPermissions, // ensuring camelCase for Sidebar

@@ -11,7 +11,7 @@ import {
     DialogHeader,
     DialogFooter,
 } from '../ui/dialog';
-import { postToSheet, uploadFile, fetchVendors, fetchFromSupabasePaginated, fetchIndentMasterData } from '@/lib/fetchers';
+import { postToSheet, uploadFile, fetchVendors, fetchFromSupabasePaginated, fetchIndentMasterData, fetchPaymentTerms } from '@/lib/fetchers';
 import { z } from 'zod';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -21,7 +21,7 @@ import { Input } from '../ui/input';
 import { PuffLoader as Loader } from 'react-spinners';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { UserCheck, PenSquare, Search, FileDown } from 'lucide-react';
+import { UserCheck, PenSquare, Search, FileDown, X } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
@@ -90,6 +90,7 @@ interface HistoryData {
     deliveryTime1?: number;
     deliveryTime2?: number;
     deliveryTime3?: number;
+    quotes?: { slot: number; vendorName: string | null; vendorId: number | null; rate: number | null; paymentTerm: string | null; deliveryTime: number | null; comparisonSheet: string | null }[];
 }
 
 interface PendingGroup {
@@ -124,7 +125,14 @@ export default () => {
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
     const [vendors, setVendors] = useState<any[]>([]);
     const [vendorsLoading, setVendorsLoading] = useState(true);
-    const PAYMENT_TERMS = ['ADVANCE', 'CASH', 'BANK', 'ONLINE'];
+    // Payment terms now come from the Payment Term master tab (not a hardcoded list).
+    const [PAYMENT_TERMS, setPaymentTerms] = useState<string[]>([]);
+
+    useEffect(() => {
+        fetchPaymentTerms().then((data: any[]) =>
+            setPaymentTerms((data || []).filter((t: any) => t.isActive !== false).map((t: any) => t.name))
+        );
+    }, []);
 
     // Server-side pagination states
     const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
@@ -290,6 +298,7 @@ export default () => {
                         deliveryTime1: record.deliveryTime1 || 0,
                         deliveryTime2: record.deliveryTime2 || 0,
                         deliveryTime3: record.deliveryTime3 || 0,
+                        quotes: record.quotes || [],
                     });
                 });
             }
@@ -619,6 +628,7 @@ export default () => {
                     deliveryTime1: first.deliveryTime1,
                     deliveryTime2: first.deliveryTime2,
                     deliveryTime3: first.deliveryTime3,
+                    quotes: first.quotes || [],
                     vendorType: first.vendorType,
                     date: first.date,
                     requestDate: first.requestDate,
@@ -650,7 +660,7 @@ export default () => {
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
                         <SelectValue placeholder="All" />
@@ -663,7 +673,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
                         <SelectValue placeholder="All" />
@@ -676,7 +686,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
                         <SelectValue placeholder="All" />
@@ -752,7 +762,7 @@ export default () => {
                 const val = getValue() as string;
                 return (
                     <Pill variant={val === 'Three Party' ? 'secondary' : 'default'}>
-                        {val}
+                        {val === 'Three Party' ? 'Multi-Party' : val}
                     </Pill>
                 );
             },
@@ -833,78 +843,80 @@ export default () => {
     }
 
 
-    // Creating Three Party Vendor form (multi-product, 3 vendor columns)
+    // Multi-Party Vendor form (multi-product, dynamic 1..10 vendor columns).
+    // Vendors are a field array; each vendor carries its own per-product rates,
+    // so adding/removing a vendor is a single append/remove with no nested shuffling.
+    const MAX_VENDORS = 10;
     const threePartySchema = z.object({
-        vendorName1: z.string().nonempty('Vendor 1 is required'),
-        vendorName2: z.string().nonempty('Vendor 2 is required'),
-        vendorName3: z.string().nonempty('Vendor 3 is required'),
-        paymentTerm1: z.string().nonempty('Payment term required'),
-        paymentTerm2: z.string().nonempty('Payment term required'),
-        paymentTerm3: z.string().nonempty('Payment term required'),
-        deliveryTime1: z.coerce.number().int().min(1, 'Required'),
-        deliveryTime2: z.coerce.number().int().min(1, 'Required'),
-        deliveryTime3: z.coerce.number().int().min(1, 'Required'),
-        comparisonSheet1: z.instanceof(File, { message: 'Comparison sheet 1 is required' }),
-        comparisonSheet2: z.instanceof(File, { message: 'Comparison sheet 2 is required' }),
-        comparisonSheet3: z.instanceof(File, { message: 'Comparison sheet 3 is required' }),
-        products: z.array(z.object({
-            rate1: z.coerce.number().gt(0, 'Rate must be > 0'),
-            rate2: z.coerce.number().gt(0, 'Rate must be > 0'),
-            rate3: z.coerce.number().gt(0, 'Rate must be > 0'),
-        })).min(1),
+        vendors: z.array(z.object({
+            vendorName: z.string().nonempty('Vendor is required'),
+            paymentTerm: z.string().nonempty('Payment term required'),
+            deliveryTime: z.coerce.number().int().min(1, 'Required'),
+            comparisonSheet: z.instanceof(File, { message: 'Comparison sheet is required' }),
+            rates: z.array(z.coerce.number().gt(0, 'Rate must be > 0')).min(1),
+        })).min(1, 'At least one vendor is required').max(MAX_VENDORS),
     });
+
+    const makeDefaultVendors = (vendorCount: number, productCount: number) =>
+        Array.from({ length: vendorCount }, () => ({
+            vendorName: '',
+            paymentTerm: '',
+            deliveryTime: 0,
+            comparisonSheet: undefined as unknown as File,
+            rates: Array.from({ length: productCount }, () => 0),
+        }));
 
     const threePartyForm = useForm<z.infer<typeof threePartySchema>>({
         resolver: zodResolver(threePartySchema),
-        defaultValues: {
-            vendorName1: '', vendorName2: '', vendorName3: '',
-            paymentTerm1: '', paymentTerm2: '', paymentTerm3: '',
-            deliveryTime1: 0, deliveryTime2: 0, deliveryTime3: 0,
-            products: [],
-        },
+        defaultValues: { vendors: [] },
     });
 
-    const { fields: productFields } = useFieldArray({
+    const { fields: vendorFields, append: appendVendor, remove: removeVendor } = useFieldArray({
         control: threePartyForm.control,
-        name: 'products',
+        name: 'vendors',
     });
 
     useEffect(() => {
         if (selectedGroup) {
-            threePartyForm.reset({
-                vendorName1: '', vendorName2: '', vendorName3: '',
-                paymentTerm1: '', paymentTerm2: '', paymentTerm3: '',
-                deliveryTime1: 0, deliveryTime2: 0, deliveryTime3: 0,
-                products: selectedGroup.items.map(() => ({ rate1: 0, rate2: 0, rate3: 0 })),
-            });
+            // Default to 3 vendor columns (common case); user can add up to 10 or remove down to 1.
+            threePartyForm.reset({ vendors: makeDefaultVendors(3, selectedGroup.items.length) });
             regularForm.reset({
                 products: selectedGroup.items.map(() => ({ vendorName: '', rate: 0, paymentTerm: '' })),
             });
         }
     }, [selectedGroup]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    function handleAddVendor() {
+        if (!selectedGroup || vendorFields.length >= MAX_VENDORS) return;
+        appendVendor(makeDefaultVendors(1, selectedGroup.items.length)[0]);
+    }
+
     async function onSubmitThreeParty(values: z.infer<typeof threePartySchema>) {
         if (!selectedGroup) return;
         try {
-            const [url1, url2, url3] = await Promise.all([
-                values.comparisonSheet1 ? uploadFile(values.comparisonSheet1, import.meta.env.VITE_COMPARISON_SHEET_FOLDER) : Promise.resolve(''),
-                values.comparisonSheet2 ? uploadFile(values.comparisonSheet2, import.meta.env.VITE_COMPARISON_SHEET_FOLDER) : Promise.resolve(''),
-                values.comparisonSheet3 ? uploadFile(values.comparisonSheet3, import.meta.env.VITE_COMPARISON_SHEET_FOLDER) : Promise.resolve(''),
-            ]);
+            // Upload each vendor's comparison sheet in parallel.
+            const sheetUrls = await Promise.all(
+                values.vendors.map(v => v.comparisonSheet
+                    ? uploadFile(v.comparisonSheet, import.meta.env.VITE_COMPARISON_SHEET_FOLDER)
+                    : Promise.resolve(''))
+            );
 
             await Promise.all(selectedGroup.items.map((item, i) => {
+                const quotes = values.vendors.map((v, vIdx) => ({
+                    slot: vIdx + 1,
+                    vendorName: v.vendorName,
+                    rate: v.rates[i],
+                    paymentTerm: v.paymentTerm,
+                    deliveryTime: v.deliveryTime,
+                    comparisonSheet: sheetUrls[vIdx] || null,
+                }));
                 const payload: any = {
                     indent_id: item.indentId,
                     indent_number: item.indentNo,
                     product_code: item.productCode,
-                    vendorName1: values.vendorName1, rate1: values.products[i].rate1, paymentTerm1: values.paymentTerm1, deliveryTime1: values.deliveryTime1,
-                    vendorName2: values.vendorName2, rate2: values.products[i].rate2, paymentTerm2: values.paymentTerm2, deliveryTime2: values.deliveryTime2,
-                    vendorName3: values.vendorName3, rate3: values.products[i].rate3, paymentTerm3: values.paymentTerm3, deliveryTime3: values.deliveryTime3,
                     planned: new Date().toISOString(),
+                    quotes,
                 };
-                if (url1) payload.comparisonSheet = url1;
-                if (url2) payload.comparisonSheet2 = url2;
-                if (url3) payload.comparisonSheet3 = url3;
                 return postToSheet([payload], 'insert', 'VENDOR_RATE_UPDATE');
             }));
 
@@ -990,7 +1002,7 @@ export default () => {
             <Tabs defaultValue="pending" className="w-full">
                 <Heading
                     heading="Vendor Rate Update"
-                    subtext="Update vendors for Regular and Three Party indents"
+                    subtext="Update vendors for Regular and Multi-Party indents"
                     tabs
                 >
                     <UserCheck size={50} className="text-primary" />
@@ -1082,7 +1094,7 @@ export default () => {
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.requestDate}</TableCell>
                                                 <TableCell>
                                                     <Pill variant={group.vendorType === 'Three Party' ? 'secondary' : 'primary'}>
-                                                        {group.vendorType}
+                                                        {group.vendorType === 'Three Party' ? 'Multi-Party' : group.vendorType}
                                                     </Pill>
                                                 </TableCell>
                                                 <TableCell>
@@ -1160,7 +1172,7 @@ export default () => {
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-sm font-bold text-primary-foreground tracking-wide">{group.indentNo}</span>
                                                     <Pill variant={group.vendorType === 'Three Party' ? 'secondary' : 'primary'}>
-                                                        {group.vendorType}
+                                                        {group.vendorType === 'Three Party' ? 'Multi-Party' : group.vendorType}
                                                     </Pill>
                                                 </div>
                                                 <Button
@@ -1254,7 +1266,7 @@ export default () => {
                                         className="space-y-7"
                                     >
                                         <DialogHeader className="space-y-1">
-                                            <DialogTitle>Three Party Vendors</DialogTitle>
+                                            <DialogTitle>Multi-Party Vendors</DialogTitle>
                                             <DialogDescription>
                                                 Update vendors for{' '}
                                                 <span className="font-medium">{selectedGroup.indentNo}</span>
@@ -1276,30 +1288,61 @@ export default () => {
                                             </div>
                                         </div>
 
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-xs text-muted-foreground">
+                                                {vendorFields.length} vendor{vendorFields.length > 1 ? 's' : ''} (max {MAX_VENDORS})
+                                            </p>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 text-xs"
+                                                disabled={vendorFields.length >= MAX_VENDORS}
+                                                onClick={handleAddVendor}
+                                            >
+                                                + Add Vendor
+                                            </Button>
+                                        </div>
+
                                         <div className="border rounded-md overflow-x-auto">
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow className="bg-muted/40">
                                                         <TableHead className="w-40 text-xs font-semibold">Product Name</TableHead>
-                                                        <TableHead className="text-xs font-semibold">Vendor Name 1 <span className="text-red-500">*</span></TableHead>
-                                                        <TableHead className="text-xs font-semibold">Vendor Name 2 <span className="text-red-500">*</span></TableHead>
-                                                        <TableHead className="text-xs font-semibold">Vendor Name 3 <span className="text-red-500">*</span></TableHead>
+                                                        {vendorFields.map((vf, v) => (
+                                                            <TableHead key={vf.id} className="text-xs font-semibold min-w-[180px]">
+                                                                <div className="flex items-center justify-between gap-1">
+                                                                    <span>Vendor {v + 1} <span className="text-red-500">*</span></span>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-6 w-6 text-muted-foreground hover:text-destructive disabled:opacity-30"
+                                                                        title="Remove vendor"
+                                                                        disabled={vendorFields.length <= 1}
+                                                                        onClick={() => removeVendor(v)}
+                                                                    >
+                                                                        <X className="h-3.5 w-3.5" />
+                                                                    </Button>
+                                                                </div>
+                                                            </TableHead>
+                                                        ))}
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
                                                     {/* Vendor Name row */}
                                                     <TableRow>
                                                         <TableCell className="text-xs font-medium text-muted-foreground">Vendor</TableCell>
-                                                        {([1, 2, 3] as const).map(n => (
-                                                            <TableCell key={n} className="min-w-[180px]">
+                                                        {vendorFields.map((vf, v) => (
+                                                            <TableCell key={vf.id} className="min-w-[180px]">
                                                                 <FormField
                                                                     control={threePartyForm.control}
-                                                                    name={`vendorName${n}`}
+                                                                    name={`vendors.${v}.vendorName`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
                                                                             <Select onValueChange={field.onChange} value={field.value}>
                                                                                 <FormControl>
-                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                    <SelectTrigger size="xs" className="w-full h-8 text-xs">
                                                                                         <SelectValue placeholder="Select vendor" />
                                                                                     </SelectTrigger>
                                                                                 </FormControl>
@@ -1325,28 +1368,29 @@ export default () => {
                                                         ))}
                                                     </TableRow>
                                                     {/* One row per product */}
-                                                    {productFields.map((field, i) => (
-                                                        <TableRow key={field.id}>
+                                                    {selectedGroup.items.map((product, i) => (
+                                                        <TableRow key={i}>
                                                             <TableCell className="text-xs font-medium align-top pt-3">
                                                                 <div className="space-y-1">
-                                                                    {selectedGroup.items[i]?.productCode && (
+                                                                    {product?.productCode && (
                                                                         <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-semibold text-primary">
-                                                                            {selectedGroup.items[i].productCode}
+                                                                            {product.productCode}
                                                                         </span>
                                                                     )}
-                                                                    <div>{selectedGroup.items[i]?.product}</div>
+                                                                    <div>
+                                                                        {product?.product} <span className="text-[10px] text-muted-foreground font-normal">(Rate)</span> <span className="text-red-500">*</span>
+                                                                    </div>
                                                                 </div>
                                                             </TableCell>
-                                                            {([1, 2, 3] as const).map(n => (
-                                                                <TableCell key={n} className="min-w-[180px] align-top">
+                                                            {vendorFields.map((vf, v) => (
+                                                                <TableCell key={vf.id} className="min-w-[180px] align-top">
                                                                     <FormField
                                                                         control={threePartyForm.control}
-                                                                        name={`products.${i}.rate${n}`}
+                                                                        name={`vendors.${v}.rates.${i}`}
                                                                         render={({ field }) => (
                                                                             <FormItem>
-                                                                                <FormLabel className="text-[10px] text-muted-foreground">Rate <span className="text-red-500">*</span></FormLabel>
                                                                                 <FormControl>
-                                                                                    <Input type="number" placeholder="Enter rate" className="h-8 text-xs" {...field} />
+                                                                                    <Input type="number" placeholder="Enter rate" className="w-full h-8 text-xs" {...field} />
                                                                                 </FormControl>
                                                                                 <FormMessage className="text-[10px]" />
                                                                             </FormItem>
@@ -1359,16 +1403,16 @@ export default () => {
                                                     {/* Payment Term row */}
                                                     <TableRow>
                                                         <TableCell className="text-xs font-medium text-muted-foreground">Payment Term <span className="text-red-500">*</span></TableCell>
-                                                        {([1, 2, 3] as const).map(n => (
-                                                            <TableCell key={n} className="min-w-[180px]">
+                                                        {vendorFields.map((vf, v) => (
+                                                            <TableCell key={vf.id} className="min-w-[180px]">
                                                                 <FormField
                                                                     control={threePartyForm.control}
-                                                                    name={`paymentTerm${n}`}
+                                                                    name={`vendors.${v}.paymentTerm`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
                                                                             <Select onValueChange={field.onChange} value={field.value}>
                                                                                 <FormControl>
-                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                    <SelectTrigger size="xs" className="w-full h-8 text-xs">
                                                                                         <SelectValue placeholder="Select term" />
                                                                                     </SelectTrigger>
                                                                                 </FormControl>
@@ -1390,11 +1434,11 @@ export default () => {
                                                         <TableCell className="text-xs font-medium text-muted-foreground">
                                                             Comparison Sheet <span className="text-red-500">*</span>
                                                         </TableCell>
-                                                        {([1, 2, 3] as const).map(n => (
-                                                            <TableCell key={n} className="min-w-[180px]">
+                                                        {vendorFields.map((vf, v) => (
+                                                            <TableCell key={vf.id} className="min-w-[180px]">
                                                                 <FormField
                                                                     control={threePartyForm.control}
-                                                                    name={`comparisonSheet${n}`}
+                                                                    name={`vendors.${v}.comparisonSheet`}
                                                                     render={({ field, fieldState }) => (
                                                                         <FormItem>
                                                                             <FormControl>
@@ -1428,11 +1472,11 @@ export default () => {
                                                         <TableCell className="text-xs font-medium text-muted-foreground">
                                                             Actual Time To Receive Material <span className="text-red-500">*</span>
                                                         </TableCell>
-                                                        {([1, 2, 3] as const).map(n => (
-                                                            <TableCell key={n} className="min-w-[180px]">
+                                                        {vendorFields.map((vf, v) => (
+                                                            <TableCell key={vf.id} className="min-w-[180px]">
                                                                 <FormField
                                                                     control={threePartyForm.control}
-                                                                    name={`deliveryTime${n}`}
+                                                                    name={`vendors.${v}.deliveryTime`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
                                                                             <div className="flex items-center gap-1.5">
@@ -1522,7 +1566,7 @@ export default () => {
                                                                         <FormItem>
                                                                             <Select onValueChange={field.onChange} value={field.value}>
                                                                                 <FormControl>
-                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                    <SelectTrigger size="xs" className="w-full h-8 text-xs">
                                                                                         <SelectValue placeholder="Select vendor" />
                                                                                     </SelectTrigger>
                                                                                 </FormControl>
@@ -1552,7 +1596,7 @@ export default () => {
                                                                     render={({ field }) => (
                                                                         <FormItem>
                                                                             <FormControl>
-                                                                                <Input type="number" placeholder="Enter rate" className="h-8 text-xs" {...field} />
+                                                                                <Input type="number" placeholder="Enter rate" className="w-full h-8 text-xs" {...field} />
                                                                             </FormControl>
                                                                             <FormMessage className="text-[10px]" />
                                                                         </FormItem>
@@ -1567,7 +1611,7 @@ export default () => {
                                                                         <FormItem>
                                                                             <Select onValueChange={field.onChange} value={field.value}>
                                                                                 <FormControl>
-                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                    <SelectTrigger size="xs" className="w-full h-8 text-xs">
                                                                                         <SelectValue placeholder="Select term" />
                                                                                     </SelectTrigger>
                                                                                 </FormControl>
@@ -1676,9 +1720,12 @@ export default () => {
                                 <div className="text-sm font-medium">
                                     {viewingHistoryGroup?.vendorType === 'Three Party' ? (
                                         <div className="space-y-1 mt-1">
-                                            <div className="flex items-center gap-2"><span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded border border-primary/20 font-bold">V1</span> {viewingHistoryGroup?.vendorName1}</div>
-                                            <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V2</span> {viewingHistoryGroup?.vendorName2 || '—'}</div>
-                                            <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V3</span> {viewingHistoryGroup?.vendorName3 || '—'}</div>
+                                            {(viewingHistoryGroup?.quotes || []).map((q: any, idx: number) => (
+                                                <div key={idx} className="flex items-center gap-2">
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${idx === 0 ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted'}`}>V{idx + 1}</span>
+                                                    {q.vendorName || '—'}
+                                                </div>
+                                            ))}
                                         </div>
                                     ) : (
                                         viewingHistoryGroup?.vendorName1
@@ -1689,9 +1736,12 @@ export default () => {
                                 <div>
                                     <p className="text-xs text-muted-foreground">Actual Time To Receive Material</p>
                                     <div className="text-sm font-medium space-y-1 mt-1">
-                                        <div className="flex items-center gap-2"><span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded border border-primary/20 font-bold">V1</span> {viewingHistoryGroup?.deliveryTime1 ? `${viewingHistoryGroup.deliveryTime1} days` : '—'}</div>
-                                        <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V2</span> {viewingHistoryGroup?.deliveryTime2 ? `${viewingHistoryGroup.deliveryTime2} days` : '—'}</div>
-                                        <div className="flex items-center gap-2"><span className="text-[10px] bg-muted px-1.5 py-0.5 rounded border font-bold">V3</span> {viewingHistoryGroup?.deliveryTime3 ? `${viewingHistoryGroup.deliveryTime3} days` : '—'}</div>
+                                        {(viewingHistoryGroup?.quotes || []).map((q: any, idx: number) => (
+                                            <div key={idx} className="flex items-center gap-2">
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${idx === 0 ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted'}`}>V{idx + 1}</span>
+                                                {q.deliveryTime ? `${q.deliveryTime} days` : '—'}
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}
@@ -1714,11 +1764,9 @@ export default () => {
                                         <TableHead>Quantity</TableHead>
                                         <TableHead>UOM</TableHead>
                                         {viewingHistoryGroup?.vendorType === 'Three Party' ? (
-                                            <>
-                                                <TableHead className="text-primary font-bold text-[10px]">Rate 1 (R1)</TableHead>
-                                                <TableHead className="text-[10px]">Rate 2 (R2)</TableHead>
-                                                <TableHead className="text-[10px]">Rate 3 (R3)</TableHead>
-                                            </>
+                                            (viewingHistoryGroup?.quotes || []).map((_q: any, idx: number) => (
+                                                <TableHead key={idx} className={`text-[10px] ${idx === 0 ? 'text-primary font-bold' : ''}`}>Rate {idx + 1} (R{idx + 1})</TableHead>
+                                            ))
                                         ) : (
                                             <TableHead>Rate</TableHead>
                                         )}
@@ -1732,11 +1780,14 @@ export default () => {
                                             <TableCell className="text-sm">{item.quantity}</TableCell>
                                             <TableCell className="text-sm">{item.uom}</TableCell>
                                             {viewingHistoryGroup?.vendorType === 'Three Party' ? (
-                                                <>
-                                                    <TableCell className="text-sm font-bold text-primary">₹{item.rate1}</TableCell>
-                                                    <TableCell className="text-sm">₹{item.rate2 || '—'}</TableCell>
-                                                    <TableCell className="text-sm">₹{item.rate3 || '—'}</TableCell>
-                                                </>
+                                                (viewingHistoryGroup?.quotes || []).map((_q: any, idx: number) => {
+                                                    const rate = (item.quotes?.[idx]?.rate) ?? (item as any)[`rate${idx + 1}`];
+                                                    return (
+                                                        <TableCell key={idx} className={`text-sm ${idx === 0 ? 'font-bold text-primary' : ''}`}>
+                                                            {rate != null && rate !== '' ? `₹${rate}` : '—'}
+                                                        </TableCell>
+                                                    );
+                                                })
                                             ) : (
                                                 <TableCell className="text-sm">₹{item.rate1}</TableCell>
                                             )}
