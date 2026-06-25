@@ -169,6 +169,12 @@ export default () => {
         setVendors(vendorsList);
     };
 
+    // Look up a vendor's master price by name (null if not set)
+    const getVendorPrice = useCallback((vendorName: string): number | null => {
+        const v = vendors.find(x => x.vendorName === vendorName);
+        return v && v.price != null ? Number(v.price) : null;
+    }, [vendors]);
+
     useEffect(() => {
         const loadVendors = async () => {
             setVendorsLoading(true);
@@ -1340,7 +1346,20 @@ export default () => {
                                                                     name={`vendors.${v}.vendorName`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
-                                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                            <Select
+                                                                                onValueChange={(val) => {
+                                                                                    field.onChange(val);
+                                                                                    const price = getVendorPrice(val);
+                                                                                    selectedGroup.items.forEach((_, pi) => {
+                                                                                        threePartyForm.setValue(
+                                                                                            `vendors.${v}.rates.${pi}`,
+                                                                                            price != null ? price : 0,
+                                                                                            { shouldValidate: true }
+                                                                                        );
+                                                                                    });
+                                                                                }}
+                                                                                value={field.value}
+                                                                            >
                                                                                 <FormControl>
                                                                                     <SelectTrigger size="xs" className="w-full h-8 text-xs">
                                                                                         <SelectValue placeholder="Select vendor" />
@@ -1564,7 +1583,18 @@ export default () => {
                                                                     name={`products.${i}.vendorName`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
-                                                                            <Select onValueChange={field.onChange} value={field.value}>
+                                                                            <Select
+                                                                                onValueChange={(val) => {
+                                                                                    field.onChange(val);
+                                                                                    const price = getVendorPrice(val);
+                                                                                    regularForm.setValue(
+                                                                                        `products.${i}.rate`,
+                                                                                        price != null ? price : 0,
+                                                                                        { shouldValidate: true }
+                                                                                    );
+                                                                                }}
+                                                                                value={field.value}
+                                                                            >
                                                                                 <FormControl>
                                                                                     <SelectTrigger size="xs" className="w-full h-8 text-xs">
                                                                                         <SelectValue placeholder="Select vendor" />

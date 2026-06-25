@@ -21,6 +21,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import DataTable from '../element/DataTable';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from '../ui/table';
 import { Pill } from '../ui/pill';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
 
@@ -38,6 +39,7 @@ interface MasterRow {
     pan_number: string | null;
     state: string | null;
     pin_code: string | null;
+    price: number | null;
     createdAt: string | null;
     isActive: boolean;
 }
@@ -262,9 +264,12 @@ export default function MasterData() {
     const [form, setForm] = useState<MasterForm>(emptyForm);
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
+    const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+    const [savingPriceId, setSavingPriceId] = useState<number | null>(null);
+    const [priceSearch, setPriceSearch] = useState('');
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('item');
-    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('productCategory');
+    const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'vendorPrice' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('productCategory');
 
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -372,6 +377,48 @@ export default function MasterData() {
         const vendors = tableData.filter(r => r.vendor_name && r.vendor_name !== 'null');
         return vendorFilter === 'All' ? vendors : vendors.filter(r => r.vendor_name === vendorFilter);
     }, [tableData, vendorFilter]);
+
+    const vendorPriceData = useMemo(() => {
+        const vendors = tableData.filter(r => r.vendor_name && r.vendor_name !== 'null');
+        const q = priceSearch.trim().toLowerCase();
+        const filtered = q
+            ? vendors.filter(r => (r.vendor_name || '').toLowerCase().includes(q))
+            : vendors;
+        return [...filtered].sort((a, b) => (a.vendor_name || '').localeCompare(b.vendor_name || ''));
+    }, [tableData, priceSearch]);
+
+    async function handleSaveVendorPrice(row: MasterRow) {
+        if (isViewOnly) {
+            toast.info('View-only access: you cannot save changes on this page.');
+            return;
+        }
+        const raw = priceDrafts[row.id] ?? (row.price != null ? String(row.price) : '');
+        const trimmed = raw.trim();
+        if (trimmed !== '' && (isNaN(Number(trimmed)) || Number(trimmed) < 0)) {
+            toast.error('Enter a valid non-negative price');
+            return;
+        }
+        setSavingPriceId(row.id);
+        try {
+            const result = await postToSheet(
+                [{ id: row.id, price: trimmed === '' ? null : Number(trimmed) }],
+                'update',
+                'MASTER'
+            );
+            if (!result.success) throw new Error('Failed to update price');
+            toast.success(`Price updated for ${row.vendor_name}`);
+            setPriceDrafts(prev => {
+                const next = { ...prev };
+                delete next[row.id];
+                return next;
+            });
+            fetchData();
+        } catch (err: any) {
+            toast.error(err?.message ?? 'Failed to update price');
+        } finally {
+            setSavingPriceId(null);
+        }
+    }
 
     async function deleteRecord(label: string, action: () => Promise<{ success: boolean; error?: string }>, reload: () => void) {
         if (!window.confirm(`Remove this ${label}?`)) return;
@@ -1612,6 +1659,7 @@ export default function MasterData() {
                             <SelectItem value="transportationTerm">Transportation Term</SelectItem>
                             <SelectItem value="inventory">Inventory Info</SelectItem>
                             <SelectItem value="vendor">Vendor Info</SelectItem>
+                            <SelectItem value="vendorPrice">Vendor Price List</SelectItem>
                             <SelectItem value="firm">Firm Info</SelectItem>
                         </SelectContent>
                     </Select>
@@ -1671,6 +1719,85 @@ export default function MasterData() {
                                 </div>
                             }
                         />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="vendorPrice">
+                    <div className="w-full max-w-full space-y-4">
+                        <div className="flex items-center gap-2">
+                            <Input
+                                placeholder="Search vendor..."
+                                value={priceSearch}
+                                onChange={(e) => setPriceSearch(e.target.value)}
+                                className="h-9 w-full sm:w-[280px]"
+                            />
+                        </div>
+                        <div className="w-full max-w-full overflow-x-auto rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Vendor Name</TableHead>
+                                        <TableHead>Firm Name</TableHead>
+                                        <TableHead className="w-[200px]">Price</TableHead>
+                                        <TableHead className="w-[120px] text-center">Action</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {dataLoading ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                                                Loading...
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : vendorPriceData.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                                                No vendors found
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        vendorPriceData.map((row) => {
+                                            const draft = priceDrafts[row.id];
+                                            const value = draft !== undefined ? draft : (row.price != null ? String(row.price) : '');
+                                            const isDirty = draft !== undefined && draft !== (row.price != null ? String(row.price) : '');
+                                            return (
+                                                <TableRow key={row.id}>
+                                                    <TableCell>
+                                                        <TruncCell value={row.vendor_name} width={200} />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <TruncCell value={row.firm_name} width={160} />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            inputMode="decimal"
+                                                            placeholder="Enter price"
+                                                            value={value}
+                                                            disabled={isViewOnly}
+                                                            onChange={(e) => setPriceDrafts(prev => ({ ...prev, [row.id]: e.target.value }))}
+                                                            className="h-9 w-[160px]"
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8"
+                                                            disabled={isViewOnly || !isDirty || savingPriceId === row.id}
+                                                            onClick={() => handleSaveVendorPrice(row)}
+                                                        >
+                                                            {savingPriceId === row.id ? 'Saving...' : 'Save'}
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
                     </div>
                 </TabsContent>
 

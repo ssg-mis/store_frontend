@@ -180,6 +180,14 @@ const routes: RouteAttributes[] = [
         notifications: () => 0,
     },
     {
+        path: 'quotation',
+        gateKey: 'quotation',
+        name: 'Quotation',
+        icon: <ClipboardList size={20} />,
+        element: <Quotation />,
+        notifications: () => 0,
+    },
+    {
         path: 'vendor-rate-update',
         gateKey: 'updateVendorView',
         name: 'Vendor Rate Update',
@@ -303,14 +311,6 @@ const routes: RouteAttributes[] = [
             });
             return pendingIndents.size;
         },
-    },
-    {
-        path: 'quotation',
-        gateKey: 'quotation',
-        name: 'Quotation',
-        icon: <ClipboardList size={20} />,
-        element: <Quotation />,
-        notifications: () => 0,
     },
     {
         path: 'master-data',

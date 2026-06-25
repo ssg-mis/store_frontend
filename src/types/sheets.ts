@@ -182,6 +182,7 @@ export type Vendor = {
     gstin: string;
     address: string;
     email: string;
+    price: number | null;
 };
 
 export type MasterDataRow = {

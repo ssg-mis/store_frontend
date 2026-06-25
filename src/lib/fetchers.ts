@@ -675,6 +675,7 @@ export async function fetchVendors() {
                     gstin: row.vendor_gstin || '',
                     address: row.vendor_address || '',
                     email: row.vendor_email || '',
+                    price: row.price != null ? Number(row.price) : null,
                 });
             }
         });
