@@ -11,7 +11,7 @@ import {
     DialogHeader,
     DialogFooter,
 } from '../ui/dialog';
-import { postToSheet, uploadFile, fetchVendors, fetchFromSupabasePaginated, fetchIndentMasterData, fetchPaymentTerms } from '@/lib/fetchers';
+import { postToSheet, uploadFile, fetchVendors, fetchFromSupabasePaginated, fetchIndentMasterData, fetchPaymentTerms, fetchVendorProductPrices, type VendorProductPriceRow } from '@/lib/fetchers';
 import { z } from 'zod';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -125,6 +125,7 @@ export default () => {
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
     const [vendors, setVendors] = useState<any[]>([]);
     const [vendorsLoading, setVendorsLoading] = useState(true);
+    const [vendorProductPrices, setVendorProductPrices] = useState<VendorProductPriceRow[]>([]);
     // Payment terms now come from the Payment Term master tab (not a hardcoded list).
     const [PAYMENT_TERMS, setPaymentTerms] = useState<string[]>([]);
 
@@ -169,11 +170,19 @@ export default () => {
         setVendors(vendorsList);
     };
 
-    // Look up a vendor's master price by name (null if not set)
-    const getVendorPrice = useCallback((vendorName: string): number | null => {
-        const v = vendors.find(x => x.vendorName === vendorName);
-        return v && v.price != null ? Number(v.price) : null;
-    }, [vendors]);
+    useEffect(() => {
+        fetchVendorProductPrices().then(setVendorProductPrices);
+    }, []);
+
+    // Look up a vendor's price for a specific product from the Vendor Price List (null if not set)
+    const getVendorPrice = useCallback((vendorName: string, productName: string): number | null => {
+        const v = (vendorName || '').trim().toLowerCase();
+        const p = (productName || '').trim().toLowerCase();
+        const match = vendorProductPrices.find(r =>
+            (r.vendorName || '').trim().toLowerCase() === v &&
+            (r.productName || '').trim().toLowerCase() === p);
+        return match && match.price != null ? Number(match.price) : null;
+    }, [vendorProductPrices]);
 
     useEffect(() => {
         const loadVendors = async () => {
@@ -1349,8 +1358,8 @@ export default () => {
                                                                             <Select
                                                                                 onValueChange={(val) => {
                                                                                     field.onChange(val);
-                                                                                    const price = getVendorPrice(val);
-                                                                                    selectedGroup.items.forEach((_, pi) => {
+                                                                                    selectedGroup.items.forEach((prod, pi) => {
+                                                                                        const price = getVendorPrice(val, prod.product);
                                                                                         threePartyForm.setValue(
                                                                                             `vendors.${v}.rates.${pi}`,
                                                                                             price != null ? price : 0,
@@ -1586,7 +1595,7 @@ export default () => {
                                                                             <Select
                                                                                 onValueChange={(val) => {
                                                                                     field.onChange(val);
-                                                                                    const price = getVendorPrice(val);
+                                                                                    const price = getVendorPrice(val, selectedGroup.items[i]?.product || '');
                                                                                     regularForm.setValue(
                                                                                         `products.${i}.rate`,
                                                                                         price != null ? price : 0,

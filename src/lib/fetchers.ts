@@ -782,6 +782,97 @@ export async function fetchUOMs() {
     }
 }
 
+export interface VendorProductPriceRow {
+    id: number;
+    vendorId: number | null;
+    vendorName: string | null;
+    productName: string | null;
+    uom: string | null;
+    price: number | null;
+    validFrom?: string | null;
+    validUpto?: string | null;
+    createdAt?: string | null;
+}
+
+export async function fetchVendorProductPrices(): Promise<VendorProductPriceRow[]> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/vendor-product-prices`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching vendor product prices:', error);
+        return [];
+    }
+}
+
+export async function postVendorProductPrice(row: {
+    vendorId?: number | null;
+    vendorName: string;
+    productName: string;
+    uom?: string | null;
+    price?: number | null;
+    validFrom?: string | null;
+    validUpto?: string | null;
+}) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/vendor-product-prices`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(row),
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create vendor product price');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error creating vendor product price:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function putVendorProductPrice(id: number, row: {
+    vendorId?: number | null;
+    vendorName: string;
+    productName: string;
+    uom?: string | null;
+    price?: number | null;
+    validFrom?: string | null;
+    validUpto?: string | null;
+}) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/vendor-product-prices/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(row),
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update vendor product price');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating vendor product price:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteVendorProductPrice(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/vendor-product-prices/${id}`, {
+            method: 'DELETE',
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete vendor product price');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting vendor product price:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function postToUOM(
     uomName: string,
     isActive: boolean = true,

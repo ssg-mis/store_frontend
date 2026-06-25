@@ -2,7 +2,7 @@ import { Database, Plus, Pencil, Trash2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
-import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, fetchSpecifications, postSpecification, updateSpecification, deleteSpecification, fetchPaymentTerms, postPaymentTerm, updatePaymentTerm, deletePaymentTerm, fetchDeliveryTerms, postDeliveryTerm, updateDeliveryTerm, deleteDeliveryTerm, fetchTransportationTerms, postTransportationTerm, updateTransportationTerm, deleteTransportationTerm, type ProductSubCategoryRow } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, fetchSpecifications, postSpecification, updateSpecification, deleteSpecification, fetchPaymentTerms, postPaymentTerm, updatePaymentTerm, deletePaymentTerm, fetchDeliveryTerms, postDeliveryTerm, updateDeliveryTerm, deleteDeliveryTerm, fetchTransportationTerms, postTransportationTerm, updateTransportationTerm, deleteTransportationTerm, fetchVendorProductPrices, postVendorProductPrice, putVendorProductPrice, deleteVendorProductPrice, type ProductSubCategoryRow, type VendorProductPriceRow } from '@/lib/fetchers';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -264,9 +264,18 @@ export default function MasterData() {
     const [form, setForm] = useState<MasterForm>(emptyForm);
     const [submitting, setSubmitting] = useState(false);
     const [vendorFilter, setVendorFilter] = useState('All');
-    const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
-    const [savingPriceId, setSavingPriceId] = useState<number | null>(null);
     const [priceSearch, setPriceSearch] = useState('');
+    // Vendor Price List (per-product prices per vendor)
+    const [vppData, setVppData] = useState<VendorProductPriceRow[]>([]);
+    const [vppDialogOpen, setVppDialogOpen] = useState(false);
+    const [vppSubmitting, setVppSubmitting] = useState(false);
+    const [vppEditingId, setVppEditingId] = useState<number | null>(null);
+    const [vppVendor, setVppVendor] = useState<{ id: number; name: string } | null>(null);
+    const [vppValidFrom, setVppValidFrom] = useState<string>('');
+    const [vppValidUpto, setVppValidUpto] = useState<string>('');
+    const [vppItems, setVppItems] = useState<{ productName: string; uom: string; price: string }[]>([
+        { productName: '', uom: '', price: '' },
+    ]);
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('item');
     const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'vendorPrice' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('productCategory');
@@ -378,45 +387,176 @@ export default function MasterData() {
         return vendorFilter === 'All' ? vendors : vendors.filter(r => r.vendor_name === vendorFilter);
     }, [tableData, vendorFilter]);
 
+    // Unique vendors (id + name) from the vendor master for the price-list dropdown
+    const vendorOptions = useMemo(() => {
+        const map = new Map<string, { id: number; name: string }>();
+        tableData.forEach(r => {
+            const name = (r.vendor_name || '').trim();
+            if (name && name !== 'null' && !map.has(name)) {
+                map.set(name, { id: r.id, name });
+            }
+        });
+        return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }, [tableData]);
+
+    // Unique inventory product names for the item dropdown
+    const productOptions = useMemo(() => {
+        const map = new Map<string, { name: string; uom: string }>();
+        inventoryTableData.forEach((r: any) => {
+            const name = (r.itemName || '').trim();
+            if (name && !map.has(name)) map.set(name, { name, uom: r.uom || '' });
+        });
+        return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }, [inventoryTableData]);
+
     const vendorPriceData = useMemo(() => {
-        const vendors = tableData.filter(r => r.vendor_name && r.vendor_name !== 'null');
         const q = priceSearch.trim().toLowerCase();
         const filtered = q
-            ? vendors.filter(r => (r.vendor_name || '').toLowerCase().includes(q))
-            : vendors;
-        return [...filtered].sort((a, b) => (a.vendor_name || '').localeCompare(b.vendor_name || ''));
-    }, [tableData, priceSearch]);
+            ? vppData.filter(r =>
+                (r.vendorName || '').toLowerCase().includes(q) ||
+                (r.productName || '').toLowerCase().includes(q))
+            : vppData;
+        return [...filtered].sort((a, b) =>
+            (a.vendorName || '').localeCompare(b.vendorName || '') ||
+            (a.productName || '').localeCompare(b.productName || ''));
+    }, [vppData, priceSearch]);
 
-    async function handleSaveVendorPrice(row: MasterRow) {
+    async function loadVendorProductPrices() {
+        const data = await fetchVendorProductPrices();
+        setVppData(data || []);
+    }
+
+    function openVppDialog() {
+        setVppEditingId(null);
+        setVppVendor(null);
+        setVppValidFrom('');
+        setVppValidUpto('');
+        setVppItems([{ productName: '', uom: '', price: '' }]);
+        setVppDialogOpen(true);
+    }
+
+    function openVppEditDialog(row: VendorProductPriceRow) {
+        setVppEditingId(row.id);
+        const vendor = vendorOptions.find(v => v.name === row.vendorName) || vendorOptions.find(v => v.id === row.vendorId);
+        setVppVendor(vendor ? { id: vendor.id, name: vendor.name } : null);
+        setVppValidFrom(row.validFrom ? new Date(row.validFrom).toISOString().split('T')[0] : '');
+        setVppValidUpto(row.validUpto ? new Date(row.validUpto).toISOString().split('T')[0] : '');
+        setVppItems([{ 
+            productName: row.productName || '', 
+            uom: row.uom || '', 
+            price: row.price != null ? String(row.price) : '' 
+        }]);
+        setVppDialogOpen(true);
+    }
+
+    function addVppItem() {
+        setVppItems(prev => [...prev, { productName: '', uom: '', price: '' }]);
+    }
+
+    function removeVppItem(index: number) {
+        setVppItems(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index));
+    }
+
+    function updateVppItem(index: number, key: 'productName' | 'uom' | 'price', value: string) {
+        setVppItems(prev => prev.map((item, i) => {
+            if (i !== index) return item;
+            const next = { ...item, [key]: value };
+            // Auto-fill UOM from the selected product (still editable)
+            if (key === 'productName') {
+                const prod = productOptions.find(p => p.name === value);
+                if (prod) next.uom = prod.uom;
+            }
+            return next;
+        }));
+    }
+
+    async function handleVppSubmit() {
         if (isViewOnly) {
             toast.info('View-only access: you cannot save changes on this page.');
             return;
         }
-        const raw = priceDrafts[row.id] ?? (row.price != null ? String(row.price) : '');
-        const trimmed = raw.trim();
-        if (trimmed !== '' && (isNaN(Number(trimmed)) || Number(trimmed) < 0)) {
-            toast.error('Enter a valid non-negative price');
+        if (!vppVendor) {
+            toast.error('Select a vendor');
             return;
         }
-        setSavingPriceId(row.id);
+        const rows = vppItems.filter(it => it.productName.trim());
+        if (rows.length === 0) {
+            toast.error('Select at least one item');
+            return;
+        }
+        for (const it of rows) {
+            if (it.price.trim() !== '' && (isNaN(Number(it.price)) || Number(it.price) < 0)) {
+                toast.error(`Enter a valid price for ${it.productName}`);
+                return;
+            }
+        }
+        setVppSubmitting(true);
         try {
-            const result = await postToSheet(
-                [{ id: row.id, price: trimmed === '' ? null : Number(trimmed) }],
-                'update',
-                'MASTER'
-            );
-            if (!result.success) throw new Error('Failed to update price');
-            toast.success(`Price updated for ${row.vendor_name}`);
-            setPriceDrafts(prev => {
-                const next = { ...prev };
-                delete next[row.id];
-                return next;
-            });
-            fetchData();
+            if (vppEditingId !== null) {
+                const first = rows[0];
+                const res = await putVendorProductPrice(vppEditingId, {
+                    vendorId: vppVendor.id,
+                    vendorName: vppVendor.name,
+                    productName: first.productName.trim(),
+                    uom: first.uom.trim() || null,
+                    price: first.price.trim() === '' ? null : Number(first.price),
+                    validFrom: vppValidFrom || null,
+                    validUpto: vppValidUpto || null,
+                });
+                if (!res.success) throw new Error(res.error || 'Failed to update item');
+                
+                if (rows.length > 1) {
+                    const extraRows = rows.slice(1);
+                    const results = await Promise.all(extraRows.map(it =>
+                        postVendorProductPrice({
+                            vendorId: vppVendor.id,
+                            vendorName: vppVendor.name,
+                            productName: it.productName.trim(),
+                            uom: it.uom.trim() || null,
+                            price: it.price.trim() === '' ? null : Number(it.price),
+                            validFrom: vppValidFrom || null,
+                            validUpto: vppValidUpto || null,
+                        })
+                    ));
+                    if (results.some(r => !r.success)) throw new Error('Failed to save additional items');
+                }
+                toast.success(`Updated price for ${vppVendor.name}${rows.length > 1 ? ' and added extra items' : ''}`);
+            } else {
+                const results = await Promise.all(rows.map(it =>
+                    postVendorProductPrice({
+                        vendorId: vppVendor.id,
+                        vendorName: vppVendor.name,
+                        productName: it.productName.trim(),
+                        uom: it.uom.trim() || null,
+                        price: it.price.trim() === '' ? null : Number(it.price),
+                        validFrom: vppValidFrom || null,
+                        validUpto: vppValidUpto || null,
+                    })
+                ));
+                if (results.some(r => !r.success)) throw new Error('Failed to save some items');
+                toast.success(`Added ${rows.length} price${rows.length > 1 ? 's' : ''} for ${vppVendor.name}`);
+            }
+            setVppDialogOpen(false);
+            loadVendorProductPrices();
         } catch (err: any) {
-            toast.error(err?.message ?? 'Failed to update price');
+            toast.error(err?.message ?? 'Failed to save vendor prices');
         } finally {
-            setSavingPriceId(null);
+            setVppSubmitting(false);
+        }
+    }
+
+    async function handleDeleteVpp(row: VendorProductPriceRow) {
+        if (isViewOnly) {
+            toast.info('View-only access: you cannot delete on this page.');
+            return;
+        }
+        if (!window.confirm(`Remove price for ${row.productName} (${row.vendorName})?`)) return;
+        const result = await deleteVendorProductPrice(row.id);
+        if (result.success) {
+            toast.success('Price removed');
+            loadVendorProductPrices();
+        } else {
+            toast.error(result.error || 'Failed to remove price');
         }
     }
 
@@ -1104,6 +1244,7 @@ export default function MasterData() {
         loadPaymentTerms();
         loadDeliveryTerms();
         loadTransportationTerms();
+        loadVendorProductPrices();
     }, []);
 
     /* reset form when sheet closes */
@@ -1724,76 +1865,79 @@ export default function MasterData() {
 
                 <TabsContent value="vendorPrice">
                     <div className="w-full max-w-full space-y-4">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                             <Input
-                                placeholder="Search vendor..."
+                                placeholder="Search vendor or product..."
                                 value={priceSearch}
                                 onChange={(e) => setPriceSearch(e.target.value)}
                                 className="h-9 w-full sm:w-[280px]"
                             />
+                            <Button className="h-9 shrink-0 whitespace-nowrap" onClick={openVppDialog}>
+                                <Plus className="mr-2 h-4 w-4" />
+                                Add Vendor Price List
+                            </Button>
                         </div>
                         <div className="w-full max-w-full overflow-x-auto rounded-md border">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Vendor Name</TableHead>
-                                        <TableHead>Firm Name</TableHead>
-                                        <TableHead className="w-[200px]">Price</TableHead>
-                                        <TableHead className="w-[120px] text-center">Action</TableHead>
+                                        <TableHead>Product Name</TableHead>
+                                        <TableHead className="w-[100px]">UOM</TableHead>
+                                        <TableHead className="w-[100px]">Price</TableHead>
+                                        <TableHead className="w-[120px]">Valid From</TableHead>
+                                        <TableHead className="w-[120px]">Valid Upto</TableHead>
+                                        <TableHead className="w-[80px] text-center">Action</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {dataLoading ? (
                                         <TableRow>
-                                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                                            <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                                 Loading...
                                             </TableCell>
                                         </TableRow>
                                     ) : vendorPriceData.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                                                No vendors found
+                                            <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                No vendor prices added yet
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        vendorPriceData.map((row) => {
-                                            const draft = priceDrafts[row.id];
-                                            const value = draft !== undefined ? draft : (row.price != null ? String(row.price) : '');
-                                            const isDirty = draft !== undefined && draft !== (row.price != null ? String(row.price) : '');
-                                            return (
-                                                <TableRow key={row.id}>
-                                                    <TableCell>
-                                                        <TruncCell value={row.vendor_name} width={200} />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <TruncCell value={row.firm_name} width={160} />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Input
-                                                            type="number"
-                                                            min="0"
-                                                            step="0.01"
-                                                            inputMode="decimal"
-                                                            placeholder="Enter price"
-                                                            value={value}
-                                                            disabled={isViewOnly}
-                                                            onChange={(e) => setPriceDrafts(prev => ({ ...prev, [row.id]: e.target.value }))}
-                                                            className="h-9 w-[160px]"
-                                                        />
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
+                                        vendorPriceData.map((row) => (
+                                            <TableRow key={row.id}>
+                                                <TableCell><TruncCell value={row.vendorName} width={200} /></TableCell>
+                                                <TableCell><TruncCell value={row.productName} width={200} /></TableCell>
+                                                <TableCell><TruncCell value={row.uom} width={80} /></TableCell>
+                                                <TableCell>{row.price != null ? row.price : <span className="text-muted-foreground">—</span>}</TableCell>
+                                                <TableCell>{row.validFrom ? new Date(row.validFrom).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>
+                                                <TableCell>{row.validUpto ? new Date(row.validUpto).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>
+                                                <TableCell className="text-center">
+                                                    <div className="flex items-center justify-center gap-1">
                                                         <Button
-                                                            size="sm"
-                                                            className="h-8"
-                                                            disabled={isViewOnly || !isDirty || savingPriceId === row.id}
-                                                            onClick={() => handleSaveVendorPrice(row)}
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-7 w-7 text-primary hover:text-primary"
+                                                            title="Edit"
+                                                            disabled={isViewOnly}
+                                                            onClick={() => openVppEditDialog(row)}
                                                         >
-                                                            {savingPriceId === row.id ? 'Saving...' : 'Save'}
+                                                            <Pencil className="h-3.5 w-3.5" />
                                                         </Button>
-                                                    </TableCell>
-                                                </TableRow>
-                                            );
-                                        })
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-7 w-7 text-destructive hover:text-destructive"
+                                                            title="Remove"
+                                                            disabled={isViewOnly}
+                                                            onClick={() => handleDeleteVpp(row)}
+                                                        >
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
                                     )}
                                 </TableBody>
                             </Table>
@@ -2005,6 +2149,149 @@ export default function MasterData() {
                 </TabsContent>
 
             </Tabs>
+
+            {/* ── Add Vendor Price List Dialog ── */}
+            <Dialog open={vppDialogOpen} onOpenChange={setVppDialogOpen}>
+                <DialogContent className="w-full max-w-4xl sm:max-w-4xl max-h-[85vh] min-h-0 overflow-hidden flex flex-col">
+                    <DialogHeader className="shrink-0 pb-3 border-b">
+                        <DialogTitle>{vppEditingId ? 'Edit Vendor Price List' : 'Add Vendor Price List'}</DialogTitle>
+                        <DialogDescription>{vppEditingId ? 'Edit the item price, UOM, and validity.' : 'Select a vendor, then add items with their price and UOM.'}</DialogDescription>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-y-auto py-4 space-y-4">
+                        {/* Vendor dropdown */}
+                        <div className="flex flex-col gap-1.5">
+                            <Label className="text-sm font-medium">Vendor <span className="text-destructive">*</span></Label>
+                            <Select
+                                value={vppVendor ? String(vppVendor.id) : ''}
+                                onValueChange={(val) => {
+                                    const v = vendorOptions.find(o => String(o.id) === val);
+                                    setVppVendor(v || null);
+                                }}
+                            >
+                                <SelectTrigger className="w-full h-10">
+                                    <SelectValue placeholder="Select vendor" />
+                                </SelectTrigger>
+                                <SearchableSelectContent searchPlaceholder="Search vendor...">
+                                    {vendorOptions.length === 0 ? (
+                                        <div className="py-6 text-center text-sm text-muted-foreground">No vendors available</div>
+                                    ) : (
+                                        vendorOptions.map(v => (
+                                            <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>
+                                        ))
+                                    )}
+                                </SearchableSelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Dates */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-1.5">
+                                <Label className="text-sm font-medium">Valid From</Label>
+                                <Input type="date" value={vppValidFrom} onChange={e => setVppValidFrom(e.target.value)} />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <Label className="text-sm font-medium">Valid Upto</Label>
+                                <Input type="date" value={vppValidUpto} onChange={e => setVppValidUpto(e.target.value)} />
+                            </div>
+                        </div>
+
+                        {/* Items */}
+                        {vppVendor && (
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-sm font-medium">Items</Label>
+                                    <Button type="button" variant="outline" size="sm" className="h-8" onClick={addVppItem}>
+                                        <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Item
+                                    </Button>
+                                </div>
+                                <div className="rounded-md border pb-2">
+                                    <Table containerClassName="pb-1">
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Product <span className="text-destructive">*</span></TableHead>
+                                                <TableHead className="w-[120px]">UOM</TableHead>
+                                                <TableHead className="w-[200px]">Price</TableHead>
+                                                <TableHead className="w-[50px]"></TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {vppItems.map((item, i) => (
+                                                <TableRow key={i}>
+                                                    <TableCell className="min-w-[200px]">
+                                                        <Select value={item.productName} onValueChange={(val) => updateVppItem(i, 'productName', val)}>
+                                                            <SelectTrigger className="w-full h-9 text-sm">
+                                                                <SelectValue placeholder="Select product" />
+                                                            </SelectTrigger>
+                                                            <SearchableSelectContent searchPlaceholder="Search product...">
+                                                                {productOptions.length === 0 ? (
+                                                                    <div className="py-6 text-center text-sm text-muted-foreground">No products available</div>
+                                                                ) : (
+                                                                    productOptions.map(p => (
+                                                                        <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
+                                                                    ))
+                                                                )}
+                                                            </SearchableSelectContent>
+                                                        </Select>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Select value={item.uom} onValueChange={(val) => updateVppItem(i, 'uom', val)}>
+                                                            <SelectTrigger className="w-full h-9 text-sm">
+                                                                <SelectValue placeholder="UOM" />
+                                                            </SelectTrigger>
+                                                            <SearchableSelectContent searchPlaceholder="Search UOM...">
+                                                                {uoms.length === 0 ? (
+                                                                    <div className="py-6 text-center text-sm text-muted-foreground">No UOMs available</div>
+                                                                ) : (
+                                                                    uoms.filter(u => u.isActive !== false).map(u => (
+                                                                        <SelectItem key={u.uom_id} value={u.uom_name}>{u.uom_name}</SelectItem>
+                                                                    ))
+                                                                )}
+                                                            </SearchableSelectContent>
+                                                        </Select>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            inputMode="decimal"
+                                                            placeholder="Price"
+                                                            value={item.price}
+                                                            onChange={(e) => updateVppItem(i, 'price', e.target.value)}
+                                                            className="h-9 text-sm"
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-7 w-7 text-destructive hover:text-destructive disabled:opacity-30"
+                                                            title="Remove item"
+                                                            disabled={vppItems.length <= 1}
+                                                            onClick={() => removeVppItem(i)}
+                                                        >
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="shrink-0 flex justify-end gap-2 pt-3 border-t">
+                        <Button variant="outline" onClick={() => setVppDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={handleVppSubmit} disabled={vppSubmitting || !vppVendor}>
+                            {vppSubmitting ? 'Saving...' : 'Save'}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* ── Add Dialog ── */}
             <Dialog open={sheetOpen} onOpenChange={handleAddDialogOpenChange}>

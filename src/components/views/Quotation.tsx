@@ -12,7 +12,7 @@ import { useFieldArray, useForm, type Control, type FieldValues } from 'react-ho
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet, QuotationHistorySheet, MasterDataRow } from '@/types';
-import { postToSheet, uploadFile, fetchSheet } from '@/lib/fetchers';
+import { postToSheet, uploadFile, fetchSheet, fetchFirms } from '@/lib/fetchers';
 import { useEffect, useMemo, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -121,6 +121,34 @@ export default function QuotationPage() {
   const [allHistory, setAllHistory] = useState<QuotationHistorySheet[]>([]);
   const [selectedQuotationNo, setSelectedQuotationNo] = useState<string>('');
   const [fullMasterData, setFullMasterData] = useState<MasterDataRow[]>([]);
+  const [firms, setFirms] = useState<any[]>([]);
+  const [selectedFirmId, setSelectedFirmId] = useState<string>('');
+
+  // Load firms (companies) so the user can switch which company the quotation is from
+  useEffect(() => {
+    fetchFirms().then((data: any[]) => setFirms(Array.isArray(data) ? data.filter(f => f.isActive !== false) : []));
+  }, []);
+
+  // The active company: a selected firm overrides the default masterSheet company details
+  const company = useMemo(() => {
+    const firm = firms.find(f => String(f.firm_id) === selectedFirmId);
+    if (firm) {
+      return {
+        name: firm.firm_name || '',
+        address: firm.firm_address || '',
+        phone: firm.mobile || '',
+        gstin: firm.firm_gstin || '',
+        pan: firm.pan_number || '',
+      };
+    }
+    return {
+      name: details?.companyName || '',
+      address: details?.companyAddress || '',
+      phone: details?.companyPhone || '',
+      gstin: details?.companyGstin || '',
+      pan: details?.companyPan || '',
+    };
+  }, [firms, selectedFirmId, details]);
 
 
 
@@ -440,11 +468,11 @@ export default function QuotationPage() {
         const uniqueQuotationNumber = `QT-${String(currentMaxNumber).padStart(3, '0')}`;
 
         const pdfProps: POPdfProps = {
-          companyName: details?.companyName || '',
-          companyPhone: details?.companyPhone || '',
-          companyGstin: details?.companyGstin || '',
-          companyPan: details?.companyPan || '',
-          companyAddress: details?.companyAddress || '',
+          companyName: company.name,
+          companyPhone: company.phone,
+          companyGstin: company.gstin,
+          companyPan: company.pan,
+          companyAddress: company.address,
           billingAddress: billingAddress,
           destinationAddress: destinationAddress,
           supplierName: supplierInfo.name,
@@ -569,13 +597,35 @@ export default function QuotationPage() {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit, onError)} className="flex flex-col items-center">
               <div className="space-y-4 p-4 w-full bg-white shadow-md rounded-sm mt-4">
-                <div className="flex items-center justify-center gap-4 bg-blue-50 p-4 rounded">
-                  <img src="/logo.png" alt="Company Logo" className="w-20 h-20 object-contain" />
-                  <div className="text-center">
-                    <h1 className="text-2xl font-bold">{details?.companyName}</h1>
-                    <div>
-                      <p className="text-sm">{details?.companyAddress}</p>
-                      <p className="text-sm">Phone No: +{details?.companyPhone}</p>
+                <div className="flex flex-col gap-3 bg-blue-50 p-4 rounded">
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">Company</span>
+                    <Select value={selectedFirmId} onValueChange={setSelectedFirmId}>
+                      <SelectTrigger size="sm" className="w-[240px] bg-white">
+                        <SelectValue placeholder="Default company" />
+                      </SelectTrigger>
+                      <SelectContent className="z-[150] max-h-[300px]">
+                        {details?.companyName && (
+                          <SelectItem value="default">{details.companyName} (Default)</SelectItem>
+                        )}
+                        {firms.length === 0 ? (
+                          <SelectItem value="no-firms" disabled>No companies found</SelectItem>
+                        ) : (
+                          firms.map((f) => (
+                            <SelectItem key={f.firm_id} value={String(f.firm_id)}>{f.firm_name}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-center gap-4">
+                    <img src="/logo.png" alt="Company Logo" className="w-20 h-20 object-contain" />
+                    <div className="text-center">
+                      <h1 className="text-2xl font-bold">{company.name}</h1>
+                      <div>
+                        <p className="text-sm">{company.address}</p>
+                        <p className="text-sm">Phone No: +{company.phone}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -722,10 +772,10 @@ export default function QuotationPage() {
                     </CardHeader>
                     <CardContent className="p-5 text-sm">
                       <p>
-                        <span className="font-medium">GSTIN</span> {details?.companyGstin}
+                        <span className="font-medium">GSTIN</span> {company.gstin}
                       </p>
                       <p>
-                        <span className="font-medium">Pan No.</span> {details?.companyPan}
+                        <span className="font-medium">Pan No.</span> {company.pan}
                       </p>
                     </CardContent>
                   </Card>
@@ -744,7 +794,7 @@ export default function QuotationPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-5 text-sm">
-                      <p>M/S {details?.companyName}</p>
+                      <p>M/S {company.name}</p>
                       {isEditingBilling ? (
                         <div className="flex items-center gap-2 mt-1">
                           <Input
@@ -790,7 +840,7 @@ export default function QuotationPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-5 text-sm">
-                      <p>M/S {details?.companyName}</p>
+                      <p>M/S {company.name}</p>
                       {isEditingDestination ? (
                         <div className="flex items-center gap-2 mt-1">
                           <Input
