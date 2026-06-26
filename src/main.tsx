@@ -182,7 +182,7 @@ const routes: RouteAttributes[] = [
     {
         path: 'quotation',
         gateKey: 'quotation',
-        name: 'Request of Quotation',
+        name: 'Request for Quotation',
         icon: <ClipboardList size={20} />,
         element: <Quotation />,
         notifications: () => 0,
