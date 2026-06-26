@@ -359,8 +359,9 @@ export default function QuotationPage() {
           };
         });
 
-        // Unique indents from these records
-        const uniqueIndents = Array.from(new Set(historyRecords.map(h => (h as any).indent?.indentNumber || h.indentNo)));
+        // Unique indents from these records — keyed by unique indent id, not the
+        // (possibly duplicated) internal code, so revise restores the exact rows.
+        const uniqueIndents = Array.from(new Set(historyRecords.map(h => String(h.indent_id))));
 
         setSelectedItems(uniqueIndents);
 
@@ -384,13 +385,14 @@ export default function QuotationPage() {
   }, [selectedQuotationNo, mode, allHistory, masterSuppliers]);
 
 
-  // Handle checkbox selection
-  const handleItemSelection = (indentNumber: string, checked: boolean) => {
+  // Handle checkbox selection — selection is keyed by the unique indent id so two
+  // indents that share the same internal code are never selected together.
+  const handleItemSelection = (id: string, checked: boolean) => {
     setSelectedItems(prev => {
       if (checked) {
-        return [...prev, indentNumber];
+        return [...prev, id];
       } else {
-        return prev.filter(item => item !== indentNumber);
+        return prev.filter(item => item !== id);
       }
     });
   };
@@ -399,8 +401,8 @@ export default function QuotationPage() {
   // Handle select all checkbox
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const allIndentNumbers = eligibleItems.map(item => item.indentNumber);
-      setSelectedItems(allIndentNumbers);
+      const allIds = eligibleItems.map(item => String(item.id));
+      setSelectedItems(allIds);
     } else {
       setSelectedItems([]);
     }
@@ -437,7 +439,7 @@ export default function QuotationPage() {
       }
 
       const selectedItemsData = eligibleItems.filter(item =>
-        selectedItems.includes(item.indentNumber)
+        selectedItems.includes(String(item.id))
       );
 
       const logoResponse = await fetch('/logo.png');
@@ -894,8 +896,8 @@ export default function QuotationPage() {
                 <hr />
 
                 {/* Table with checkboxes and Unit column */}
-                <div className="mx-4 grid">
-                  <div className="grid overflow-hidden">
+                <div className="mx-4">
+                  <div className="border rounded-md max-h-[420px] overflow-auto">
                     <Table containerClassName="overflow-visible">
                       <TableHeader>
                         <TableRow>
@@ -925,12 +927,12 @@ export default function QuotationPage() {
                           </TableRow>
                         ) : (
                           eligibleItems.map((item, index) => (
-                            <TableRow key={item.indentNumber}>
+                            <TableRow key={item.id}>
                               <TableCell>
                                 <Checkbox
-                                  checked={selectedItems.includes(item.indentNumber)}
+                                  checked={selectedItems.includes(String(item.id))}
                                   onCheckedChange={(checked) =>
-                                    handleItemSelection(item.indentNumber, checked as boolean)
+                                    handleItemSelection(String(item.id), checked as boolean)
                                   }
                                 />
                               </TableCell>
