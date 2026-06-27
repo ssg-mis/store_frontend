@@ -3,7 +3,7 @@ import Heading from '../element/Heading';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '@/lib/utils';
-import { fetchPOApprovals, approvePO, rejectPO, fetchVendors, fetchFirms, uploadFile, fetchPurchaseHistory, type PurchaseHistoryRow } from '@/lib/fetchers';
+import { fetchPOApprovals, approvePO, rejectPO, fetchVendors, fetchFirms, uploadFile, fetchPurchaseHistory, fetchIndentHistory, type PurchaseHistoryRow } from '@/lib/fetchers';
 import { useSheets } from '@/context/SheetsContext';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
@@ -112,6 +112,10 @@ export default function ApprovalPO() {
     const [historyData, setHistoryData] = useState<PurchaseHistoryRow[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
 
+    const [historyIndentNumber, setHistoryIndentNumber] = useState<string | null>(null);
+    const [historyIndentData, setHistoryIndentData] = useState<any[]>([]);
+    const [historyIndentLoading, setHistoryIndentLoading] = useState(false);
+
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
@@ -143,6 +147,14 @@ export default function ApprovalPO() {
             .then(setHistoryData)
             .finally(() => setHistoryLoading(false));
     }, [historyProduct]);
+
+    useEffect(() => {
+        if (!historyIndentNumber) return;
+        setHistoryIndentLoading(true);
+        fetchIndentHistory(historyIndentNumber)
+            .then(setHistoryIndentData)
+            .finally(() => setHistoryIndentLoading(false));
+    }, [historyIndentNumber]);
 
     // Regenerate the PO copy from ALL of this PO's live line items, so the PDF
     // always matches what's shown in the modal — instead of relying on the single
@@ -531,36 +543,56 @@ export default function ApprovalPO() {
                                 <TableHead className="text-xs">Rate</TableHead>
                                 <TableHead className="text-xs">Discount</TableHead>
                                 <TableHead className="text-xs">GST</TableHead>
+                                <TableHead className="text-xs">Amount (excl. GST)</TableHead>
                                 <TableHead className="text-xs">Amount</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {viewGroup?.items.map((item, idx) => (
-                                <TableRow key={item.id}>
-                                    <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                                    <TableCell className="text-xs">{item.internalCode || '—'}</TableCell>
-                                    <TableCell className="text-xs">
-                                        <button
-                                            type="button"
-                                            className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
-                                            onClick={(e) => { e.stopPropagation(); setHistoryProduct(item.product); setHistoryData([]); }}
-                                        >
-                                            {item.product}
-                                            <History className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                        </button>
-                                    </TableCell>
-                                    <TableCell className="text-xs">{item.quantity}</TableCell>
-                                    <TableCell className="text-xs">{item.unit}</TableCell>
-                                    <TableCell className="text-xs">&#8377;{Number(item.rate || 0).toLocaleString()}</TableCell>
-                                    <TableCell className="text-xs">
-                                        {item.discountPercent ? `${item.discountPercent}%` : '—'}
-                                    </TableCell>
-                                    <TableCell className="text-xs">
-                                        {item.gstPercent !== undefined && item.gstPercent !== null ? `${item.gstPercent}%` : '—'}
-                                    </TableCell>
-                                    <TableCell className="text-xs font-semibold">&#8377;{Number(item.amount || 0).toLocaleString()}</TableCell>
-                                </TableRow>
-                            ))}
+                            {viewGroup?.items.map((item, idx) => {
+                                const rate = Number(item.rate || 0);
+                                const qty = Number(item.quantity || 0);
+                                const discount = Number(item.discountPercent || 0);
+                                const exclGst = (rate * qty) * (1 - discount / 100);
+
+                                return (
+                                    <TableRow key={item.id}>
+                                        <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                        <TableCell className="text-xs">
+                                            {item.internalCode ? (
+                                                <button
+                                                    type="button"
+                                                    className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
+                                                    onClick={(e) => { e.stopPropagation(); setHistoryIndentNumber(item.internalCode); setHistoryIndentData([]); }}
+                                                >
+                                                    {item.internalCode}
+                                                    <History className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                                </button>
+                                            ) : '—'}
+                                        </TableCell>
+                                        <TableCell className="text-xs">
+                                            <button
+                                                type="button"
+                                                className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
+                                                onClick={(e) => { e.stopPropagation(); setHistoryProduct(item.product); setHistoryData([]); }}
+                                            >
+                                                {item.product}
+                                                <History className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                            </button>
+                                        </TableCell>
+                                        <TableCell className="text-xs">{item.quantity}</TableCell>
+                                        <TableCell className="text-xs">{item.unit}</TableCell>
+                                        <TableCell className="text-xs">&#8377;{Number(item.rate || 0).toLocaleString()}</TableCell>
+                                        <TableCell className="text-xs">
+                                            {item.discountPercent ? `${item.discountPercent}%` : '—'}
+                                        </TableCell>
+                                        <TableCell className="text-xs">
+                                            {item.gstPercent !== undefined && item.gstPercent !== null ? `${item.gstPercent}%` : '—'}
+                                        </TableCell>
+                                        <TableCell className="text-xs">&#8377;{Number(exclGst.toFixed(2)).toLocaleString()}</TableCell>
+                                        <TableCell className="text-xs font-semibold">&#8377;{Number(item.amount || 0).toLocaleString()}</TableCell>
+                                    </TableRow>
+                                );
+                            })}
                         </TableBody>
                     </Table>
                 </div>
@@ -693,6 +725,141 @@ export default function ApprovalPO() {
                                         </TableCell>
                                     </TableRow>
                                 ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
+
+        {/* ── Indent history dialog ── */}
+        <Dialog open={!!historyIndentNumber} onOpenChange={(open) => { if (!open) { setHistoryIndentNumber(null); setHistoryIndentData([]); } }}>
+            <DialogContent className="max-w-[95vw] sm:max-w-6xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <History className="h-4 w-4" />
+                        Indent History — {historyIndentNumber}
+                        {historyIndentData[0]?.createdAt && (
+                            <span className="text-xs font-normal text-muted-foreground ml-2">
+                                (Requested: {formatDate(new Date(historyIndentData[0].createdAt))})
+                            </span>
+                        )}
+                    </DialogTitle>
+                </DialogHeader>
+
+                {historyIndentLoading ? (
+                    <div className="space-y-2 py-4">
+                        {[...Array(4)].map((_, i) => <div key={i} className="h-9 bg-muted animate-pulse rounded" />)}
+                    </div>
+                ) : historyIndentData.length === 0 ? (
+                    <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+                        No indent details found
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-muted/20">
+                                    <TableHead className="text-xs">#</TableHead>
+                                    <TableHead className="text-xs">Product Name</TableHead>
+                                    <TableHead className="text-xs">Indented Qty</TableHead>
+                                    <TableHead className="text-xs">Approved Qty</TableHead>
+                                    <TableHead className="text-xs">Rate Comparison</TableHead>
+                                    <TableHead className="text-xs">PO Status</TableHead>
+                                    <TableHead className="text-xs">GRN Status</TableHead>
+                                    <TableHead className="text-xs">Issue Status</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {historyIndentData.map((row, idx) => {
+                                    const approved = row.approvedIndents?.[0];
+                                    const threeParty = row.threePartyApproval?.[0];
+                                    const quotes = row.vendorRateUpdates?.[0];
+                                    const poList = row.poMasters || [];
+                                    const grnList = row.received || [];
+                                    const storeOutList = row.storeOutApproval || [];
+
+                                    // Quoted rates text
+                                    const rateQuotes = [];
+                                    if (quotes?.vendorName1) rateQuotes.push(`${quotes.vendorName1}: ₹${quotes.rate1}`);
+                                    if (quotes?.vendorName2) rateQuotes.push(`${quotes.vendorName2}: ₹${quotes.rate2}`);
+                                    if (quotes?.vendorName3) rateQuotes.push(`${quotes.vendorName3}: ₹${quotes.rate3}`);
+                                    const quotesText = rateQuotes.join(', ') || '—';
+
+                                    return (
+                                        <TableRow key={row.id}>
+                                            <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                            <TableCell className="text-xs font-medium whitespace-nowrap">{row.productName}</TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">
+                                                <div>{row.quantity} {row.uom}</div>
+                                                <div className="text-[10px] text-muted-foreground">{row.createdAt ? formatDate(new Date(row.createdAt)) : '—'}</div>
+                                            </TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">
+                                                {approved ? (
+                                                    <>
+                                                        <div>{approved.approvedQuantity} {row.uom}</div>
+                                                        {approved.planned && (
+                                                            <div className="text-[10px] text-muted-foreground">Planned: {formatDate(new Date(approved.planned))}</div>
+                                                        )}
+                                                    </>
+                                                ) : <span className="text-muted-foreground">Pending</span>}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                <div className="text-[10px] text-muted-foreground whitespace-pre-wrap">{quotesText}</div>
+                                                {threeParty && (
+                                                    <div className="font-medium text-emerald-600 mt-0.5 text-[11px]">
+                                                        Selected: {threeParty.approvedVendorName} (₹{threeParty.approvedRate})
+                                                        {threeParty.approvedDate && (
+                                                            <div className="text-[10px] text-muted-foreground font-normal">
+                                                                {formatDate(new Date(threeParty.approvedDate))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {poList.length > 0 ? (
+                                                    <div className="space-y-1">
+                                                        {poList.map((po: any, pIdx: number) => (
+                                                            <div key={pIdx} className="whitespace-nowrap">
+                                                                <div className="font-medium">{po.poNumber} <span className="text-muted-foreground font-normal ml-0.5">({po.quantity} {po.unit})</span></div>
+                                                                <div className="text-[10px] text-muted-foreground">{po.createdAt ? formatDate(new Date(po.createdAt)) : ''}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : <span className="text-muted-foreground">—</span>}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {grnList.length > 0 ? (
+                                                    <div className="space-y-1">
+                                                        {grnList.map((grn: any, gIdx: number) => (
+                                                            <div key={gIdx} className="whitespace-nowrap">
+                                                                <div className="font-medium">{grn.grnNumber || 'GRN'} <span className="text-muted-foreground font-normal ml-0.5">({grn.receivedQuantity} {row.uom})</span></div>
+                                                                <div className="text-[10px] text-muted-foreground">
+                                                                    {grn.createdAt ? formatDate(new Date(grn.createdAt)) : ''}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : <span className="text-muted-foreground">—</span>}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {storeOutList.length > 0 ? (
+                                                    <div className="space-y-1">
+                                                        {storeOutList.map((so: any, sIdx: number) => (
+                                                            <div key={sIdx} className="whitespace-nowrap">
+                                                                <div className="font-medium">{so.issue_status || 'Issued'} <span className="text-muted-foreground font-normal ml-0.5">({so.issued_quantity || 0} {row.uom})</span></div>
+                                                                <div className="text-[10px] text-muted-foreground">
+                                                                    {so.createdAt ? formatDate(new Date(so.createdAt)) : ''}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : <span className="text-muted-foreground">—</span>}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     </div>

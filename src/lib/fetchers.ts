@@ -1578,3 +1578,15 @@ export async function fetchUsers() {
         return [];
     }
 }
+
+export async function fetchIndentHistory(indentNumber: string): Promise<any[]> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/indents/history?indentNumber=${encodeURIComponent(indentNumber)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching indent history:', error);
+        return [];
+    }
+}
+

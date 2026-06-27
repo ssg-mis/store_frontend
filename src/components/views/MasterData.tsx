@@ -271,11 +271,10 @@ export default function MasterData() {
     const [vppSubmitting, setVppSubmitting] = useState(false);
     const [vppEditingId, setVppEditingId] = useState<number | null>(null);
     const [vppVendor, setVppVendor] = useState<{ id: number; name: string } | null>(null);
-    const [vppValidFrom, setVppValidFrom] = useState<string>('');
-    const [vppValidUpto, setVppValidUpto] = useState<string>('');
-    const [vppItems, setVppItems] = useState<{ productName: string; uom: string; price: string }[]>([
-        { productName: '', uom: '', price: '' },
+    const [vppItems, setVppItems] = useState<{ id?: number; productName: string; uom: string; price: string; validFrom: string; validUpto: string }[]>([
+        { productName: '', uom: '', price: '', validFrom: '', validUpto: '' },
     ]);
+    const [vppDeletedIds, setVppDeletedIds] = useState<number[]>([]);
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('item');
     const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'vendorPrice' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('productCategory');
@@ -429,9 +428,8 @@ export default function MasterData() {
     function openVppDialog() {
         setVppEditingId(null);
         setVppVendor(null);
-        setVppValidFrom('');
-        setVppValidUpto('');
-        setVppItems([{ productName: '', uom: '', price: '' }]);
+        setVppItems([{ productName: '', uom: '', price: '', validFrom: '', validUpto: '' }]);
+        setVppDeletedIds([]);
         setVppDialogOpen(true);
     }
 
@@ -439,25 +437,59 @@ export default function MasterData() {
         setVppEditingId(row.id);
         const vendor = vendorOptions.find(v => v.name === row.vendorName) || vendorOptions.find(v => v.id === row.vendorId);
         setVppVendor(vendor ? { id: vendor.id, name: vendor.name } : null);
-        setVppValidFrom(row.validFrom ? new Date(row.validFrom).toISOString().split('T')[0] : '');
-        setVppValidUpto(row.validUpto ? new Date(row.validUpto).toISOString().split('T')[0] : '');
-        setVppItems([{ 
-            productName: row.productName || '', 
-            uom: row.uom || '', 
-            price: row.price != null ? String(row.price) : '' 
-        }]);
+        if (vendor) {
+            const existingRows = vppData.filter(r => r.vendorId === vendor.id || (r.vendorName && r.vendorName === vendor.name));
+            if (existingRows.length > 0) {
+                setVppItems(existingRows.map(r => ({
+                    id: r.id,
+                    productName: r.productName || '',
+                    uom: r.uom || '',
+                    price: r.price != null ? String(r.price) : '',
+                    validFrom: r.validFrom ? new Date(r.validFrom).toISOString().split('T')[0] : '',
+                    validUpto: r.validUpto ? new Date(r.validUpto).toISOString().split('T')[0] : ''
+                })));
+            } else {
+                setVppItems([{ 
+                    id: row.id,
+                    productName: row.productName || '', 
+                    uom: row.uom || '', 
+                    price: row.price != null ? String(row.price) : '',
+                    validFrom: row.validFrom ? new Date(row.validFrom).toISOString().split('T')[0] : '',
+                    validUpto: row.validUpto ? new Date(row.validUpto).toISOString().split('T')[0] : ''
+                }]);
+            }
+        } else {
+            setVppItems([{ 
+                id: row.id,
+                productName: row.productName || '', 
+                uom: row.uom || '', 
+                price: row.price != null ? String(row.price) : '',
+                validFrom: row.validFrom ? new Date(row.validFrom).toISOString().split('T')[0] : '',
+                validUpto: row.validUpto ? new Date(row.validUpto).toISOString().split('T')[0] : ''
+            }]);
+        }
+        setVppDeletedIds([]);
         setVppDialogOpen(true);
     }
 
     function addVppItem() {
-        setVppItems(prev => [...prev, { productName: '', uom: '', price: '' }]);
+        setVppItems(prev => [...prev, { productName: '', uom: '', price: '', validFrom: '', validUpto: '' }]);
     }
 
     function removeVppItem(index: number) {
-        setVppItems(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index));
+        const item = vppItems[index];
+        if (item.id) {
+            setVppDeletedIds(prev => [...prev, item.id]);
+        }
+        setVppItems(prev => {
+            if (prev.length <= 1) {
+                return [{ productName: '', uom: '', price: '', validFrom: '', validUpto: '' }];
+            }
+            return prev.filter((_, i) => i !== index);
+        });
     }
 
-    function updateVppItem(index: number, key: 'productName' | 'uom' | 'price', value: string) {
+    function updateVppItem(index: number, key: 'productName' | 'uom' | 'price' | 'validFrom' | 'validUpto', value: string) {
         setVppItems(prev => prev.map((item, i) => {
             if (i !== index) return item;
             const next = { ...item, [key]: value };
@@ -490,52 +522,42 @@ export default function MasterData() {
                 return;
             }
         }
+
+        // Duplicate products validation
+        const productNames = rows.map(it => it.productName.trim().toLowerCase());
+        const uniqueProducts = new Set(productNames);
+        if (productNames.length !== uniqueProducts.size) {
+            toast.error('Duplicate products are not allowed in the same price list.');
+            return;
+        }
+
         setVppSubmitting(true);
         try {
-            if (vppEditingId !== null) {
-                const first = rows[0];
-                const res = await putVendorProductPrice(vppEditingId, {
+            const savePromises = rows.map(it => {
+                const payload = {
                     vendorId: vppVendor.id,
                     vendorName: vppVendor.name,
-                    productName: first.productName.trim(),
-                    uom: first.uom.trim() || null,
-                    price: first.price.trim() === '' ? null : Number(first.price),
-                    validFrom: vppValidFrom || null,
-                    validUpto: vppValidUpto || null,
-                });
-                if (!res.success) throw new Error(res.error || 'Failed to update item');
-                
-                if (rows.length > 1) {
-                    const extraRows = rows.slice(1);
-                    const results = await Promise.all(extraRows.map(it =>
-                        postVendorProductPrice({
-                            vendorId: vppVendor.id,
-                            vendorName: vppVendor.name,
-                            productName: it.productName.trim(),
-                            uom: it.uom.trim() || null,
-                            price: it.price.trim() === '' ? null : Number(it.price),
-                            validFrom: vppValidFrom || null,
-                            validUpto: vppValidUpto || null,
-                        })
-                    ));
-                    if (results.some(r => !r.success)) throw new Error('Failed to save additional items');
+                    productName: it.productName.trim(),
+                    uom: it.uom.trim() || null,
+                    price: it.price.trim() === '' ? null : Number(it.price),
+                    validFrom: it.validFrom || null,
+                    validUpto: it.validUpto || null,
+                };
+                if (it.id) {
+                    return putVendorProductPrice(it.id, payload);
+                } else {
+                    return postVendorProductPrice(payload);
                 }
-                toast.success(`Updated price for ${vppVendor.name}${rows.length > 1 ? ' and added extra items' : ''}`);
-            } else {
-                const results = await Promise.all(rows.map(it =>
-                    postVendorProductPrice({
-                        vendorId: vppVendor.id,
-                        vendorName: vppVendor.name,
-                        productName: it.productName.trim(),
-                        uom: it.uom.trim() || null,
-                        price: it.price.trim() === '' ? null : Number(it.price),
-                        validFrom: vppValidFrom || null,
-                        validUpto: vppValidUpto || null,
-                    })
-                ));
-                if (results.some(r => !r.success)) throw new Error('Failed to save some items');
-                toast.success(`Added ${rows.length} price${rows.length > 1 ? 's' : ''} for ${vppVendor.name}`);
+            });
+
+            const deletePromises = vppDeletedIds.map(id => deleteVendorProductPrice(id));
+
+            const results = await Promise.all([...savePromises, ...deletePromises]);
+            if (results.some(r => !r.success)) {
+                throw new Error('Failed to save some items');
             }
+
+            toast.success(`Saved vendor price list for ${vppVendor.name}`);
             setVppDialogOpen(false);
             loadVendorProductPrices();
         } catch (err: any) {
@@ -2167,6 +2189,24 @@ export default function MasterData() {
                                 onValueChange={(val) => {
                                     const v = vendorOptions.find(o => String(o.id) === val);
                                     setVppVendor(v || null);
+                                    if (v) {
+                                        const existingRows = vppData.filter(r => r.vendorId === v.id || (r.vendorName && r.vendorName === v.name));
+                                        if (existingRows.length > 0) {
+                                            setVppItems(existingRows.map(r => ({
+                                                id: r.id,
+                                                productName: r.productName || '',
+                                                uom: r.uom || '',
+                                                price: r.price != null ? String(r.price) : '',
+                                                validFrom: r.validFrom ? new Date(r.validFrom).toISOString().split('T')[0] : '',
+                                                validUpto: r.validUpto ? new Date(r.validUpto).toISOString().split('T')[0] : ''
+                                            })));
+                                        } else {
+                                            setVppItems([{ productName: '', uom: '', price: '', validFrom: '', validUpto: '' }]);
+                                        }
+                                    } else {
+                                        setVppItems([{ productName: '', uom: '', price: '', validFrom: '', validUpto: '' }]);
+                                    }
+                                    setVppDeletedIds([]);
                                 }}
                             >
                                 <SelectTrigger className="w-full h-10">
@@ -2184,18 +2224,6 @@ export default function MasterData() {
                             </Select>
                         </div>
 
-                        {/* Dates */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="flex flex-col gap-1.5">
-                                <Label className="text-sm font-medium">Valid From</Label>
-                                <Input type="date" value={vppValidFrom} onChange={e => setVppValidFrom(e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                                <Label className="text-sm font-medium">Valid Upto</Label>
-                                <Input type="date" value={vppValidUpto} onChange={e => setVppValidUpto(e.target.value)} />
-                            </div>
-                        </div>
-
                         {/* Items */}
                         {vppVendor && (
                             <div className="space-y-3">
@@ -2211,7 +2239,9 @@ export default function MasterData() {
                                             <TableRow>
                                                 <TableHead>Product <span className="text-destructive">*</span></TableHead>
                                                 <TableHead className="w-[120px]">UOM</TableHead>
-                                                <TableHead className="w-[200px]">Price</TableHead>
+                                                <TableHead className="w-[150px]">Price</TableHead>
+                                                <TableHead className="w-[150px]">Valid From</TableHead>
+                                                <TableHead className="w-[150px]">Valid Upto</TableHead>
                                                 <TableHead className="w-[50px]"></TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -2259,6 +2289,22 @@ export default function MasterData() {
                                                             placeholder="Price"
                                                             value={item.price}
                                                             onChange={(e) => updateVppItem(i, 'price', e.target.value)}
+                                                            className="h-9 text-sm"
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Input
+                                                            type="date"
+                                                            value={item.validFrom || ''}
+                                                            onChange={(e) => updateVppItem(i, 'validFrom', e.target.value)}
+                                                            className="h-9 text-sm"
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Input
+                                                            type="date"
+                                                            value={item.validUpto || ''}
+                                                            onChange={(e) => updateVppItem(i, 'validUpto', e.target.value)}
                                                             className="h-9 text-sm"
                                                         />
                                                     </TableCell>
