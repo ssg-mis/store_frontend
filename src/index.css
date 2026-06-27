@@ -138,3 +138,27 @@ a {
     50%  { transform: translateX(0%) scaleX(0.8); }
     100% { transform: translateX(100%) scaleX(0.5); }
 }
+
+/* Global slim scrollbar styling */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--border, #cbd5e1);
+    border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground, #94a3b8);
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border, #cbd5e1) transparent;
+}

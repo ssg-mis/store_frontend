@@ -945,6 +945,24 @@ export async function deleteUOM(id: number) {
     }
 }
 
+// Ask the backend for the next PO number, computed live from the DB. Use this at
+// submit time instead of the client-cached value so two back-to-back PO creations
+// can't collide on the same number (which silently merges them into one PO).
+export async function fetchNextPONumber(firmAlias?: string, date?: Date | string) {
+    try {
+        const params = new URLSearchParams();
+        if (firmAlias) params.append('firmAlias', firmAlias);
+        if (date) params.append('date', date instanceof Date ? date.toISOString() : String(date));
+        const qs = params.toString();
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/next-number${qs ? `?${qs}` : ''}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json() as { poNumber: string; nextSequence: number };
+    } catch (error) {
+        console.error('Error fetching next PO number:', error);
+        return null;
+    }
+}
+
 export async function fetchFirms() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/firms`);
@@ -1476,6 +1494,32 @@ export async function deleteTransportationTerm(id: number) {
     }
 }
 
+export interface PurchaseHistoryRow {
+    poNumber: string;
+    poDate: string;
+    vendor: string;
+    product: string;
+    quantity: number;
+    unit: string;
+    rate: number;
+    amount: number;
+    firm: string;
+    receivedQuantity: number | null;
+    grnNumber: string | null;
+    receivedDate: string | null;
+}
+
+export async function fetchPurchaseHistory(product: string): Promise<PurchaseHistoryRow[]> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/purchase-history?product=${encodeURIComponent(product)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching purchase history:', error);
+        return [];
+    }
+}
+
 /* ───── PO Approval ───── */
 export async function fetchPOApprovals(status: 'Pending' | 'Rejected' | 'Approved' = 'Pending') {
     try {
@@ -1488,12 +1532,12 @@ export async function fetchPOApprovals(status: 'Pending' | 'Rejected' | 'Approve
     }
 }
 
-export async function approvePO(poNumber: string, approvedBy?: string) {
+export async function approvePO(poNumber: string, approvedBy?: string, pdfUrl?: string) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/po-approvals/approve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ poNumber, approvedBy })
+            body: JSON.stringify({ poNumber, approvedBy, pdfUrl })
         });
         if (!response.ok) {
             const errorText = await response.text();

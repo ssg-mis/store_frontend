@@ -9,7 +9,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
-import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms } from '@/lib/fetchers';
+import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber } from '@/lib/fetchers';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useSheets } from '@/context/SheetsContext';
@@ -27,8 +27,7 @@ import { toast } from 'sonner';
 import { ClipLoader as Loader } from 'react-spinners';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '../ui/textarea';
-import { pdf } from '@react-pdf/renderer';
-import POPdf, { type POPdfProps } from '../element/POPdf';
+
 
 function generatePoNumber(poNumbers: string[], today = new Date(), firmAlias?: string): string {
     // Step 1: Get financial year from today's date
@@ -657,10 +656,19 @@ export default () => {
         }
 
         try {
-            const poNumber =
-                mode === 'create'
-                    ? values.poNumber
-                    : incrementPoRevision(values.poNumber, poMasterSheetData as PoMasterSheet[]);
+            // Resolve the PO number authoritatively at submit time. In create mode we
+            // re-derive it from the live DB (not the cached form value) so two POs
+            // created back-to-back can't share a number and merge into one PO — which
+            // is what produced PO copies showing only part of the line items.
+            let poNumber: string;
+            if (mode === 'create') {
+                const selectedFirmName = selectedPrimaryIndent?.firm;
+                const selectedFirmAlias = firms.find((f: any) => f.firm_name === selectedFirmName)?.alias ?? selectedFirmName;
+                const fresh = await fetchNextPONumber(selectedFirmAlias, values.poDate);
+                poNumber = fresh?.poNumber || values.poNumber;
+            } else {
+                poNumber = incrementPoRevision(values.poNumber, poMasterSheetData as PoMasterSheet[]);
+            }
 
             // Fetch all indents and approvals associated with this PO to ensure we have correct data and IDs
             const indentNumbers = values.indents.map(i => i.indentNumber);
@@ -706,115 +714,6 @@ export default () => {
                 })
             );
 
-            // Convert logo image to base64 for PDF
-            const logoResponse = await fetch('/logo.png');
-            const logoBlob = await logoResponse.blob();
-            const logoBase64 = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(logoBlob);
-            });
-
-            const pdfProps: POPdfProps = {
-                companyLogo: logoBase64,
-                companyName: displayFirm,
-                companyPhone: selectedFirmData?.mobile || detailsData?.companyPhone || detailsData?.company_phone || '',
-                companyGstin: selectedFirmData?.firm_gstin || detailsData?.companyGstin || detailsData?.company_gstin || '',
-                companyPan: selectedFirmData?.pan_number || detailsData?.companyPan || detailsData?.company_pan || '',
-                companyAddress: selectedFirmAddress,
-                billingAddress: selectedFirmAddress || detailsData?.billingAddress || detailsData?.billing_address || '',
-                destinationAddress: destinationAddress, // Use the editable destination address
-                supplierName: values.supplierName,
-                supplierAddress: values.supplierAddress,
-                supplierGstin: values.gstin,
-                orderNumber: poNumber,
-                orderDate: formatDate(values.poDate),
-                quotationNumber: values.quotationNumber,
-                quotationDate: values.quotationDate ? formatDate(values.quotationDate) : '',
-                enqNo: values.ourEnqNo || '',
-                enqDate: values.enquiryDate ? formatDate(values.enquiryDate) : '',
-                description: values.description,
-                items: values.indents.map((item) => {
-                    const indent = enrichedFetchedIndents.find((i: any) => item.id ? i.id === item.id : i.indentNumber === item.indentNumber) ||
-                        poMasterSheetData.find((p: any) => (p.internalCode || p.po_number || '') === (item.indentNumber || '') && (p.poNumber || p.po_number || '') === (values.poNumber || ''));
-                    return {
-                        internalCode: indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || '',
-                        firm: indent?.firm || 'N/A',
-                        product: indent?.productName || indent?.product_name || indent?.product || '',
-                        description: indent?.specifications || indent?.description || '',
-                        quantity: indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0,
-                        unit: indent?.uom || indent?.unit || '',
-                        rate: indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
-                        gst: item.gst || 0,
-                        discount: item.discount || 0,
-                        amount: calculateTotal(
-                            indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
-                            item.gst || 0,
-                            item.discount || 0,
-                            indent?.approvedQuantity || indent?.approved_quantity || indent?.quantity || 0
-                        ),
-                    };
-                }),
-                total: calculateSubtotal(
-                    values.indents.map((indent) => {
-                        const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
-                            poMasterSheetData.find((p: any) => (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
-                        return {
-                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
-                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
-                            discountPercent: indent?.discount || 0,
-                        };
-                    })
-                ),
-                gstAmount: calculateTotalGst(
-                    values.indents.map((indent) => {
-                        const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
-                            poMasterSheetData.find((p: any) => (p.internalCode || p.po_number) === indent.indentNumber && (p.poNumber || p.po_number) === poNumber);
-                        return {
-                            quantity: value?.approvedQuantity || value?.approved_quantity || value?.quantity || 0,
-                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
-                            discountPercent: indent?.discount || 0,
-                            gstPercent: indent.gst,
-                        };
-                    })
-                ),
-                grandTotal: grandTotal,
-                terms: values.terms,
-                preparedBy: values.preparedBy,
-                approvedBy: values.approvedBy,
-                transportationType: values.transportationType,
-                firm: displayFirm,
-            };
-
-            const blob = await pdf(<POPdf {...pdfProps} />).toBlob();
-            const file = new File([blob], `PO-${poNumber}.pdf`, {
-                type: 'application/pdf',
-            });
-
-            const email = vendorsData.find((v: any) => v.vendor_name?.trim().toLowerCase() === values.supplierName?.trim().toLowerCase())?.vendor_email; // Fixed logic to use correct column names and robust matching
-
-            let url = '';
-
-            if (email) {
-                // Email hai to PDF upload + email send
-                url = await uploadFile(
-                    file,
-                    import.meta.env.VITE_PURCHASE_ORDERS_FOLDER,
-                    'email',
-                    email
-                );
-                toast.success('PO created and email sent successfully');
-            } else {
-                // Email nahi hai to sirf PDF upload (without email)
-                url = await uploadFile(
-                    file,
-                    import.meta.env.VITE_PURCHASE_ORDERS_FOLDER,
-                    'upload', // ← Use 'upload' instead of 'email'
-                    '' // Empty email parameter
-                );
-                toast.warning("PO created but email not sent (vendor email not found)");
-            }
-
             // Insert PO data into Supabase
             const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => {
                 const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : i.indentNumber === v.indentNumber) ||
@@ -848,7 +747,6 @@ export default () => {
                         v.quantity
                     ),
                     totalPOAmount: grandTotal,
-                    pdf: url,
                     preparedBy: values.preparedBy,
                     approvedBy: values.approvedBy,
                     transportationType: values.transportationType,
@@ -889,7 +787,7 @@ export default () => {
                     // planned_5 (Receive Items) is enabled only after the PO is approved
                     // on the Approval of PO page — not at creation time.
                     po_number: poNumber,
-                    po_copy: url,
+                    po_copy: null,
                 };
             });
 

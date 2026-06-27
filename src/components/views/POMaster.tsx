@@ -2,10 +2,14 @@ import { ListTodo, Search, ChevronDown, ChevronRight, FileText } from 'lucide-re
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatDate, debounce } from '@/lib/utils';
-import { fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, fetchVendors, fetchFirms } from '@/lib/fetchers';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import { useSheets } from '@/context/SheetsContext';
+import { pdf } from '@react-pdf/renderer';
+import POPdf, { type POPdfProps } from '../element/POPdf';
+import { toast } from 'sonner';
 
 interface POMasterItem {
     id: number;
@@ -28,6 +32,9 @@ interface POMasterItem {
     totalPoAmount: number;
     preparedBy: string;
     approvedBy: string;
+    firm: string;
+    transportationType: string;
+    terms: string[];
     pdf: string;
 }
 
@@ -41,7 +48,17 @@ const parseGSTPercent = (value: any): number => {
     return numericValue;
 };
 
+const formatFirmAddress = (firm: any, fallback = '') => {
+    if (!firm) return fallback;
+    const lines = [
+        firm.firm_address || '',
+        [firm.state, firm.pin_code].filter(Boolean).join(' '),
+    ].filter(Boolean);
+    return lines.join('\n') || fallback;
+};
+
 export default () => {
+    const { masterSheet: details } = useSheets();
     const [tableData, setTableData] = useState<POMasterItem[]>([]);
     const [initialLoading, setInitialLoading] = useState(true);
     const [isSearching, setIsSearching] = useState(false);
@@ -49,6 +66,9 @@ export default () => {
     const [page, setPage] = useState(1);
     const [search, setSearch] = useState('');
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+    const [vendors, setVendors] = useState<any[]>([]);
+    const [firms, setFirms] = useState<any[]>([]);
+    const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
 
     const fetchData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
@@ -91,6 +111,12 @@ export default () => {
                     totalPoAmount: Number(sheet.totalPOAmount || sheet.totalPoAmount) || 0,
                     preparedBy: sheet.preparedBy || '',
                     approvedBy: sheet.approvedBy || '',
+                    firm: sheet.firm || sheet.indent?.firm || 'N/A',
+                    transportationType: sheet.transportationType || '',
+                    terms: [
+                        sheet.term1, sheet.term2, sheet.term3, sheet.term4, sheet.term5,
+                        sheet.term6, sheet.term7, sheet.term8, sheet.term9, sheet.term10,
+                    ].filter(Boolean),
                     pdf: sheet.pdf || '',
                 }));
                 setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
@@ -111,6 +137,94 @@ export default () => {
         fetchData(1, '');
         return () => abortRef.current?.abort();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        fetchVendors().then((v) => setVendors(Array.isArray(v) ? v : [])).catch(() => {});
+        fetchFirms().then((f) => setFirms(Array.isArray(f) ? f : [])).catch(() => {});
+    }, []);
+
+    async function handleViewPdf(poNumber: string, items: POMasterItem[], storedPdf?: string) {
+        // If a stored PDF exists (generated at approval time), open it directly.
+        if (storedPdf) {
+            window.open(storedPdf, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        // Otherwise generate on demand from live data (pending POs, or old POs before this change).
+        setGeneratingPdf(poNumber);
+        try {
+            const first = items[0];
+            const firmObj = firms.find((f: any) => f.firm_name === first.firm);
+            const vendor = vendors.find((v: any) =>
+                (v.vendorName || '').trim().toLowerCase() === (first.partyName || '').trim().toLowerCase()
+            );
+
+            const firmAddress = formatFirmAddress(firmObj, details?.companyAddress || '');
+            const companyName = firmObj?.firm_name || details?.companyName || '';
+
+            let logoBase64 = '';
+            try {
+                const logoBlob = await fetch('/logo.png').then(r => r.blob());
+                logoBase64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(logoBlob);
+                });
+            } catch { /* logo is optional */ }
+
+            const props: POPdfProps = {
+                companyLogo: logoBase64,
+                companyName,
+                companyPhone: firmObj?.mobile || details?.companyPhone || '',
+                companyGstin: firmObj?.firm_gstin || details?.companyGstin || '',
+                companyPan: firmObj?.pan_number || details?.companyPan || '',
+                companyAddress: firmAddress,
+                billingAddress: firmAddress || details?.billingAddress || '',
+                destinationAddress: details?.destinationAddress
+                    ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
+                    : [companyName, firmAddress].filter(Boolean).join('\n'),
+                supplierName: first.partyName,
+                supplierAddress: vendor?.address || '',
+                supplierGstin: vendor?.gstin || '',
+                orderNumber: poNumber,
+                orderDate: first.timestamp,
+                quotationNumber: first.quotationNumber,
+                quotationDate: first.quotationDate,
+                enqNo: first.enquiryNumber,
+                enqDate: first.enquiryDate,
+                description: first.description,
+                items: items.map(it => ({
+                    internalCode: it.internalCode,
+                    firm: it.firm,
+                    product: it.product,
+                    description: it.description,
+                    quantity: it.quantity,
+                    unit: it.unit,
+                    rate: it.rate,
+                    gst: it.gstPercent,
+                    discount: it.discountPercent,
+                    amount: it.amount,
+                })),
+                total: first.totalPoAmount,
+                gstAmount: 0,
+                grandTotal: first.totalPoAmount,
+                terms: first.terms,
+                preparedBy: first.preparedBy,
+                approvedBy: first.approvedBy,
+                transportationType: first.transportationType,
+                firm: first.firm,
+            };
+
+            const blob = await pdf(<POPdf {...props} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err: any) {
+            console.error('Error generating PO PDF:', err);
+            toast.error('Failed to generate PDF');
+        } finally {
+            setGeneratingPdf(null);
+        }
+    }
 
     const debouncedSearch = useCallback(
         debounce((query: string) => {
@@ -243,21 +357,16 @@ export default () => {
                                                         : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                                                 </TableCell>
                                                 <TableCell onClick={(e) => e.stopPropagation()}>
-                                                    {group.pdf ? (
-                                                        <Button
-                                                            asChild
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
-                                                        >
-                                                            <a href={group.pdf} target="_blank" rel="noopener noreferrer">
-                                                                <FileText size={13} />
-                                                                View
-                                                            </a>
-                                                        </Button>
-                                                    ) : (
-                                                        <span className="text-muted-foreground text-xs">—</span>
-                                                    )}
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                                                        disabled={generatingPdf === group.poNumber}
+                                                        onClick={() => handleViewPdf(group.poNumber, group.items, group.pdf)}
+                                                    >
+                                                        <FileText size={13} />
+                                                        {generatingPdf === group.poNumber ? '...' : 'View'}
+                                                    </Button>
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.poNumber}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
@@ -275,21 +384,16 @@ export default () => {
                                                 <TableRow key={`rev-${ver.poNumber}`} className="bg-primary/5">
                                                     <TableCell />
                                                     <TableCell onClick={(e) => e.stopPropagation()}>
-                                                        {ver.items[0]?.pdf ? (
-                                                            <Button
-                                                                asChild
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
-                                                            >
-                                                                <a href={ver.items[0].pdf} target="_blank" rel="noopener noreferrer">
-                                                                    <FileText size={13} />
-                                                                    View
-                                                                </a>
-                                                            </Button>
-                                                        ) : (
-                                                            <span className="text-muted-foreground text-xs">—</span>
-                                                        )}
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                                                            disabled={generatingPdf === ver.poNumber}
+                                                            onClick={() => handleViewPdf(ver.poNumber, ver.items, ver.items[0]?.pdf)}
+                                                        >
+                                                            <FileText size={13} />
+                                                            {generatingPdf === ver.poNumber ? '...' : 'View'}
+                                                        </Button>
                                                     </TableCell>
                                                     <TableCell className="text-xs font-medium text-primary">{ver.poNumber}</TableCell>
                                                     <TableCell colSpan={5} className="text-xs text-muted-foreground">

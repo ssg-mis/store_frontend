@@ -1,9 +1,12 @@
-import { ClipboardCheck, Search, Check, X, RotateCcw } from 'lucide-react';
+import { ClipboardCheck, Search, Check, X, RotateCcw, FileText, History } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '@/lib/utils';
-import { fetchPOApprovals, approvePO, rejectPO } from '@/lib/fetchers';
+import { fetchPOApprovals, approvePO, rejectPO, fetchVendors, fetchFirms, uploadFile, fetchPurchaseHistory, type PurchaseHistoryRow } from '@/lib/fetchers';
+import { useSheets } from '@/context/SheetsContext';
+import { pdf } from '@react-pdf/renderer';
+import POPdf, { type POPdfProps } from '../element/POPdf';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -49,6 +52,15 @@ interface POGroup {
     items: PORow[];
 }
 
+const formatFirmAddress = (firm: any, fallback = '') => {
+    if (!firm) return fallback;
+    const lines = [
+        firm.firm_address || '',
+        [firm.state, firm.pin_code].filter(Boolean).join(' '),
+    ].filter(Boolean);
+    return lines.join('\n') || fallback;
+};
+
 function groupByPoNumber(rows: PORow[]): POGroup[] {
     const groups = new Map<string, PORow[]>();
     rows.forEach(r => {
@@ -75,8 +87,14 @@ function groupByPoNumber(rows: PORow[]): POGroup[] {
 export default function ApprovalPO() {
     const isViewOnly = usePageViewOnly();
     const { user } = useAuth();
+    const { masterSheet: details } = useSheets();
     const navigate = useNavigate();
     const actorName = (user as any)?.name || (user as any)?.username || '';
+
+    // Vendor + firm data, used to regenerate the PO copy from live line items.
+    const [vendors, setVendors] = useState<any[]>([]);
+    const [firms, setFirms] = useState<any[]>([]);
+    const [generatingCopy, setGeneratingCopy] = useState(false);
 
     const [tab, setTab] = useState<'pending' | 'rejected'>('pending');
     const [pendingRows, setPendingRows] = useState<PORow[]>([]);
@@ -89,6 +107,10 @@ export default function ApprovalPO() {
     const [rejectReason, setRejectReason] = useState('');
     const [rejectError, setRejectError] = useState(false);
     const [isRejectingInline, setIsRejectingInline] = useState(false);
+
+    const [historyProduct, setHistoryProduct] = useState<string | null>(null);
+    const [historyData, setHistoryData] = useState<PurchaseHistoryRow[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -108,6 +130,105 @@ export default function ApprovalPO() {
     }, []);
 
     useEffect(() => { loadData(); }, [loadData]);
+
+    useEffect(() => {
+        fetchVendors().then((v) => setVendors(Array.isArray(v) ? v : [])).catch(() => {});
+        fetchFirms().then((f) => setFirms(Array.isArray(f) ? f : [])).catch(() => {});
+    }, []);
+
+    useEffect(() => {
+        if (!historyProduct) return;
+        setHistoryLoading(true);
+        fetchPurchaseHistory(historyProduct)
+            .then(setHistoryData)
+            .finally(() => setHistoryLoading(false));
+    }, [historyProduct]);
+
+    // Regenerate the PO copy from ALL of this PO's live line items, so the PDF
+    // always matches what's shown in the modal — instead of relying on the single
+    // (possibly partial) PDF that was stored when one submit created the PO.
+    async function handleViewPOCopy(group: POGroup) {
+        setGeneratingCopy(true);
+        try {
+            const first: any = group.items[0] || {};
+            const firm = firms.find((f: any) => f.firm_name === group.firm);
+            const vendor = vendors.find((v: any) => (v.vendorName || '').trim().toLowerCase() === (group.partyName || '').trim().toLowerCase());
+
+            const firmAddress = formatFirmAddress(firm, details?.companyAddress || '');
+            const companyName = firm?.firm_name || details?.companyName || '';
+
+            let logoBase64 = '';
+            try {
+                const logoResponse = await fetch('/logo.png');
+                const logoBlob = await logoResponse.blob();
+                logoBase64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(logoBlob);
+                });
+            } catch { /* logo is optional */ }
+
+            const terms: string[] = [];
+            for (let i = 1; i <= 10; i++) {
+                const t = first[`term${i}`];
+                if (t) terms.push(t);
+            }
+
+            const props: POPdfProps = {
+                companyLogo: logoBase64,
+                companyName,
+                companyPhone: firm?.mobile || details?.companyPhone || '',
+                companyGstin: firm?.firm_gstin || details?.companyGstin || '',
+                companyPan: firm?.pan_number || details?.companyPan || '',
+                companyAddress: firmAddress,
+                billingAddress: firmAddress || details?.billingAddress || '',
+                destinationAddress: details?.destinationAddress
+                    ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
+                    : [companyName, firmAddress].filter(Boolean).join('\n'),
+                supplierName: group.partyName,
+                supplierAddress: vendor?.address || '',
+                supplierGstin: vendor?.gstin || '',
+                orderNumber: group.poNumber,
+                orderDate: group.createdAt ? formatDate(new Date(group.createdAt)) : '',
+                quotationNumber: first.quotationNumber || '',
+                quotationDate: first.quotationDate ? formatDate(new Date(first.quotationDate)) : '',
+                enqNo: first.enquiryNumber || '',
+                enqDate: first.enquiryDate ? formatDate(new Date(first.enquiryDate)) : '',
+                description: first.description || '',
+                items: group.items.map((it: any) => ({
+                    internalCode: it.internalCode || '',
+                    firm: group.firm,
+                    product: it.product || '',
+                    description: it.description || '',
+                    quantity: Number(it.quantity || 0),
+                    unit: it.unit || '',
+                    rate: Number(it.rate || 0),
+                    gst: Number(it.gstPercent || 0),
+                    discount: Number(it.discountPercent || 0),
+                    amount: Number(it.amount || 0),
+                })),
+                total: Number(group.totalPOAmount || 0),
+                gstAmount: 0,
+                grandTotal: Number(group.totalPOAmount || 0),
+                terms,
+                preparedBy: group.preparedBy || '',
+                approvedBy: first.approvedBy || '',
+                transportationType: first.transportationType || '',
+                firm: group.firm,
+            };
+
+            const blob = await pdf(<POPdf {...props} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            // Revoke after a delay so the new tab has time to load it.
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err: any) {
+            console.error('Error generating PO copy:', err);
+            toast.error('Failed to generate PO copy');
+        } finally {
+            setGeneratingCopy(false);
+        }
+    }
 
     const filterRows = (rows: PORow[]) => {
         if (!search.trim()) return rows;
@@ -130,7 +251,87 @@ export default function ApprovalPO() {
         if (!window.confirm(`Approve PO ${group.poNumber}? This will move it to the Receive Items stage.`)) return;
         setSubmitting(true);
         try {
-            const result = await approvePO(group.poNumber, actorName);
+            // Generate the final PDF from live line items and store it to S3 at the
+            // moment of approval — this is the official, immutable copy of the PO.
+            let pdfUrl: string | undefined;
+            try {
+                const firm = firms.find((f: any) => f.firm_name === group.items[0]?.firm);
+                const vendor = vendors.find((v: any) =>
+                    (v.vendorName || '').trim().toLowerCase() === (group.partyName || '').trim().toLowerCase()
+                );
+                const firmAddress = formatFirmAddress(firm, details?.companyAddress || '');
+                const companyName = firm?.firm_name || details?.companyName || '';
+
+                let logoBase64 = '';
+                try {
+                    const logoBlob = await fetch('/logo.png').then(r => r.blob());
+                    logoBase64 = await new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.readAsDataURL(logoBlob);
+                    });
+                } catch { /* logo optional */ }
+
+                const first: any = group.items[0] || {};
+                const terms: string[] = [];
+                for (let i = 1; i <= 10; i++) {
+                    const t = first[`term${i}`];
+                    if (t) terms.push(t);
+                }
+
+                const props: POPdfProps = {
+                    companyLogo: logoBase64,
+                    companyName,
+                    companyPhone: firm?.mobile || details?.companyPhone || '',
+                    companyGstin: firm?.firm_gstin || details?.companyGstin || '',
+                    companyPan: firm?.pan_number || details?.companyPan || '',
+                    companyAddress: firmAddress,
+                    billingAddress: firmAddress || details?.billingAddress || '',
+                    destinationAddress: details?.destinationAddress
+                        ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
+                        : [companyName, firmAddress].filter(Boolean).join('\n'),
+                    supplierName: group.partyName,
+                    supplierAddress: vendor?.address || '',
+                    supplierGstin: vendor?.gstin || '',
+                    orderNumber: group.poNumber,
+                    orderDate: group.createdAt ? formatDate(new Date(group.createdAt)) : '',
+                    quotationNumber: first.quotationNumber || '',
+                    quotationDate: first.quotationDate ? formatDate(new Date(first.quotationDate)) : '',
+                    enqNo: first.enquiryNumber || '',
+                    enqDate: first.enquiryDate ? formatDate(new Date(first.enquiryDate)) : '',
+                    description: first.description || '',
+                    items: group.items.map((it: any) => ({
+                        internalCode: it.internalCode || '',
+                        firm: group.items[0]?.firm || '',
+                        product: it.product || '',
+                        description: it.description || '',
+                        quantity: Number(it.quantity || 0),
+                        unit: it.unit || '',
+                        rate: Number(it.rate || 0),
+                        gst: Number(it.gstPercent || 0),
+                        discount: Number(it.discountPercent || 0),
+                        amount: Number(it.amount || 0),
+                    })),
+                    total: Number(group.totalPOAmount || 0),
+                    gstAmount: 0,
+                    grandTotal: Number(group.totalPOAmount || 0),
+                    terms,
+                    preparedBy: group.preparedBy || '',
+                    approvedBy: first.approvedBy || '',
+                    transportationType: first.transportationType || '',
+                    firm: group.items[0]?.firm || '',
+                };
+
+                const blob = await pdf(<POPdf {...props} />).toBlob();
+                const file = new File([blob], `PO-${group.poNumber}.pdf`, { type: 'application/pdf' });
+                pdfUrl = await uploadFile(file, import.meta.env.VITE_PURCHASE_ORDERS_FOLDER || '');
+            } catch (pdfErr) {
+                // PDF generation/upload failure should not block approval.
+                console.error('PDF generation failed during approval:', pdfErr);
+                toast.warning('PO approved but PDF could not be saved — you can still view it on demand.');
+            }
+
+            const result = await approvePO(group.poNumber, actorName, pdfUrl);
             if (!result.success) throw new Error(result.error || 'Failed to approve PO');
             toast.success(`PO ${group.poNumber} approved`);
             loadData();
@@ -302,12 +503,20 @@ export default function ApprovalPO() {
                             </div>
                         ) : null
                     )}
-                    {viewGroup?.pdf && (
-                        <div className="flex flex-col">
-                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">PO Copy</span>
-                            <a href={viewGroup.pdf} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-blue-600 hover:underline mt-0.5">View PDF</a>
+                    <div className="flex flex-col">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">PO Copy</span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <button
+                                type="button"
+                                disabled={generatingCopy || !viewGroup}
+                                onClick={() => viewGroup && handleViewPOCopy(viewGroup)}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <FileText className="h-3 w-3" />
+                                {generatingCopy ? 'Generating...' : 'View PDF'}
+                            </button>
                         </div>
-                    )}
+                    </div>
                 </div>
 
                 <div className="overflow-x-auto rounded-md border">
@@ -330,7 +539,16 @@ export default function ApprovalPO() {
                                 <TableRow key={item.id}>
                                     <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                                     <TableCell className="text-xs">{item.internalCode || '—'}</TableCell>
-                                    <TableCell className="text-xs font-medium">{item.product}</TableCell>
+                                    <TableCell className="text-xs">
+                                        <button
+                                            type="button"
+                                            className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
+                                            onClick={(e) => { e.stopPropagation(); setHistoryProduct(item.product); setHistoryData([]); }}
+                                        >
+                                            {item.product}
+                                            <History className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                        </button>
+                                    </TableCell>
                                     <TableCell className="text-xs">{item.quantity}</TableCell>
                                     <TableCell className="text-xs">{item.unit}</TableCell>
                                     <TableCell className="text-xs">&#8377;{Number(item.rate || 0).toLocaleString()}</TableCell>
@@ -414,6 +632,71 @@ export default function ApprovalPO() {
                         )
                     )}
                 </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        {/* ── Purchase history dialog ── */}
+        <Dialog open={!!historyProduct} onOpenChange={(open) => { if (!open) { setHistoryProduct(null); setHistoryData([]); } }}>
+            <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <History className="h-4 w-4" />
+                        Purchase History — {historyProduct}
+                    </DialogTitle>
+                </DialogHeader>
+
+                {historyLoading ? (
+                    <div className="space-y-2 py-4">
+                        {[...Array(4)].map((_, i) => <div key={i} className="h-9 bg-muted animate-pulse rounded" />)}
+                    </div>
+                ) : historyData.length === 0 ? (
+                    <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+                        No purchase history found for this item
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-muted/20">
+                                    <TableHead className="text-xs">#</TableHead>
+                                    <TableHead className="text-xs">PO Number</TableHead>
+                                    <TableHead className="text-xs">Date</TableHead>
+                                    <TableHead className="text-xs">Vendor / Party</TableHead>
+                                    <TableHead className="text-xs">Qty</TableHead>
+                                    <TableHead className="text-xs">Unit</TableHead>
+                                    <TableHead className="text-xs">Rate</TableHead>
+                                    <TableHead className="text-xs">Amount</TableHead>
+                                    <TableHead className="text-xs">Received</TableHead>
+                                    <TableHead className="text-xs">GRN</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {historyData.map((row, idx) => (
+                                    <TableRow key={row.poNumber + idx}>
+                                        <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                        <TableCell className="text-xs font-medium whitespace-nowrap">{row.poNumber}</TableCell>
+                                        <TableCell className="text-xs whitespace-nowrap">{row.poDate ? formatDate(new Date(row.poDate)) : '—'}</TableCell>
+                                        <TableCell className="text-xs">{row.vendor}</TableCell>
+                                        <TableCell className="text-xs">{row.quantity}</TableCell>
+                                        <TableCell className="text-xs">{row.unit}</TableCell>
+                                        <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.rate || 0).toLocaleString()}</TableCell>
+                                        <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.amount || 0).toLocaleString()}</TableCell>
+                                        <TableCell className="text-xs">
+                                            {row.receivedQuantity != null ? (
+                                                <span>{row.receivedQuantity} {row.unit}</span>
+                                            ) : <span className="text-muted-foreground">—</span>}
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                            {row.grnNumber || '—'}
+                                            {row.receivedDate && (
+                                                <div className="text-[10px]">{formatDate(new Date(row.receivedDate))}</div>
+                                            )}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
             </DialogContent>
         </Dialog>
         </>
