@@ -1,4 +1,4 @@
-import { Database, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Database, Plus, Pencil, Trash2, ChevronRight, ChevronDown } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
@@ -275,6 +275,7 @@ export default function MasterData() {
         { productName: '', uom: '', price: '', validFrom: '', validUpto: '' },
     ]);
     const [vppDeletedIds, setVppDeletedIds] = useState<number[]>([]);
+    const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
     const [inventoryTableData, setInventoryTableData] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState<'item' | 'vendor' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('item');
     const [pageTab, setPageTab] = useState<'inventory' | 'vendor' | 'vendorPrice' | 'firm' | 'productCategory' | 'productSubCategory' | 'productGroup' | 'uom' | 'department' | 'departmentHead' | 'specification' | 'paymentTerm' | 'deliveryTerm' | 'transportationTerm'>('productCategory');
@@ -420,6 +421,24 @@ export default function MasterData() {
             (a.productName || '').localeCompare(b.productName || ''));
     }, [vppData, priceSearch]);
 
+    const groupedVppData = useMemo(() => {
+        const groups = new Map<string, VendorProductPriceRow[]>();
+        vendorPriceData.forEach(row => {
+            const key = (row.vendorName || '').trim() || 'Unknown';
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(row);
+        });
+        return Array.from(groups.entries()).map(([vendorName, items]) => ({ vendorName, items }));
+    }, [vendorPriceData]);
+
+    function toggleVendorExpand(vendorName: string) {
+        setExpandedVendors(prev => {
+            const next = new Set(prev);
+            next.has(vendorName) ? next.delete(vendorName) : next.add(vendorName);
+            return next;
+        });
+    }
+
     async function loadVendorProductPrices() {
         const data = await fetchVendorProductPrices();
         setVppData(data || []);
@@ -435,39 +454,21 @@ export default function MasterData() {
 
     function openVppEditDialog(row: VendorProductPriceRow) {
         setVppEditingId(row.id);
-        const vendor = vendorOptions.find(v => v.name === row.vendorName) || vendorOptions.find(v => v.id === row.vendorId);
-        setVppVendor(vendor ? { id: vendor.id, name: vendor.name } : null);
-        if (vendor) {
-            const existingRows = vppData.filter(r => r.vendorId === vendor.id || (r.vendorName && r.vendorName === vendor.name));
-            if (existingRows.length > 0) {
-                setVppItems(existingRows.map(r => ({
-                    id: r.id,
-                    productName: r.productName || '',
-                    uom: r.uom || '',
-                    price: r.price != null ? String(r.price) : '',
-                    validFrom: r.validFrom ? new Date(r.validFrom).toISOString().split('T')[0] : '',
-                    validUpto: r.validUpto ? new Date(r.validUpto).toISOString().split('T')[0] : ''
-                })));
-            } else {
-                setVppItems([{ 
-                    id: row.id,
-                    productName: row.productName || '', 
-                    uom: row.uom || '', 
-                    price: row.price != null ? String(row.price) : '',
-                    validFrom: row.validFrom ? new Date(row.validFrom).toISOString().split('T')[0] : '',
-                    validUpto: row.validUpto ? new Date(row.validUpto).toISOString().split('T')[0] : ''
-                }]);
-            }
-        } else {
-            setVppItems([{ 
-                id: row.id,
-                productName: row.productName || '', 
-                uom: row.uom || '', 
-                price: row.price != null ? String(row.price) : '',
-                validFrom: row.validFrom ? new Date(row.validFrom).toISOString().split('T')[0] : '',
-                validUpto: row.validUpto ? new Date(row.validUpto).toISOString().split('T')[0] : ''
-            }]);
-        }
+        const vendorName = (row.vendorName || '').trim();
+        const vendor = vendorOptions.find(v => v.name === vendorName);
+        setVppVendor(vendor ? { id: vendor.id, name: vendor.name } : { id: row.vendorId ?? 0, name: vendorName });
+        const existingRows = vppData.filter(r => (r.vendorName || '').trim() === vendorName);
+        setVppItems(existingRows.length > 0
+            ? existingRows.map(r => ({
+                id: r.id,
+                productName: r.productName || '',
+                uom: r.uom || '',
+                price: r.price != null ? String(r.price) : '',
+                validFrom: r.validFrom ? new Date(r.validFrom).toISOString().split('T')[0] : '',
+                validUpto: r.validUpto ? new Date(r.validUpto).toISOString().split('T')[0] : ''
+            }))
+            : [{ id: row.id, productName: row.productName || '', uom: row.uom || '', price: row.price != null ? String(row.price) : '', validFrom: row.validFrom ? new Date(row.validFrom).toISOString().split('T')[0] : '', validUpto: row.validUpto ? new Date(row.validUpto).toISOString().split('T')[0] : '' }]
+        );
         setVppDeletedIds([]);
         setVppDialogOpen(true);
     }
@@ -1922,47 +1923,70 @@ export default function MasterData() {
                                                 Loading...
                                             </TableCell>
                                         </TableRow>
-                                    ) : vendorPriceData.length === 0 ? (
+                                    ) : groupedVppData.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                                 No vendor prices added yet
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        vendorPriceData.map((row) => (
-                                            <TableRow key={row.id}>
-                                                <TableCell><TruncCell value={row.vendorName} width={200} /></TableCell>
-                                                <TableCell><TruncCell value={row.productName} width={200} /></TableCell>
-                                                <TableCell><TruncCell value={row.uom} width={80} /></TableCell>
-                                                <TableCell>{row.price != null ? row.price : <span className="text-muted-foreground">—</span>}</TableCell>
-                                                <TableCell>{row.validFrom ? new Date(row.validFrom).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>
-                                                <TableCell>{row.validUpto ? new Date(row.validUpto).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>
-                                                <TableCell className="text-center">
-                                                    <div className="flex items-center justify-center gap-1">
+                                        groupedVppData.flatMap(group => {
+                                            const isExpanded = expandedVendors.has(group.vendorName);
+                                            return [
+                                                <TableRow
+                                                    key={`group-${group.vendorName}`}
+                                                    className="bg-muted/40 hover:bg-muted/60 cursor-pointer"
+                                                    onClick={() => toggleVendorExpand(group.vendorName)}
+                                                >
+                                                    <TableCell className="font-medium">
+                                                        <div className="flex items-center gap-2">
+                                                            {isExpanded
+                                                                ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                                : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                                                            <TruncCell value={group.vendorName} width={180} />
+                                                            <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                                                                {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell colSpan={5} />
+                                                    <TableCell className="text-center">
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
                                                             className="h-7 w-7 text-primary hover:text-primary"
-                                                            title="Edit"
+                                                            title="Edit all items for this vendor"
                                                             disabled={isViewOnly}
-                                                            onClick={() => openVppEditDialog(row)}
+                                                            onClick={(e) => { e.stopPropagation(); openVppEditDialog(group.items[0]); }}
                                                         >
                                                             <Pencil className="h-3.5 w-3.5" />
                                                         </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-destructive hover:text-destructive"
-                                                            title="Remove"
-                                                            disabled={isViewOnly}
-                                                            onClick={() => handleDeleteVpp(row)}
-                                                        >
-                                                            <Trash2 className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
+                                                    </TableCell>
+                                                </TableRow>,
+                                                ...(isExpanded ? group.items.map(row => (
+                                                    <TableRow key={`item-${row.id}`} className="bg-background">
+                                                        <TableCell className="pl-10 text-muted-foreground text-sm">—</TableCell>
+                                                        <TableCell><TruncCell value={row.productName} width={200} /></TableCell>
+                                                        <TableCell><TruncCell value={row.uom} width={80} /></TableCell>
+                                                        <TableCell>{row.price != null ? row.price : <span className="text-muted-foreground">—</span>}</TableCell>
+                                                        <TableCell>{row.validFrom ? new Date(row.validFrom).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>
+                                                        <TableCell>{row.validUpto ? new Date(row.validUpto).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>
+                                                        <TableCell className="text-center">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                                                title="Remove this item"
+                                                                disabled={isViewOnly}
+                                                                onClick={() => handleDeleteVpp(row)}
+                                                            >
+                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )) : [])
+                                            ];
+                                        })
                                     )}
                                 </TableBody>
                             </Table>
@@ -2193,19 +2217,18 @@ export default function MasterData() {
                                     const v = vendorOptions.find(o => String(o.id) === val);
                                     setVppVendor(v || null);
                                     if (v) {
-                                        const existingRows = vppData.filter(r => r.vendorId === v.id || (r.vendorName && r.vendorName === v.name));
-                                        if (existingRows.length > 0) {
-                                            setVppItems(existingRows.map(r => ({
+                                        const existingRows = vppData.filter(r => (r.vendorName || '').trim() === v.name.trim());
+                                        setVppItems(existingRows.length > 0
+                                            ? existingRows.map(r => ({
                                                 id: r.id,
                                                 productName: r.productName || '',
                                                 uom: r.uom || '',
                                                 price: r.price != null ? String(r.price) : '',
                                                 validFrom: r.validFrom ? new Date(r.validFrom).toISOString().split('T')[0] : '',
                                                 validUpto: r.validUpto ? new Date(r.validUpto).toISOString().split('T')[0] : ''
-                                            })));
-                                        } else {
-                                            setVppItems([{ productName: '', uom: '', price: '', validFrom: '', validUpto: '' }]);
-                                        }
+                                            }))
+                                            : [{ productName: '', uom: '', price: '', validFrom: '', validUpto: '' }]
+                                        );
                                     } else {
                                         setVppItems([{ productName: '', uom: '', price: '', validFrom: '', validUpto: '' }]);
                                     }
