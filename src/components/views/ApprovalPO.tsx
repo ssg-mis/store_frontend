@@ -762,6 +762,8 @@ export default function ApprovalPO() {
                                 <TableRow className="bg-muted/20">
                                     <TableHead className="text-xs">#</TableHead>
                                     <TableHead className="text-xs">Product Name</TableHead>
+                                    <TableHead className="text-xs">Indenter</TableHead>
+                                    <TableHead className="text-xs">Area of Use</TableHead>
                                     <TableHead className="text-xs">Indented Qty</TableHead>
                                     <TableHead className="text-xs">Approved Qty</TableHead>
                                     <TableHead className="text-xs">Rate Comparison</TableHead>
@@ -790,6 +792,13 @@ export default function ApprovalPO() {
                                         <TableRow key={row.id}>
                                             <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                                             <TableCell className="text-xs font-medium whitespace-nowrap">{row.productName}</TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">
+                                                <div>{row.indenterName || '—'}</div>
+                                                {row.department && (
+                                                    <div className="text-[10px] text-muted-foreground">{row.department}</div>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">{row.areaOfUse || '—'}</TableCell>
                                             <TableCell className="text-xs whitespace-nowrap">
                                                 <div>{row.quantity} {row.uom}</div>
                                                 <div className="text-[10px] text-muted-foreground">{row.createdAt ? formatDate(new Date(row.createdAt)) : '—'}</div>

@@ -554,7 +554,10 @@ export default function MasterData() {
 
             const results = await Promise.all([...savePromises, ...deletePromises]);
             if (results.some(r => !r.success)) {
-                throw new Error('Failed to save some items');
+                const failed = results.find(r => !r.success);
+                let msg = failed?.error || 'Failed to save some items';
+                try { msg = JSON.parse(msg).error ?? msg; } catch { /* raw string */ }
+                throw new Error(msg);
             }
 
             toast.success(`Saved vendor price list for ${vppVendor.name}`);
