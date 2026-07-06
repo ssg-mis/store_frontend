@@ -18,7 +18,9 @@ const ROUTE_PAGE_KEY: Record<string, string> = {
     'loan-out-approval': 'storeOutApproval',
     'quotation': 'quotation',
     'master-data': 'masterData',
+    'status-of-po': 'statusOfPo',
 };
+
 
 function resolveAccess(user: any, pathname: string): 'EDIT' | 'VIEW' {
     const routeSegment = pathname.split('/').filter(Boolean)[0] || '';

@@ -51,12 +51,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                                 // whose stored permissions predate this key; an explicit value
                                 // from pageAccess/camelPermissions (set via Setting) overrides it.
                                 poApprovalView: true,
+                                statusOfPo: true,
                                 ...toCamelCase(latestUser),
                                 ...pageAccess,
                                 ...camelPermissions,
                                 firmAccess: latestUser.firmAccess || [],
                                 row_index: latestUser.id
                             } as UserPermissions;
+
 
                             localStorage.setItem('auth', JSON.stringify({ user: userData, token }));
                             setUserPermissions(userData);
@@ -102,12 +104,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 const userData = {
                     // Default-enable Approval of PO; explicit pageAccess values override below.
                     poApprovalView: true,
+                    statusOfPo: true,
                     ...toCamelCase(data.user),
                     ...pageAccess, // keeping snake_case as fallback
                     ...camelPermissions, // ensuring camelCase for Sidebar
                     firmAccess: data.user.firmAccess || [],
                     row_index: data.user.id
                 } as UserPermissions;
+
 
                 
                 // Store in localStorage

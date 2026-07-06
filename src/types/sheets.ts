@@ -279,6 +279,7 @@ export type UserPermissions = {
     inventory: boolean;
     masterData: boolean;
     setting: boolean;
+    statusOfPo: boolean;
     firmAccess?: string[];
 };
 
@@ -306,7 +307,9 @@ export const allPermissionKeys = [
     "inventory",
     "masterData",
     "setting",
+    "statusOfPo",
 ] as const;
+
 
 
 export type QuotationHistorySheet = {

@@ -1590,3 +1590,15 @@ export async function fetchIndentHistory(indentNumber: string): Promise<any[]> {
     }
 }
 
+export async function fetchPendingPODetails(): Promise<{ pendingPOs: any[]; pendingQuantities: any[] }> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/pending-details`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching pending PO details:', error);
+        return { pendingPOs: [], pendingQuantities: [] };
+    }
+}
+
+

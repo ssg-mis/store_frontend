@@ -60,6 +60,7 @@ const PAGE_MODIFY_ITEMS = [
     { key: 'storeOutApproval',   label: 'Store Out / Approval' },
     { key: 'quotation',          label: 'Quotation' },
     { key: 'masterData',         label: 'Master Data' },
+    { key: 'statusOfPo',         label: 'Status of PO' },
 ];
 
 const permissionLabels: Record<(typeof allPermissionKeys)[number], string> = {
@@ -86,6 +87,7 @@ const permissionLabels: Record<(typeof allPermissionKeys)[number], string> = {
     inventory: 'Inventory',
     masterData: 'Master Data',
     setting: 'Setting',
+    statusOfPo: 'Status of PO',
 };
 
 export default () => {

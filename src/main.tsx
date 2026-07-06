@@ -51,6 +51,8 @@ import Order from './components/views/Order';
 import Inventory from './components/views/Inventory';
 import POMaster from './components/views/POMaster';
 import ViewOnlyGuard from './components/element/ViewOnlyGuard';
+import StatusOfPO from './components/views/StatusOfPO';
+
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const { loggedIn, loading } = useAuth();
@@ -235,6 +237,15 @@ const routes: RouteAttributes[] = [
         element: <ApprovalPO />,
         notifications: () => 0,
     },
+    {
+        path: 'status-of-po',
+        gateKey: 'statusOfPo',
+        name: 'Status of PO',
+        icon: <ListTodo size={20} />,
+        element: <StatusOfPO />,
+        notifications: () => 0,
+    },
+
     // {
     //     path: 'po-history',
     //     gateKey: 'ordersView',

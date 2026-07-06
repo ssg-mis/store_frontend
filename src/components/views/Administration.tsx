@@ -64,7 +64,9 @@ const permissionLabels: Record<(typeof allPermissionKeys)[number], string> = {
     inventory: 'Inventory',
     masterData: 'Master Data',
     setting: 'Setting',
+    statusOfPo: 'Status of PO',
 };
+
 
 export default () => {
     const { user: currentUser } = useAuth();
