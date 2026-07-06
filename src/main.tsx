@@ -146,6 +146,14 @@ const routes: RouteAttributes[] = [
         notifications: () => 0,
     },
     {
+        path: 'po-master',
+        gateKey: 'poMaster',
+        name: 'PO Master',
+        icon: <Users size={20} />,
+        element: <POMaster />,
+        notifications: () => 0,
+    },
+    {
         path: 'inventory',
         name: 'Inventory',
         icon: <Store size={20} />,
@@ -225,14 +233,6 @@ const routes: RouteAttributes[] = [
         name: 'Approval of PO',
         icon: <ClipboardCheck size={20} />,
         element: <ApprovalPO />,
-        notifications: () => 0,
-    },
-    {
-        path: 'po-master',
-        gateKey: 'poMaster',
-        name: 'PO Master',
-        icon: <Users size={20} />,
-        element: <POMaster />,
         notifications: () => 0,
     },
     // {

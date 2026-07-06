@@ -1,4 +1,4 @@
-import { ListTodo, Search, ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { ListTodo, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatDate, debounce } from '@/lib/utils';
@@ -331,14 +331,11 @@ export default () => {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-8"></TableHead>
-                                    <TableHead className="w-20">PDF</TableHead>
                                     <TableHead>PO Number</TableHead>
                                     <TableHead>Party Name</TableHead>
-                                    <TableHead>Date</TableHead>
+                                    <TableHead>PO Date</TableHead>
                                     <TableHead>Prepared By</TableHead>
                                     <TableHead>Approved By</TableHead>
-                                    <TableHead>Total PO Amount</TableHead>
-                                    <TableHead>Indents</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -356,63 +353,47 @@ export default () => {
                                                         ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                                         : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                                                 </TableCell>
-                                                <TableCell onClick={(e) => e.stopPropagation()}>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                                                <TableCell className="font-medium text-xs sm:text-sm">
+                                                    <button
+                                                        type="button"
+                                                        className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
                                                         disabled={generatingPdf === group.poNumber}
-                                                        onClick={() => handleViewPdf(group.poNumber, group.items, group.pdf)}
+                                                        onClick={(e) => { e.stopPropagation(); handleViewPdf(group.poNumber, group.items, group.pdf); }}
                                                     >
-                                                        <FileText size={13} />
-                                                        {generatingPdf === group.poNumber ? '...' : 'View'}
-                                                    </Button>
+                                                        {group.poNumber}
+                                                    </button>
                                                 </TableCell>
-                                                <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.poNumber}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.timestamp}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.preparedBy}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.approvedBy}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm font-medium">&#8377;{group.totalPoAmount.toLocaleString()}</TableCell>
-                                                <TableCell>
-                                                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                                                        {group.items.length} {group.items.length === 1 ? 'indent' : 'indents'}
-                                                    </span>
-                                                </TableCell>
                                             </TableRow>
                                             {isExpanded && group.versions.length > 1 && group.versions.map((ver) => (
                                                 <TableRow key={`rev-${ver.poNumber}`} className="bg-primary/5">
                                                     <TableCell />
-                                                    <TableCell onClick={(e) => e.stopPropagation()}>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="h-7 px-2 gap-1 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                                                    <TableCell className="text-xs font-medium">
+                                                        <button
+                                                            type="button"
+                                                            className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
                                                             disabled={generatingPdf === ver.poNumber}
-                                                            onClick={() => handleViewPdf(ver.poNumber, ver.items, ver.items[0]?.pdf)}
+                                                            onClick={(e) => { e.stopPropagation(); handleViewPdf(ver.poNumber, ver.items, ver.items[0]?.pdf); }}
                                                         >
-                                                            <FileText size={13} />
-                                                            {generatingPdf === ver.poNumber ? '...' : 'View'}
-                                                        </Button>
+                                                            {ver.poNumber}
+                                                        </button>
                                                     </TableCell>
-                                                    <TableCell className="text-xs font-medium text-primary">{ver.poNumber}</TableCell>
-                                                    <TableCell colSpan={5} className="text-xs text-muted-foreground">
+                                                    <TableCell colSpan={4} className="text-xs text-muted-foreground">
                                                         {ver.revision === group.versions[0].revision ? 'Latest' : ver.revision === 0 ? 'Original' : `Revision ${ver.revision}`}
                                                     </TableCell>
-                                                    <TableCell />
                                                 </TableRow>
                                             ))}
                                             {isExpanded && group.items.map((item, idx) => (
                                                 <TableRow key={`${group.poNumber}-${idx}`} className="bg-muted/20">
-                                                    <TableCell />
                                                     <TableCell className="text-xs text-muted-foreground pl-6">{item.internalCode || '-'}</TableCell>
                                                     <TableCell className="text-xs">{item.product}</TableCell>
                                                     <TableCell className="text-xs">{item.description || '-'}</TableCell>
                                                     <TableCell className="text-xs">{item.quantity} {item.unit}</TableCell>
                                                     <TableCell className="text-xs">&#8377;{item.rate.toLocaleString()}</TableCell>
                                                     <TableCell className="text-xs">{item.gstPercent}%</TableCell>
-                                                    <TableCell className="text-xs">&#8377;{item.amount.toLocaleString()}</TableCell>
-                                                    <TableCell />
                                                 </TableRow>
                                             ))}
                                         </>

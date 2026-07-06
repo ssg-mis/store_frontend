@@ -524,12 +524,30 @@ export default function MasterData() {
             }
         }
 
-        // Duplicate products validation
-        const productNames = rows.map(it => it.productName.trim().toLowerCase());
-        const uniqueProducts = new Set(productNames);
-        if (productNames.length !== uniqueProducts.size) {
-            toast.error('Duplicate products are not allowed in the same price list.');
-            return;
+        // The same product may appear multiple times, as long as their validity
+        // periods (Valid From / Valid Upto) do not overlap. Null = open-ended.
+        const rangesOverlap = (aFrom: string, aUpto: string, bFrom: string, bUpto: string) => {
+            const aStart = aFrom ? new Date(aFrom).getTime() : -Infinity;
+            const aEnd = aUpto ? new Date(aUpto).getTime() : Infinity;
+            const bStart = bFrom ? new Date(bFrom).getTime() : -Infinity;
+            const bEnd = bUpto ? new Date(bUpto).getTime() : Infinity;
+            return aStart <= bEnd && bStart <= aEnd;
+        };
+        const byProduct = new Map<string, typeof rows>();
+        for (const it of rows) {
+            const key = it.productName.trim().toLowerCase();
+            if (!byProduct.has(key)) byProduct.set(key, []);
+            byProduct.get(key)!.push(it);
+        }
+        for (const [, group] of byProduct) {
+            for (let i = 0; i < group.length; i++) {
+                for (let j = i + 1; j < group.length; j++) {
+                    if (rangesOverlap(group[i].validFrom, group[i].validUpto, group[j].validFrom, group[j].validUpto)) {
+                        toast.error(`"${group[i].productName}" has overlapping validity periods. Adjust the Valid From / Valid Upto dates so they don't overlap.`);
+                        return;
+                    }
+                }
+            }
         }
 
         setVppSubmitting(true);

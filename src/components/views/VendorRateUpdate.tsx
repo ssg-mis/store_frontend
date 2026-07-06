@@ -174,13 +174,30 @@ export default () => {
         fetchVendorProductPrices().then(setVendorProductPrices);
     }, []);
 
-    // Look up a vendor's price for a specific product from the Vendor Price List (null if not set)
-    const getVendorPrice = useCallback((vendorName: string, productName: string): number | null => {
+    // Look up a vendor's *currently valid* price for a product from the Vendor Price List.
+    // Returns the price only when today falls within its validFrom..validUpto window
+    // (null = open-ended). Returns null if there's no entry or none is valid right now.
+    const getValidVendorPrice = useCallback((vendorName: string, productName: string): number | null => {
         const v = (vendorName || '').trim().toLowerCase();
         const p = (productName || '').trim().toLowerCase();
-        const match = vendorProductPrices.find(r =>
-            (r.vendorName || '').trim().toLowerCase() === v &&
-            (r.productName || '').trim().toLowerCase() === p);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const match = vendorProductPrices.find(r => {
+            if ((r.vendorName || '').trim().toLowerCase() !== v) return false;
+            if ((r.productName || '').trim().toLowerCase() !== p) return false;
+            if (r.price == null) return false;
+            if (r.validFrom) {
+                const from = new Date(r.validFrom);
+                from.setHours(0, 0, 0, 0);
+                if (today < from) return false;
+            }
+            if (r.validUpto) {
+                const upto = new Date(r.validUpto);
+                upto.setHours(23, 59, 59, 999);
+                if (today > upto) return false;
+            }
+            return true;
+        });
         return match && match.price != null ? Number(match.price) : null;
     }, [vendorProductPrices]);
 
@@ -878,7 +895,7 @@ export default () => {
             paymentTerm: '',
             deliveryTime: 0,
             comparisonSheet: undefined as unknown as File,
-            rates: Array.from({ length: productCount }, () => 0),
+            rates: Array.from({ length: productCount }, () => '' as unknown as number),
         }));
 
     const threePartyForm = useForm<z.infer<typeof threePartySchema>>({
@@ -896,7 +913,7 @@ export default () => {
             // Default to 3 vendor columns (common case); user can add up to 10 or remove down to 1.
             threePartyForm.reset({ vendors: makeDefaultVendors(3, selectedGroup.items.length) });
             regularForm.reset({
-                products: selectedGroup.items.map(() => ({ vendorName: '', rate: 0, paymentTerm: '' })),
+                products: selectedGroup.items.map(() => ({ vendorName: '', rate: '' as unknown as number, paymentTerm: '' })),
             });
         }
     }, [selectedGroup]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1358,14 +1375,6 @@ export default () => {
                                                                             <Select
                                                                                 onValueChange={(val) => {
                                                                                     field.onChange(val);
-                                                                                    selectedGroup.items.forEach((prod, pi) => {
-                                                                                        const price = getVendorPrice(val, prod.product);
-                                                                                        threePartyForm.setValue(
-                                                                                            `vendors.${v}.rates.${pi}`,
-                                                                                            price != null ? price : 0,
-                                                                                            { shouldValidate: true }
-                                                                                        );
-                                                                                    });
                                                                                 }}
                                                                                 value={field.value}
                                                                             >
@@ -1415,14 +1424,23 @@ export default () => {
                                                                     <FormField
                                                                         control={threePartyForm.control}
                                                                         name={`vendors.${v}.rates.${i}`}
-                                                                        render={({ field }) => (
-                                                                            <FormItem>
-                                                                                <FormControl>
-                                                                                    <Input type="number" placeholder="Enter rate" className="w-full h-8 text-xs" {...field} />
-                                                                                </FormControl>
-                                                                                <FormMessage className="text-[10px]" />
-                                                                            </FormItem>
-                                                                        )}
+                                                                        render={({ field }) => {
+                                                                            const selectedVendor = threePartyForm.watch(`vendors.${v}.vendorName`);
+                                                                            const validPrice = selectedVendor ? getValidVendorPrice(selectedVendor, product.product) : null;
+                                                                            return (
+                                                                                <FormItem>
+                                                                                    <FormControl>
+                                                                                        <Input type="number" placeholder="Enter rate" className="w-full h-8 text-xs" {...field} />
+                                                                                    </FormControl>
+                                                                                    {selectedVendor && (
+                                                                                        validPrice != null
+                                                                                            ? <p className="text-[10px] text-green-600 mt-0.5">Vendor price: &#8377;{validPrice.toLocaleString()}</p>
+                                                                                            : <p className="text-[10px] text-yellow-600 mt-0.5">No valid price available</p>
+                                                                                    )}
+                                                                                    <FormMessage className="text-[10px]" />
+                                                                                </FormItem>
+                                                                            );
+                                                                        }}
                                                                     />
                                                                 </TableCell>
                                                             ))}
@@ -1595,12 +1613,6 @@ export default () => {
                                                                             <Select
                                                                                 onValueChange={(val) => {
                                                                                     field.onChange(val);
-                                                                                    const price = getVendorPrice(val, selectedGroup.items[i]?.product || '');
-                                                                                    regularForm.setValue(
-                                                                                        `products.${i}.rate`,
-                                                                                        price != null ? price : 0,
-                                                                                        { shouldValidate: true }
-                                                                                    );
                                                                                 }}
                                                                                 value={field.value}
                                                                             >
@@ -1632,14 +1644,23 @@ export default () => {
                                                                 <FormField
                                                                     control={regularForm.control}
                                                                     name={`products.${i}.rate`}
-                                                                    render={({ field }) => (
-                                                                        <FormItem>
-                                                                            <FormControl>
-                                                                                <Input type="number" placeholder="Enter rate" className="w-full h-8 text-xs" {...field} />
-                                                                            </FormControl>
-                                                                            <FormMessage className="text-[10px]" />
-                                                                        </FormItem>
-                                                                    )}
+                                                                    render={({ field }) => {
+                                                                        const selectedVendor = regularForm.watch(`products.${i}.vendorName`);
+                                                                        const validPrice = selectedVendor ? getValidVendorPrice(selectedVendor, selectedGroup.items[i]?.product || '') : null;
+                                                                        return (
+                                                                            <FormItem>
+                                                                                <FormControl>
+                                                                                    <Input type="number" placeholder="Enter rate" className="w-full h-8 text-xs" {...field} />
+                                                                                </FormControl>
+                                                                                {selectedVendor && (
+                                                                                    validPrice != null
+                                                                                        ? <p className="text-[10px] text-green-600 mt-0.5">Vendor price: &#8377;{validPrice.toLocaleString()}</p>
+                                                                                        : <p className="text-[10px] text-yellow-600 mt-0.5">No valid price available</p>
+                                                                                )}
+                                                                                <FormMessage className="text-[10px]" />
+                                                                            </FormItem>
+                                                                        );
+                                                                    }}
                                                                 />
                                                             </TableCell>
                                                             <TableCell className="min-w-[160px] align-top">
