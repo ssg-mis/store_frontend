@@ -1590,14 +1590,43 @@ export async function fetchIndentHistory(indentNumber: string): Promise<any[]> {
     }
 }
 
-export async function fetchPendingPODetails(): Promise<{ pendingPOs: any[]; pendingQuantities: any[] }> {
+export async function fetchPendingPODetails(): Promise<{ pendingPOs: any[] }> {
     try {
         const response = await apiFetch(`${API_BASE_URL}/po-masters/pending-details`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (error) {
         console.error('Error fetching pending PO details:', error);
-        return { pendingPOs: [], pendingQuantities: [] };
+        return { pendingPOs: [] };
+    }
+}
+
+export async function completePOTracking(poNumber: string, remarks?: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ poNumber, remarks })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update PO status');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error completing PO tracking:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchPOStatusDetails(poNumber: string): Promise<any | null> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/status-details/${encodeURIComponent(poNumber)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching PO status details:', error);
+        return null;
     }
 }
 
