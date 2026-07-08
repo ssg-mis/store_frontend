@@ -1630,6 +1630,24 @@ export async function completePOTracking(poNumber: string, remarks?: string) {
     }
 }
 
+export async function updatePOMasterPdf(poNumber: string, pdf: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ poNumber, pdf })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update PO pdf');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error updating PO pdf:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function fetchPOStatusDetails(poNumber: string): Promise<any | null> {
     try {
         const response = await apiFetch(`${API_BASE_URL}/po-masters/status-details/${encodeURIComponent(poNumber)}`);

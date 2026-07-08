@@ -2,11 +2,12 @@ import { ListTodo, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatDate, debounce } from '@/lib/utils';
-import { fetchFromSupabasePaginated, fetchVendors, fetchFirms } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, fetchVendors, fetchFirms, uploadFile, updatePOMasterPdf } from '@/lib/fetchers';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { useSheets } from '@/context/SheetsContext';
+import { useAuth } from '@/context/AuthContext';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 import { toast } from 'sonner';
@@ -59,6 +60,8 @@ const formatFirmAddress = (firm: any, fallback = '') => {
 
 export default () => {
     const { masterSheet: details } = useSheets();
+    const { user } = useAuth();
+    const isAdmin = (user as any)?.role === 'ADMIN';
     const [tableData, setTableData] = useState<POMasterItem[]>([]);
     const [initialLoading, setInitialLoading] = useState(true);
     const [isSearching, setIsSearching] = useState(false);
@@ -69,6 +72,8 @@ export default () => {
     const [vendors, setVendors] = useState<any[]>([]);
     const [firms, setFirms] = useState<any[]>([]);
     const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
+    const [regenerating, setRegenerating] = useState(false);
+    const [regenProgress, setRegenProgress] = useState<{ done: number; total: number } | null>(null);
     const abortRef = useRef<AbortController | null>(null);
 
     const fetchData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
@@ -143,6 +148,70 @@ export default () => {
         fetchFirms().then((f) => setFirms(Array.isArray(f) ? f : [])).catch(() => {});
     }, []);
 
+    async function buildPOPdfProps(poNumber: string, items: POMasterItem[]): Promise<POPdfProps> {
+        const first = items[0];
+        const firmObj = firms.find((f: any) => f.firm_name === first.firm);
+        const vendor = vendors.find((v: any) =>
+            (v.vendorName || '').trim().toLowerCase() === (first.partyName || '').trim().toLowerCase()
+        );
+
+        const firmAddress = formatFirmAddress(firmObj, details?.companyAddress || '');
+        const companyName = firmObj?.firm_name || details?.companyName || '';
+
+        let logoBase64 = '';
+        try {
+            const logoBlob = await fetch('/logo.png').then(r => r.blob());
+            logoBase64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(logoBlob);
+            });
+        } catch { /* logo is optional */ }
+
+        return {
+            companyLogo: logoBase64,
+            companyName,
+            companyPhone: firmObj?.mobile || details?.companyPhone || '',
+            companyGstin: firmObj?.firm_gstin || details?.companyGstin || '',
+            companyPan: firmObj?.pan_number || details?.companyPan || '',
+            companyAddress: firmAddress,
+            billingAddress: firmAddress || details?.billingAddress || '',
+            destinationAddress: details?.destinationAddress
+                ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
+                : [companyName, firmAddress].filter(Boolean).join('\n'),
+            supplierName: first.partyName,
+            supplierAddress: vendor?.address || '',
+            supplierGstin: vendor?.gstin || '',
+            orderNumber: poNumber,
+            orderDate: first.timestamp,
+            quotationNumber: first.quotationNumber,
+            quotationDate: first.quotationDate,
+            enqNo: first.enquiryNumber,
+            enqDate: first.enquiryDate,
+            description: first.description,
+            items: items.map(it => ({
+                internalCode: it.internalCode,
+                firm: it.firm,
+                product: it.product,
+                description: it.description,
+                quantity: it.quantity,
+                unit: it.unit,
+                rate: it.rate,
+                gst: it.gstPercent,
+                discount: it.discountPercent,
+                amount: it.amount,
+            })),
+            total: first.totalPoAmount,
+            gstAmount: 0,
+            grandTotal: first.totalPoAmount,
+            terms: first.terms,
+            preparedBy: first.preparedBy,
+            approvedBy: first.approvedBy,
+            transportationType: first.transportationType,
+            firm: first.firm,
+        };
+    }
+
     async function handleViewPdf(poNumber: string, items: POMasterItem[], storedPdf?: string) {
         // If a stored PDF exists (generated at approval time), open it directly.
         if (storedPdf) {
@@ -152,68 +221,7 @@ export default () => {
         // Otherwise generate on demand from live data (pending POs, or old POs before this change).
         setGeneratingPdf(poNumber);
         try {
-            const first = items[0];
-            const firmObj = firms.find((f: any) => f.firm_name === first.firm);
-            const vendor = vendors.find((v: any) =>
-                (v.vendorName || '').trim().toLowerCase() === (first.partyName || '').trim().toLowerCase()
-            );
-
-            const firmAddress = formatFirmAddress(firmObj, details?.companyAddress || '');
-            const companyName = firmObj?.firm_name || details?.companyName || '';
-
-            let logoBase64 = '';
-            try {
-                const logoBlob = await fetch('/logo.png').then(r => r.blob());
-                logoBase64 = await new Promise<string>((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.readAsDataURL(logoBlob);
-                });
-            } catch { /* logo is optional */ }
-
-            const props: POPdfProps = {
-                companyLogo: logoBase64,
-                companyName,
-                companyPhone: firmObj?.mobile || details?.companyPhone || '',
-                companyGstin: firmObj?.firm_gstin || details?.companyGstin || '',
-                companyPan: firmObj?.pan_number || details?.companyPan || '',
-                companyAddress: firmAddress,
-                billingAddress: firmAddress || details?.billingAddress || '',
-                destinationAddress: details?.destinationAddress
-                    ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
-                    : [companyName, firmAddress].filter(Boolean).join('\n'),
-                supplierName: first.partyName,
-                supplierAddress: vendor?.address || '',
-                supplierGstin: vendor?.gstin || '',
-                orderNumber: poNumber,
-                orderDate: first.timestamp,
-                quotationNumber: first.quotationNumber,
-                quotationDate: first.quotationDate,
-                enqNo: first.enquiryNumber,
-                enqDate: first.enquiryDate,
-                description: first.description,
-                items: items.map(it => ({
-                    internalCode: it.internalCode,
-                    firm: it.firm,
-                    product: it.product,
-                    description: it.description,
-                    quantity: it.quantity,
-                    unit: it.unit,
-                    rate: it.rate,
-                    gst: it.gstPercent,
-                    discount: it.discountPercent,
-                    amount: it.amount,
-                })),
-                total: first.totalPoAmount,
-                gstAmount: 0,
-                grandTotal: first.totalPoAmount,
-                terms: first.terms,
-                preparedBy: first.preparedBy,
-                approvedBy: first.approvedBy,
-                transportationType: first.transportationType,
-                firm: first.firm,
-            };
-
+            const props = await buildPOPdfProps(poNumber, items);
             const blob = await pdf(<POPdf {...props} />).toBlob();
             const url = URL.createObjectURL(blob);
             window.open(url, '_blank', 'noopener,noreferrer');
@@ -223,6 +231,95 @@ export default () => {
             toast.error('Failed to generate PDF');
         } finally {
             setGeneratingPdf(null);
+        }
+    }
+
+    async function handleRegenerateAllPdfs() {
+        if (!window.confirm(
+            'Regenerate PDFs for every PO that already has a stored PDF?\n\n' +
+            'This re-renders each one with the current template (including the Discount column) ' +
+            'and replaces the stored PDF link. Old PDF files are left in place, only unused.'
+        )) return;
+
+        setRegenerating(true);
+        setRegenProgress(null);
+        try {
+            const raw: any = await fetchFromSupabasePaginated(
+                'po_master', '*', undefined, undefined, undefined, { limit: 5000 }
+            );
+            const rows: POMasterItem[] = (Array.isArray(raw) ? raw : []).map((sheet: any) => ({
+                id: sheet.id,
+                timestamp: sheet.createdAt ? formatDate(new Date(sheet.createdAt)) : '',
+                partyName: sheet.partyName || '',
+                poNumber: sheet.poNumber || '',
+                quotationNumber: sheet.quotationNumber || '',
+                quotationDate: sheet.quotationDate ? formatDate(new Date(sheet.quotationDate)) : '',
+                enquiryNumber: sheet.enquiryNumber || '',
+                enquiryDate: sheet.enquiryDate ? formatDate(new Date(sheet.enquiryDate)) : '',
+                internalCode: sheet.internalCode || '',
+                product: sheet.product || '',
+                description: sheet.description || '',
+                quantity: sheet.quantity || 0,
+                unit: sheet.unit || '',
+                rate: Number(sheet.rate) || 0,
+                gstPercent: parseGSTPercent(sheet.gstPercent),
+                discountPercent: sheet.discountPercent || 0,
+                amount: Number(sheet.amount) || 0,
+                totalPoAmount: Number(sheet.totalPOAmount || sheet.totalPoAmount) || 0,
+                preparedBy: sheet.preparedBy || '',
+                approvedBy: sheet.approvedBy || '',
+                firm: sheet.firm || sheet.indent?.firm || 'N/A',
+                transportationType: sheet.transportationType || '',
+                terms: [
+                    sheet.term1, sheet.term2, sheet.term3, sheet.term4, sheet.term5,
+                    sheet.term6, sheet.term7, sheet.term8, sheet.term9, sheet.term10,
+                ].filter(Boolean),
+                pdf: sheet.pdf || '',
+            }));
+
+            const groups = new Map<string, POMasterItem[]>();
+            rows.forEach(item => {
+                if (!item.poNumber) return;
+                if (!groups.has(item.poNumber)) groups.set(item.poNumber, []);
+                groups.get(item.poNumber)!.push(item);
+            });
+
+            const targets = Array.from(groups.entries()).filter(([, items]) => items[0]?.pdf);
+            if (!targets.length) {
+                toast.info('No stored PDFs found to regenerate.');
+                return;
+            }
+
+            setRegenProgress({ done: 0, total: targets.length });
+            const failed: string[] = [];
+
+            for (const [poNumber, items] of targets) {
+                try {
+                    const props = await buildPOPdfProps(poNumber, items);
+                    const blob = await pdf(<POPdf {...props} />).toBlob();
+                    const file = new File([blob], `PO-${poNumber}.pdf`, { type: 'application/pdf' });
+                    const url = await uploadFile(file, import.meta.env.VITE_PURCHASE_ORDERS_FOLDER || '');
+                    const result = await updatePOMasterPdf(poNumber, url);
+                    if (!result.success) throw new Error(result.error || 'update failed');
+                } catch (err) {
+                    console.error(`Failed to regenerate PDF for ${poNumber}:`, err);
+                    failed.push(poNumber);
+                }
+                setRegenProgress(prev => prev ? { ...prev, done: prev.done + 1 } : prev);
+            }
+
+            if (failed.length) {
+                toast.warning(`Regenerated ${targets.length - failed.length}/${targets.length} PDFs. Failed: ${failed.join(', ')}`);
+            } else {
+                toast.success(`Regenerated ${targets.length} PDF${targets.length > 1 ? 's' : ''}.`);
+            }
+            fetchData(page, search);
+        } catch (err: any) {
+            console.error('Error regenerating PDFs:', err);
+            toast.error('Failed to regenerate PDFs');
+        } finally {
+            setRegenerating(false);
+            setRegenProgress(null);
         }
     }
 
@@ -307,6 +404,19 @@ export default () => {
                             onChange={(e) => debouncedSearch(e.target.value)}
                         />
                     </div>
+                    {isAdmin && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs"
+                            disabled={regenerating}
+                            onClick={handleRegenerateAllPdfs}
+                        >
+                            {regenerating
+                                ? `Regenerating... ${regenProgress ? `${regenProgress.done}/${regenProgress.total}` : ''}`
+                                : 'Regenerate All PDFs'}
+                        </Button>
+                    )}
                 </div>
 
                 {isSearching && (
