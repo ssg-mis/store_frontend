@@ -1532,6 +1532,17 @@ export async function fetchPOApprovals(status: 'Pending' | 'Rejected' | 'Approve
     }
 }
 
+export async function fetchPOByNumber(poNumber: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-approvals/by-number/${encodeURIComponent(poNumber)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching PO by number:', error);
+        return null;
+    }
+}
+
 export async function approvePO(poNumber: string, approvedBy?: string, pdfUrl?: string) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/po-approvals/approve`, {

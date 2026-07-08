@@ -256,6 +256,7 @@ export default () => {
                 z.object({
                     indentNumber: z.string().nonempty(),
                     id: z.number().optional(),
+                    poItemId: z.number().optional(),
                     quantity: z.coerce.number().min(0.001, 'Quantity must be greater than 0'),
                     gst: z.coerce.number(),
                     discount: z.coerce.number().default(0).optional(),
@@ -540,6 +541,7 @@ export default () => {
                     .filter((p: any) => (p.poNumber || p.po_number) === (po.poNumber || po.po_number))
                     .map((poItem: any) => ({
                         indentNumber: poItem.internalCode || poItem.internal_code || poItem.indent_number || '',
+                        poItemId: poItem.id,
                         quantity: poItem.quantity || 0,
                         gst: poItem.gstPercent || poItem.gst_percent || 0,
                         discount: poItem.discountPercent || poItem.discount_percent || 0,
@@ -704,7 +706,7 @@ export default () => {
             const grandTotal = calculateGrandTotal(
                 values.indents.map((indent) => {
                     const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
-                        poMasterSheetData.find((p: any) => (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
+                        poMasterSheetData.find((p: any) => indent.poItemId ? p.id === indent.poItemId : (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
                     return {
                         quantity: indent.quantity,
                         rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
@@ -717,7 +719,7 @@ export default () => {
             // Insert PO data into Supabase
             const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => {
                 const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : i.indentNumber === v.indentNumber) ||
-                    poMasterSheetData.find((p: any) => (p.internalCode || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
+                    poMasterSheetData.find((p: any) => v.poItemId ? p.id === v.poItemId : (p.internalCode || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
 
                 // Validate and process dates
                 const validateDate = (date: Date | null | undefined) => {
@@ -1242,7 +1244,7 @@ export default () => {
                                             const indent = indentSheetData.find(
                                                 (i: any) => value.id ? i.id === value.id : (i.indentNumber || i.indent_number) === value.indentNumber
                                             ) || poMasterSheetData.find(
-                                                (p: any) => (p.internalCode || p.internal_code || p.indent_number) === value.indentNumber && (p.poNumber || p.po_number) === poNumber
+                                                (p: any) => value.poItemId ? p.id === value.poItemId : (p.internalCode || p.internal_code || p.indent_number) === value.indentNumber && (p.poNumber || p.po_number) === poNumber
                                             );
                                             return (
                                                 <TableRow key={field.id} className="text-xs">
@@ -1401,9 +1403,9 @@ export default () => {
                                                 {calculateSubtotal(
                                                     indents.map((indentRow) => {
                                                         const value = indentSheetData.find(
-                                                            (i: any) => (i.indentNumber || i.indent_number) === indentRow.indentNumber
+                                                            (i: any) => indentRow.id ? i.id === indentRow.id : (i.indentNumber || i.indent_number) === indentRow.indentNumber
                                                         ) || poMasterSheetData.find(
-                                                            (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
+                                                            (p: any) => indentRow.poItemId ? p.id === indentRow.poItemId : (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
                                                             quantity: indentRow.quantity,
@@ -1421,9 +1423,9 @@ export default () => {
                                                 {calculateTotalGst(
                                                     indents.map((indentRow) => {
                                                         const value = indentSheetData.find(
-                                                            (i: any) => (i.indentNumber || i.indent_number) === indentRow.indentNumber
+                                                            (i: any) => indentRow.id ? i.id === indentRow.id : (i.indentNumber || i.indent_number) === indentRow.indentNumber
                                                         ) || poMasterSheetData.find(
-                                                            (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
+                                                            (p: any) => indentRow.poItemId ? p.id === indentRow.poItemId : (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
                                                             quantity: indentRow.quantity,
@@ -1442,9 +1444,9 @@ export default () => {
                                                 {calculateGrandTotal(
                                                     indents.map((indentRow) => {
                                                         const value = indentSheetData.find(
-                                                            (i: any) => (i.indentNumber || i.indent_number) === indentRow.indentNumber
+                                                            (i: any) => indentRow.id ? i.id === indentRow.id : (i.indentNumber || i.indent_number) === indentRow.indentNumber
                                                         ) || poMasterSheetData.find(
-                                                            (p: any) => (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
+                                                            (p: any) => indentRow.poItemId ? p.id === indentRow.poItemId : (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
                                                         );
                                                         return {
                                                             quantity: indentRow.quantity,

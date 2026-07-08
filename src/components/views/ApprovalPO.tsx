@@ -3,7 +3,7 @@ import Heading from '../element/Heading';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '@/lib/utils';
-import { fetchPOApprovals, approvePO, rejectPO, fetchVendors, fetchFirms, uploadFile, fetchPurchaseHistory, fetchIndentHistory, type PurchaseHistoryRow } from '@/lib/fetchers';
+import { fetchPOApprovals, approvePO, rejectPO, fetchVendors, fetchFirms, uploadFile, fetchPurchaseHistory, fetchIndentHistory, fetchPOByNumber, type PurchaseHistoryRow } from '@/lib/fetchers';
 import { useSheets } from '@/context/SheetsContext';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
@@ -104,6 +104,8 @@ export default function ApprovalPO() {
     const [submitting, setSubmitting] = useState(false);
 
     const [viewGroup, setViewGroup] = useState<POGroup | null>(null);
+    const [viewFromHistory, setViewFromHistory] = useState(false);
+    const [historyPOLoading, setHistoryPOLoading] = useState<string | null>(null);
     const [rejectReason, setRejectReason] = useState('');
     const [rejectError, setRejectError] = useState(false);
     const [isRejectingInline, setIsRejectingInline] = useState(false);
@@ -382,6 +384,29 @@ export default function ApprovalPO() {
         navigate('/create-po', { state: { revisePoNumber: group.poNumber } });
     }
 
+    // Opens the read-only "View PO" dialog for a PO surfaced via Purchase
+    // History — it may already be Approved, so it won't be in pendingRows/rejectedRows.
+    async function handleViewHistoricalPO(poNumber: string) {
+        setHistoryPOLoading(poNumber);
+        try {
+            const rows = await fetchPOByNumber(poNumber);
+            if (!Array.isArray(rows) || rows.length === 0) {
+                toast.error(`Could not load details for PO ${poNumber}`);
+                return;
+            }
+            const [group] = groupByPoNumber(rows);
+            // Stack the View PO dialog on top instead of closing the Purchase
+            // History dialog first — toggling one Radix Dialog closed the same
+            // tick another opens makes their focus/dismiss layers fight and the
+            // new dialog closes itself immediately. Leaving History open
+            // underneath sidesteps that entirely.
+            setViewFromHistory(true);
+            setViewGroup(group);
+        } finally {
+            setHistoryPOLoading(null);
+        }
+    }
+
     const groups = tab === 'pending' ? pendingGroups : rejectedGroups;
 
     return (
@@ -449,12 +474,13 @@ export default function ApprovalPO() {
                                                 key={group.poNumber}
                                                 className="cursor-pointer hover:bg-muted/50 transition-colors"
                                                 onClick={() => {
+                                                    setViewFromHistory(false);
                                                     setViewGroup(group);
                                                 }}
                                             >
                                                 <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                                                     <Button variant="outline" size="sm" className="h-7 text-xs px-2.5"
-                                                        onClick={() => setViewGroup(group)}>
+                                                        onClick={() => { setViewFromHistory(false); setViewGroup(group); }}>
                                                         View
                                                     </Button>
                                                 </TableCell>
@@ -489,6 +515,7 @@ export default function ApprovalPO() {
         <Dialog open={!!viewGroup} onOpenChange={(open) => {
             if (!open) {
                 setViewGroup(null);
+                setViewFromHistory(false);
                 setIsRejectingInline(false);
                 setRejectReason('');
                 setRejectError(false);
@@ -621,6 +648,7 @@ export default function ApprovalPO() {
 
                 <DialogFooter className="gap-2 mt-4">
                     {viewGroup && (
+                        viewFromHistory ? null :
                         isRejectingInline ? (
                             <>
                                 <Button variant="outline" size="sm" onClick={() => {
@@ -705,7 +733,16 @@ export default function ApprovalPO() {
                                 {historyData.map((row, idx) => (
                                     <TableRow key={row.poNumber + idx}>
                                         <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                                        <TableCell className="text-xs font-medium whitespace-nowrap">{row.poNumber}</TableCell>
+                                        <TableCell className="text-xs font-medium whitespace-nowrap">
+                                            <button
+                                                type="button"
+                                                disabled={historyPOLoading === row.poNumber}
+                                                className="text-primary hover:underline flex items-center gap-1 text-left disabled:opacity-50"
+                                                onClick={() => handleViewHistoricalPO(row.poNumber)}
+                                            >
+                                                {row.poNumber}
+                                            </button>
+                                        </TableCell>
                                         <TableCell className="text-xs whitespace-nowrap">{row.poDate ? formatDate(new Date(row.poDate)) : '—'}</TableCell>
                                         <TableCell className="text-xs">{row.vendor}</TableCell>
                                         <TableCell className="text-xs">{row.quantity}</TableCell>
