@@ -176,44 +176,51 @@ const styles = StyleSheet.create({
         minHeight: 22,
     },
     sl: {
-        width: '7%',
+        width: '6%',
         textAlign: 'center',
     },
     desc: {
-        width: '43%',
+        width: '38%',
     },
     qty: {
-        width: '15%',
+        width: '13%',
         textAlign: 'right',
     },
     rate: {
-        width: '12%',
+        width: '10%',
+        textAlign: 'right',
+    },
+    discount: {
+        width: '9%',
         textAlign: 'right',
     },
     per: {
-        width: '8%',
+        width: '7%',
         textAlign: 'center',
     },
     amount: {
-        width: '15%',
+        width: '17%',
         textAlign: 'right',
     },
     totalLabel: {
-        width: '50%',
+        width: '44%',
         textAlign: 'right',
     },
     totalQty: {
-        width: '15%',
+        width: '13%',
         textAlign: 'right',
     },
     totalRate: {
-        width: '12%',
+        width: '10%',
+    },
+    totalDiscount: {
+        width: '9%',
     },
     totalPer: {
-        width: '8%',
+        width: '7%',
     },
     totalAmount: {
-        width: '15%',
+        width: '17%',
         textAlign: 'right',
     },
     wordsLeft: {
@@ -249,6 +256,11 @@ function formatMoney(value: number) {
 
 function formatQty(value: number, unit: string) {
     return `${Number(value || 0).toFixed(3)} ${unit || ''}`.trim();
+}
+
+function formatDiscount(value: number) {
+    const discount = Number(value || 0);
+    return discount ? `${discount}%` : '-';
 }
 
 function lineTaxableAmount(item: Item) {
@@ -448,6 +460,7 @@ export default ({
                         <Text style={[styles.cell, styles.desc, styles.bold]}>Description of Goods</Text>
                         <Text style={[styles.cell, styles.qty, styles.bold]}>Quantity</Text>
                         <Text style={[styles.cell, styles.rate, styles.bold]}>Rate</Text>
+                        <Text style={[styles.cell, styles.discount, styles.bold]}>Discount</Text>
                         <Text style={[styles.cell, styles.per, styles.bold]}>Per</Text>
                         <Text style={[styles.cellLast, styles.amount, styles.bold]}>Amount</Text>
                     </View>
@@ -461,6 +474,7 @@ export default ({
                             </Text>
                             <Text style={[styles.cell, styles.qty]}>{formatQty(item.quantity, item.unit)}</Text>
                             <Text style={[styles.cell, styles.rate]}>{formatMoney(item.rate)}</Text>
+                            <Text style={[styles.cell, styles.discount]}>{formatDiscount(item.discount)}</Text>
                             <Text style={[styles.cell, styles.per]}>{item.unit}</Text>
                             <Text style={[styles.cellLast, styles.amount]}>{formatMoney(lineTaxableAmount(item))}</Text>
                         </View>
@@ -475,6 +489,7 @@ export default ({
                                 <Text style={[styles.cell, styles.desc, { textAlign: 'right' }]}>CGST {halfPercent}%</Text>
                                 <Text style={[styles.cell, styles.qty]}>{halfPercent}</Text>
                                 <Text style={[styles.cell, styles.rate]} />
+                                <Text style={[styles.cell, styles.discount]} />
                                 <Text style={[styles.cell, styles.per]}>%</Text>
                                 <Text style={[styles.cellLast, styles.amount]}>{formatMoney(halfValue)}</Text>
                             </View>,
@@ -483,6 +498,7 @@ export default ({
                                 <Text style={[styles.cell, styles.desc, { textAlign: 'right' }]}>SGST {halfPercent}%</Text>
                                 <Text style={[styles.cell, styles.qty]}>{halfPercent}</Text>
                                 <Text style={[styles.cell, styles.rate]} />
+                                <Text style={[styles.cell, styles.discount]} />
                                 <Text style={[styles.cell, styles.per]}>%</Text>
                                 <Text style={[styles.cellLast, styles.amount]}>{formatMoney(halfValue)}</Text>
                             </View>,
@@ -493,6 +509,7 @@ export default ({
                         <Text style={[styles.cell, styles.totalLabel, styles.bold]}>TOTAL</Text>
                         <Text style={[styles.cell, styles.totalQty, styles.bold]}>{formatQty(totalQty, primaryUnit)}</Text>
                         <Text style={[styles.cell, styles.totalRate]} />
+                        <Text style={[styles.cell, styles.totalDiscount]} />
                         <Text style={[styles.cell, styles.totalPer]} />
                         <Text style={[styles.cellLast, styles.totalAmount, styles.bold]}>{formatMoney(grandTotal || total)}</Text>
                     </View>
