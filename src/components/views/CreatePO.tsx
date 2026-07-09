@@ -368,9 +368,9 @@ export default () => {
         return po?.rejectionReason || po?.rejection_reason || null;
     }, [mode, poNumber, poMasterSheetData]);
 
-    const displayFirm = useMemo(() => {
-        if (mode === 'revise' && firmOverrideName) return firmOverrideName;
-
+    // The firm actually saved on the indent/PO right now — independent of any pending override,
+    // so the override dropdown always has a stable "Current" entry to match against.
+    const originalFirm = useMemo(() => {
         let firmName = "Shri Shyam Oil Extractions Pvt Ltd"; // Default
 
         if (mode === 'create') {
@@ -388,7 +388,9 @@ export default () => {
             }
         }
         return firmName;
-    }, [mode, selectedPrimaryIndent, poNumber, poMasterSheetData, firmOverrideName]);
+    }, [mode, selectedPrimaryIndent, poNumber, poMasterSheetData]);
+
+    const displayFirm = mode === 'revise' && firmOverrideName ? firmOverrideName : originalFirm;
 
     // Reset the firm override whenever the user switches modes or picks a different PO to revise
     useEffect(() => {
@@ -913,9 +915,9 @@ export default () => {
                                                 <SelectValue placeholder="Change firm" />
                                             </SelectTrigger>
                                             <SelectContent className="z-[150] max-h-[300px]">
-                                                <SelectItem value="default">{displayFirm} (Current)</SelectItem>
+                                                <SelectItem value="default">{originalFirm} (Current)</SelectItem>
                                                 {firms
-                                                    .filter((f: any) => f.isActive !== false && f.firm_name !== displayFirm)
+                                                    .filter((f: any) => f.isActive !== false && f.firm_name !== originalFirm)
                                                     .map((f: any) => (
                                                         <SelectItem key={f.firm_id} value={f.firm_name}>{f.firm_name}</SelectItem>
                                                     ))}
