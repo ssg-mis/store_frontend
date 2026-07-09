@@ -330,6 +330,33 @@ export default () => {
         return indentSheetData.filter((indent: any) => indent.indentNumber === indentName);
     }, [mode, indentName, indentSheetData]);
 
+    // Options for the "Indent Name" dropdown: grouped by indent number, each tagged with
+    // its first product name. If a vendor is already picked, only that vendor's indents show.
+    const indentGroups = useMemo(() => {
+        const groups = new Map<string, any[]>();
+        indentSheetData
+            .filter((i: any) => i.indentNumber || i.indent_number)
+            .filter((i: any) => !vendor || (i.approvedVendorName || i.approved_vendor_name) === vendor)
+            .forEach((i: any) => {
+                const num = i.indentNumber || i.indent_number;
+                if (!groups.has(num)) groups.set(num, []);
+                groups.get(num)!.push(i);
+            });
+
+        return Array.from(groups.entries()).map(([indentNumber, items]) => ({
+            indentNumber,
+            firstProductName: items[0]?.productName || items[0]?.product_name || '',
+        }));
+    }, [indentSheetData, vendor]);
+
+    // If a vendor change makes the currently-selected indent invalid, clear it.
+    useEffect(() => {
+        if (mode !== 'create' || !indentName) return;
+        if (!indentGroups.some((g) => g.indentNumber === indentName)) {
+            form.setValue('indentName', '');
+        }
+    }, [indentGroups, mode, indentName, form]);
+
     const selectedPrimaryIndent = useMemo(() => {
         if (indents[0]?.id) return findIndentById(indents[0].id);
         return selectedIndentRows[0];
@@ -1040,13 +1067,10 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                {[...new Map(
-                                                                    indentSheetData
-                                                                        .filter((i: any) => i.indentNumber || i.indent_number)
-                                                                        .map((i: any) => [i.indentNumber || i.indent_number, i])
-                                                                ).values()].map((i: any, k: number) => (
-                                                                    <SelectItem key={k} value={i.indentNumber || i.indent_number}>
-                                                                        {i.indentNumber || i.indent_number}
+                                                                {indentGroups.map((g, k: number) => (
+                                                                    <SelectItem key={k} value={g.indentNumber}>
+                                                                        {g.indentNumber}
+                                                                        {g.firstProductName ? ` — ${g.firstProductName}` : ''}
                                                                     </SelectItem>
                                                                 ))}
                                                             </SelectContent>
