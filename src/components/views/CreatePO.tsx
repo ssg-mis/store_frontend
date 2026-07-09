@@ -129,6 +129,8 @@ export default () => {
     const [receivedPoNumbers, setReceivedPoNumbers] = useState<Set<string>>(new Set());
     // All indents (including those with POs) for type-based filtering in Revise tab
     const [allIndentsData, setAllIndentsData] = useState<any[]>([]);
+    // Admin-only override: lets a rejected PO be re-pointed at a different firm while revising
+    const [firmOverrideName, setFirmOverrideName] = useState<string>('');
  
 
 
@@ -340,6 +342,8 @@ export default () => {
     }, [mode, poNumber, poMasterSheetData]);
 
     const displayFirm = useMemo(() => {
+        if (mode === 'revise' && firmOverrideName) return firmOverrideName;
+
         let firmName = "Shri Shyam Oil Extractions Pvt Ltd"; // Default
 
         if (mode === 'create') {
@@ -357,7 +361,12 @@ export default () => {
             }
         }
         return firmName;
-    }, [mode, selectedPrimaryIndent, poNumber, poMasterSheetData]);
+    }, [mode, selectedPrimaryIndent, poNumber, poMasterSheetData, firmOverrideName]);
+
+    // Reset the firm override whenever the user switches modes or picks a different PO to revise
+    useEffect(() => {
+        setFirmOverrideName('');
+    }, [mode, poNumber]);
 
     const selectedFirmData = useMemo(() => {
         return firms.find(f => f.firm_name === displayFirm);
@@ -790,6 +799,11 @@ export default () => {
                     // on the Approval of PO page — not at creation time.
                     po_number: poNumber,
                     po_copy: null,
+                    // Admin corrected the firm while revising a rejected PO — fix it at the
+                    // source (Indent.firm) so every later stage picks up the right one too.
+                    ...(mode === 'revise' && firmOverrideName && firmOverrideName !== indent.firm
+                        ? { firm: firmOverrideName }
+                        : {}),
                 };
             });
 
@@ -797,6 +811,9 @@ export default () => {
             if (!indentResult.success) throw new Error('Failed to update indents');
 
             toast.success(`Successfully ${mode}d purchase order`);
+            if (mode === 'revise' && firmOverrideName) {
+                toast.success(`Firm updated to ${firmOverrideName}`);
+            }
             updateIndentSheet();
             updatePoMasterSheet();
             updateRelatedSheets();
@@ -857,19 +874,42 @@ export default () => {
                         className="flex flex-col items-center"
                     >
                         <div className="space-y-4 p-4 w-full bg-white shadow-md rounded-sm">
-                            <div className="flex items-center justify-center gap-4 bg-blue-50 p-4 rounded">
-                                <img
-                                    src="/logo.png"
-                                    alt="Company Logo"
-                                    className="w-20 h-20 object-contain"
-                                />
-                                <div className="text-center">
-                                    <h1 className="text-2xl font-bold">{displayFirm}</h1>
-                                    <div>
-                                        <p className="text-sm">
-                                            {selectedFirmAddress || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
-                                        </p>
-                                        <p className="text-sm">Phone No: {selectedFirmData?.mobile || '+919993023243'}</p>
+                            <div className="flex flex-col gap-3 bg-blue-50 p-4 rounded">
+                                {mode === 'revise' && isAdmin && poNumber && (
+                                    <div className="flex items-center justify-end gap-2">
+                                        <span className="text-xs font-medium text-muted-foreground">Firm</span>
+                                        <Select
+                                            value={firmOverrideName || 'default'}
+                                            onValueChange={(v) => setFirmOverrideName(v === 'default' ? '' : v)}
+                                        >
+                                            <SelectTrigger size="sm" className="w-[260px] bg-white">
+                                                <SelectValue placeholder="Change firm" />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[150] max-h-[300px]">
+                                                <SelectItem value="default">{displayFirm} (Current)</SelectItem>
+                                                {firms
+                                                    .filter((f: any) => f.isActive !== false && f.firm_name !== displayFirm)
+                                                    .map((f: any) => (
+                                                        <SelectItem key={f.firm_id} value={f.firm_name}>{f.firm_name}</SelectItem>
+                                                    ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                                <div className="flex items-center justify-center gap-4">
+                                    <img
+                                        src="/logo.png"
+                                        alt="Company Logo"
+                                        className="w-20 h-20 object-contain"
+                                    />
+                                    <div className="text-center">
+                                        <h1 className="text-2xl font-bold">{displayFirm}</h1>
+                                        <div>
+                                            <p className="text-sm">
+                                                {selectedFirmAddress || 'Banari, Janjgir Champa-495668, Chhattisgarh'}
+                                            </p>
+                                            <p className="text-sm">Phone No: {selectedFirmData?.mobile || '+919993023243'}</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
