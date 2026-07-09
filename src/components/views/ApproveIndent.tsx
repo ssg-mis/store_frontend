@@ -396,9 +396,18 @@ export default () => {
                 };
             }).filter((item): item is NonNullable<typeof item> => item !== null);
 
-            const approvalResults = await Promise.all(
-                updatesToProcess.map(item => approveIndent(item.id, item.updatePayload))
-            );
+            // Approve in small sequential batches rather than all at once.
+            // Firing every approval concurrently against the DB has caused
+            // corrupted approvedQuantity values on some rows (bulk-approve race).
+            const APPROVE_BATCH_SIZE = 3;
+            const approvalResults: any[] = [];
+            for (let i = 0; i < updatesToProcess.length; i += APPROVE_BATCH_SIZE) {
+                const batch = updatesToProcess.slice(i, i + APPROVE_BATCH_SIZE);
+                const batchResults = await Promise.all(
+                    batch.map(item => approveIndent(item.id, item.updatePayload))
+                );
+                approvalResults.push(...batchResults);
+            }
 
             const errors = approvalResults.filter(r => !r.success);
             if (errors.length > 0) {
