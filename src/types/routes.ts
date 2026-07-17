@@ -1,0 +1,21 @@
+import type { JSX } from "react";
+import type { IndentSheet, UserPermissions, PoMasterSheet, ReceivedSheet } from "./sheets";
+
+export interface NotificationsData {
+    indents: IndentSheet[];
+    poMasters: PoMasterSheet[];
+    received: ReceivedSheet[];
+    rateUpdates: any[];
+    threePartyApprovals: any[];
+    approvedIndents: any[];
+}
+
+export interface RouteAttributes {
+    name: string;
+    element: JSX.Element;
+    path: string;
+    icon: JSX.Element;
+    gateKey?: keyof UserPermissions;
+    roleKey?: string;
+    notifications: (data: NotificationsData) => number
+}

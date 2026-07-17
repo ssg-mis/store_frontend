@@ -1,0 +1,146 @@
+import { Toaster } from '@/components/ui/sonner';
+import { fetchSheet, toCamelCase } from '@/lib/fetchers';
+import { dataStore } from '@/lib/dummyData';
+import type { UserPermissions } from '@/types/sheets';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+
+interface AuthState {
+    loggedIn: boolean;
+    login: (username: string, password: string) => Promise<boolean>;
+    logout: () => void;
+    loading: boolean;
+    user: UserPermissions;
+}
+
+const AuthContext = createContext<AuthState | null>(null);
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+    const [loggedIn, setLoggedIn] = useState(false);
+    const [userPermissions, setUserPermissions] = useState<UserPermissions | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const restoreSession = async () => {
+            setLoading(true);
+            const stored = localStorage.getItem('auth');
+            if (stored) {
+                try {
+                    const { token } = JSON.parse(stored);
+                    
+                    const isExpired = (t: string) => {
+                        try {
+                            const payload = JSON.parse(atob(t.split('.')[1]));
+                            return payload.exp * 1000 < Date.now();
+                        } catch { return true; }
+                    };
+
+                    if (token && !isExpired(token)) {
+                        // Fetch latest data from server to ensure "Real-time" permissions
+                        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+                        const response = await fetch(`${API_BASE_URL}/me`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+
+                        if (response.ok) {
+                            const latestUser = await response.json();
+                            const pageAccess = latestUser.pageAccess || {};
+                            const camelPermissions = toCamelCase(pageAccess);
+                            
+                            const userData = {
+                                // Default-enable the new Approval of PO page for existing users
+                                // whose stored permissions predate this key; an explicit value
+                                // from pageAccess/camelPermissions (set via Setting) overrides it.
+                                poApprovalView: true,
+                                statusOfPo: true,
+                                ...toCamelCase(latestUser),
+                                ...pageAccess,
+                                ...camelPermissions,
+                                firmAccess: latestUser.firmAccess || [],
+                                row_index: latestUser.id
+                            } as UserPermissions;
+
+
+                            localStorage.setItem('auth', JSON.stringify({ user: userData, token }));
+                            setUserPermissions(userData);
+                            setLoggedIn(true);
+                        } else {
+                            // Token invalid or user deleted
+                            localStorage.removeItem('auth');
+                            setLoggedIn(false);
+                        }
+                    } else if (isExpired(token)) {
+                        localStorage.removeItem('auth');
+                        setLoggedIn(false);
+                    }
+                } catch (error) {
+                    console.error('Session Restoration Error:', error);
+                    localStorage.removeItem('auth');
+                }
+            }
+            setLoading(false);
+        };
+
+        restoreSession();
+    }, []);
+
+    async function login(username: string, password: string) {
+        try {
+            const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+            const response = await fetch(`${API_BASE_URL}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username, password }),
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Manually flatten and ensure both cases are supported for the Sidebar mapping
+                const pageAccess = data.user.pageAccess || {};
+                const camelPermissions = toCamelCase(pageAccess);
+                
+                const userData = {
+                    // Default-enable Approval of PO; explicit pageAccess values override below.
+                    poApprovalView: true,
+                    statusOfPo: true,
+                    ...toCamelCase(data.user),
+                    ...pageAccess, // keeping snake_case as fallback
+                    ...camelPermissions, // ensuring camelCase for Sidebar
+                    firmAccess: data.user.firmAccess || [],
+                    row_index: data.user.id
+                } as UserPermissions;
+
+
+                
+                // Store in localStorage
+                localStorage.setItem('auth', JSON.stringify({ user: userData, token: data.token }));
+                setUserPermissions(userData);
+                setLoggedIn(true);
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Login Fetch Error:', error);
+            return false;
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('auth');
+        setLoggedIn(false);
+        setUserPermissions(null);
+    }
+
+    return (
+        <AuthContext.Provider value={{ login, loggedIn, logout, user: userPermissions!, loading }}>
+            {children}
+            <Toaster position="top-right" visibleToasts={1} richColors theme="light" closeButton />
+        </AuthContext.Provider>
+    );
+};
+
+export function useAuth() {
+    return useContext(AuthContext)!;
+}
