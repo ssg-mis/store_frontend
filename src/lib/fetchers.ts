@@ -1190,7 +1190,12 @@ export async function postProductSubCategory(name: string, isActive: boolean = t
         });
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(errorText || 'Failed to create product sub category');
+            let errorMessage = errorText || 'Failed to create product sub category';
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorMessage = errorJson.error || errorJson.message || errorMessage;
+            } catch (e) {}
+            throw new Error(errorMessage);
         }
         return { success: true, data: await response.json() as ProductSubCategoryRow };
     } catch (error: any) {
@@ -1208,7 +1213,12 @@ export async function updateProductSubCategory(id: number, data: { product_sub_c
         });
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(errorText || 'Failed to update product sub category');
+            let errorMessage = errorText || 'Failed to update product sub category';
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorMessage = errorJson.error || errorJson.message || errorMessage;
+            } catch (e) {}
+            throw new Error(errorMessage);
         }
         return { success: true, data: await response.json() };
     } catch (error: any) {
