@@ -223,6 +223,14 @@ const styles = StyleSheet.create({
         width: '17%',
         textAlign: 'right',
     },
+    summaryLabel: {
+        width: '83%',
+        textAlign: 'right',
+    },
+    summaryValue: {
+        width: '17%',
+        textAlign: 'right',
+    },
     wordsLeft: {
         width: '62%',
         minHeight: 40,
@@ -341,8 +349,6 @@ export default ({
     enqDate,
     description,
     items,
-    total,
-    grandTotal,
     terms,
     preparedBy,
     approvedBy,
@@ -351,6 +357,12 @@ export default ({
     const totalQty = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const primaryUnit = items[0]?.unit || '';
     const gstRows = gstGroups(items);
+    const netAmount = items.reduce((sum, item) => sum + Number(item.rate || 0) * Number(item.quantity || 0), 0);
+    const taxableAmount = items.reduce((sum, item) => sum + lineTaxableAmount(item), 0);
+    const discountAmount = netAmount - taxableAmount;
+    const cgstTotal = gstRows.reduce((sum, [, value]) => sum + value / 2, 0);
+    const sgstTotal = cgstTotal;
+    const grossAmount = taxableAmount + cgstTotal + sgstTotal;
     const displayedTerms = terms.length ? terms : splitLines(description);
     const addressLines = splitLines(companyAddress);
     const companyMeta = [
@@ -480,44 +492,44 @@ export default ({
                         </View>
                     ))}
 
-                    {gstRows.map(([gstPercent, gstValue]) => {
-                        const halfPercent = gstPercent / 2;
-                        const halfValue = gstValue / 2;
-                        return [
-                            <View style={styles.itemRow} key={`cgst-${gstPercent}`}>
-                                <Text style={[styles.cell, styles.sl]} />
-                                <Text style={[styles.cell, styles.desc, { textAlign: 'right' }]}>CGST {halfPercent}%</Text>
-                                <Text style={[styles.cell, styles.qty]}>{halfPercent}</Text>
-                                <Text style={[styles.cell, styles.rate]} />
-                                <Text style={[styles.cell, styles.discount]} />
-                                <Text style={[styles.cell, styles.per]}>%</Text>
-                                <Text style={[styles.cellLast, styles.amount]}>{formatMoney(halfValue)}</Text>
-                            </View>,
-                            <View style={styles.itemRow} key={`sgst-${gstPercent}`}>
-                                <Text style={[styles.cell, styles.sl]} />
-                                <Text style={[styles.cell, styles.desc, { textAlign: 'right' }]}>SGST {halfPercent}%</Text>
-                                <Text style={[styles.cell, styles.qty]}>{halfPercent}</Text>
-                                <Text style={[styles.cell, styles.rate]} />
-                                <Text style={[styles.cell, styles.discount]} />
-                                <Text style={[styles.cell, styles.per]}>%</Text>
-                                <Text style={[styles.cellLast, styles.amount]}>{formatMoney(halfValue)}</Text>
-                            </View>,
-                        ];
-                    })}
-
                     <View style={styles.row}>
                         <Text style={[styles.cell, styles.totalLabel, styles.bold]}>TOTAL</Text>
                         <Text style={[styles.cell, styles.totalQty, styles.bold]}>{formatQty(totalQty, primaryUnit)}</Text>
                         <Text style={[styles.cell, styles.totalRate]} />
                         <Text style={[styles.cell, styles.totalDiscount]} />
                         <Text style={[styles.cell, styles.totalPer]} />
-                        <Text style={[styles.cellLast, styles.totalAmount, styles.bold]}>{formatMoney(grandTotal || total)}</Text>
+                        <Text style={[styles.cellLast, styles.totalAmount, styles.bold]}>{formatMoney(taxableAmount)}</Text>
+                    </View>
+
+                    <View style={styles.row}>
+                        <Text style={[styles.cell, styles.summaryLabel]}>Net Amount</Text>
+                        <Text style={[styles.cellLast, styles.summaryValue]}>{formatMoney(netAmount)}</Text>
+                    </View>
+                    <View style={styles.row}>
+                        <Text style={[styles.cell, styles.summaryLabel]}>Discount</Text>
+                        <Text style={[styles.cellLast, styles.summaryValue]}>{discountAmount ? `(-) ${formatMoney(discountAmount)}` : formatMoney(0)}</Text>
+                    </View>
+                    {cgstTotal > 0 && (
+                        <View style={styles.row}>
+                            <Text style={[styles.cell, styles.summaryLabel]}>CGST</Text>
+                            <Text style={[styles.cellLast, styles.summaryValue]}>{formatMoney(cgstTotal)}</Text>
+                        </View>
+                    )}
+                    {sgstTotal > 0 && (
+                        <View style={styles.row}>
+                            <Text style={[styles.cell, styles.summaryLabel]}>SGST</Text>
+                            <Text style={[styles.cellLast, styles.summaryValue]}>{formatMoney(sgstTotal)}</Text>
+                        </View>
+                    )}
+                    <View style={styles.row}>
+                        <Text style={[styles.cell, styles.summaryLabel, styles.bold]}>Gross Amount</Text>
+                        <Text style={[styles.cellLast, styles.summaryValue, styles.bold]}>{formatMoney(grossAmount)}</Text>
                     </View>
 
                     <View style={styles.row}>
                         <View style={[styles.cell, styles.wordsLeft]}>
                             <Text style={styles.label}>Amount Chargeable (in words)</Text>
-                            <Text style={[styles.bold, { marginTop: 8 }]}>{amountInWords(grandTotal || total)}</Text>
+                            <Text style={[styles.bold, { marginTop: 8 }]}>{amountInWords(grossAmount)}</Text>
                         </View>
                         <View style={[styles.cellLast, styles.wordsRight]}>
                             <Text>for {companyName || 'Company'}</Text>

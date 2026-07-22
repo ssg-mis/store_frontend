@@ -134,6 +134,10 @@ export async function fetchIndentMasterData() {
         const activeFirms = firmsData.filter((f: any) => f.isActive !== false);
 
         const firms = activeFirms.map((f: any) => f.firm_name).filter(Boolean) as string[];
+        const firmAliases: Record<string, string> = {};
+        activeFirms.forEach((f: any) => {
+            if (f.firm_name && f.alias) firmAliases[f.firm_name] = f.alias;
+        });
         const departments = activeDepts.map((d: any) => d.name) as string[];
         const allDepartmentHeads = activeHeads.map((h: any) => h.name) as string[];
 
@@ -169,6 +173,14 @@ export async function fetchIndentMasterData() {
             }
         });
 
+        // Build item → sub category map from Inventory
+        const itemToSubCategory: Record<string, string> = {};
+        inventoryData.forEach((d: any) => {
+            if (d.itemName && d.productSubCategoryName) {
+                itemToSubCategory[d.itemName] = d.productSubCategoryName;
+            }
+        });
+
         // Build item ↔ group lookups from Inventory productGroups JSON
         const itemToGroups: Record<string, { id: number; name: string }[]> = {};
         const groupToItems: Record<number, string[]> = {};
@@ -200,9 +212,11 @@ export async function fetchIndentMasterData() {
             groupHeadItems: departmentHeadItems,
             uomLookup,
             firms,
+            firmAliases,
             departmentToGroupHead: departmentToHead,
             groupHeadToDepartment: headToDepartment,
             itemToCategory,
+            itemToSubCategory,
             itemToGroups,
             groupToItems,
             allProductGroups,
@@ -566,6 +580,14 @@ export async function fetchSheet(
     if (sheetName === 'USER') {
         const data = await fetchFromSupabasePaginated('users');
         return toCamelCase(data) as UserPermissions[];
+    }
+
+    if (sheetName === 'QUOTATION HISTORY') {
+        // Not passed through toCamelCase: the backend already returns the exact
+        // field names (quatationNo, indent_id, adreess, ...) this sheet's
+        // consumers expect — see QuotationHistorySheet in types/sheets.ts.
+        const data = await fetchFromSupabasePaginated('quotation_history', '*', undefined, undefined, undefined, { limit: 5000 });
+        return data;
     }
 
     if (sheetName === 'MASTER') {

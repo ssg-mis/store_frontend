@@ -13,7 +13,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet, QuotationHistorySheet, MasterDataRow } from '@/types';
 import { postToSheet, uploadFile, fetchSheet, fetchFirms } from '@/lib/fetchers';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { cn, formatDate } from '@/lib/utils';
@@ -54,8 +54,10 @@ function filterUniqueQuotationNumbers(data: PoMasterSheet[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const row of data) {
-    // Convert to string first, then trim
-    const q = row.quotation_number ? String(row.quotation_number).trim() : ''; // Updated to quotation_number
+    // Convert to string first, then trim. Real rows come back camelCase
+    // (quotationNumber); the snake_case fallback covers any legacy data.
+    const raw = (row as any).quotationNumber || row.quotation_number;
+    const q = raw ? String(raw).trim() : '';
     if (q && !seen.has(q)) {
       seen.add(q);
       result.push(q);
@@ -169,27 +171,31 @@ export default function QuotationPage() {
   }, [details]);
 
 
-  // Fetch latest quotation numbers from QUOTATION HISTORY sheet
-  useEffect(() => {
-    const fetchLatestQuotationNumbers = async () => {
-      try {
-        const quotationHistory = await fetchSheet('QUOTATION HISTORY');
+  // Fetch latest quotation numbers from QUOTATION HISTORY sheet. Hoisted out of the
+  // effect (instead of a mount-only closure) so it can also be re-run right after a
+  // quotation is created — otherwise this component's local state never learns about
+  // the number it just inserted, and the next quotation created in the same session
+  // (without a page reload) recomputes the same "next number" and collides with it.
+  const fetchLatestQuotationNumbers = useCallback(async () => {
+    try {
+      const quotationHistory = await fetchSheet('QUOTATION HISTORY');
 
-        if (Array.isArray(quotationHistory)) {
-          setAllHistory(quotationHistory as unknown as QuotationHistorySheet[]);
-          const quotationNos = quotationHistory
-            .map((row: any) => row.quatationNo || '')
-            .filter((no: string) => no && no.trim() !== '');
+      if (Array.isArray(quotationHistory)) {
+        setAllHistory(quotationHistory as unknown as QuotationHistorySheet[]);
+        const quotationNos = quotationHistory
+          .map((row: any) => row.quatationNo || '')
+          .filter((no: string) => no && no.trim() !== '');
 
-          setLatestQuotationNumbers(quotationNos);
-        }
-      } catch (error) {
-        console.error('Error fetching quotation numbers:', error);
+        setLatestQuotationNumbers(quotationNos);
       }
-    };
-
-    fetchLatestQuotationNumbers();
+    } catch (error) {
+      console.error('Error fetching quotation numbers:', error);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchLatestQuotationNumbers();
+  }, [fetchLatestQuotationNumbers]);
 
 
   // Fetch suppliers from MASTER sheet using existing fetchSheet function
@@ -542,6 +548,11 @@ export default function QuotationPage() {
       }
 
       await postToSheet(allQuotationRows, 'insert', 'QUOTATION HISTORY');
+
+      // Refresh local quotation-number state immediately so the very next quotation
+      // created in this session (without a page reload) sees the numbers we just
+      // inserted instead of recomputing from the stale, pre-insert list.
+      await fetchLatestQuotationNumbers();
 
       toast.success(`Successfully created ${supplierInfos.length} unique quotation(s) for ${supplierInfos.length} supplier(s)`);
       form.reset();

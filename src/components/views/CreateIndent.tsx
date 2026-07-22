@@ -19,13 +19,15 @@ import {
 } from '@/components/ui/select';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { ClipLoader as Loader } from 'react-spinners';
-import { ClipboardList, Trash, Search } from 'lucide-react';
+import { ClipboardList, Trash, Search, FileDown } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
 import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchProductSubCategories, fetchUsers, fetchSpecifications } from '@/lib/fetchers';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
+import IndentPdf from '../element/IndentPdf';
+import { pdf } from '@react-pdf/renderer';
 import { useEffect, useState } from 'react';
 
 
@@ -64,6 +66,7 @@ export default () => {
     const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[]; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
     const [productSubCategoriesData, setProductSubCategoriesData] = useState<{ product_sub_category_id: number; product_sub_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[] }[]>([]);
     const [allSpecifications, setAllSpecifications] = useState<{ id: number; name: string }[]>([]);
+    const [exportingPdf, setExportingPdf] = useState(false);
 
     const refreshMaster = async () => {
         const data = await fetchIndentMasterData();
@@ -381,8 +384,42 @@ export default () => {
         }
     };
 
+    async function handleExportPdf() {
+        setExportingPdf(true);
+        try {
+            const values = form.getValues();
+            const first = values.products?.[0];
+            const indentNo = await getNextIndentNumber();
+            const now = new Date();
+            const indentDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
 
+            const blob = await pdf(
+                <IndentPdf
+                    division={master?.firmAliases?.[values.firm] || values.firm || ''}
+                    departmentName={first?.department || ''}
+                    indentNo={indentNo}
+                    indentDate={indentDate}
+                    indentType={values.indentType || ''}
+                    siteToBeUsed={first?.areaOfUse || ''}
+                    indenterName={values.indenterName || ''}
+                    items={(values.products || []).map((p) => ({
+                        particulars: p.productName || '',
+                        quantity: p.quantity,
+                        uom: p.uom || '',
+                    }))}
+                />
+            ).toBlob();
 
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err) {
+            console.error('Error generating indent PDF:', err);
+            toast.error('Failed to generate PDF');
+        } finally {
+            setExportingPdf(false);
+        }
+    }
 
     async function onSubmit(data: z.infer<typeof schema>) {
         const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType);
@@ -501,11 +538,47 @@ export default () => {
         toast.error('Please fill all required fields');
     }
 
+    // Every product name across every department head, so Product Name is never
+    // limited by the selected department — same as Firm isn't limited by anything.
+    const allProductNames: string[] = Array.from(
+        new Set(Object.values(master?.groupHeadItems || {}).flat() as string[])
+    );
+
+    // Category ↔ Sub Category ↔ Specification are mutually linked: whichever of the
+    // three is picked first narrows the other two. Before anything is picked, every
+    // dropdown shows its full list.
+    const findParentCategoryOfSubCategory = (subCategoryName: string) =>
+        productCategories.find(c => (c.productSubCategories || []).some(s => s.product_sub_category_name === subCategoryName));
+
+    const categoryContainsSpec = (category: typeof productCategories[number], specName: string) =>
+        (category.specifications || []).some(s => s.name === specName);
+
+    const subCategoryContainsSpec = (subCategory: typeof productSubCategoriesData[number], specName: string) => {
+        if ((subCategory.specifications || []).some(s => s.name === specName)) return true;
+        const parent = findParentCategoryOfSubCategory(subCategory.product_sub_category_name);
+        return (parent?.specifications || []).some(s => s.name === specName);
+    };
+
     return (
         <div>
             <Heading heading="Indent Form" subtext="Create new Indent">
                 <ClipboardList size={50} className="text-primary" />
             </Heading>
+            <div className="flex justify-end px-5 pt-4">
+                <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleExportPdf}
+                    disabled={exportingPdf}
+                >
+                    {exportingPdf ? (
+                        <Loader size={16} color="currentColor" aria-label="Loading Spinner" />
+                    ) : (
+                        <FileDown className="size-4" />
+                    )}
+                    Export PDF
+                </Button>
+            </div>
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit, onError)} className="space-y-6 p-5">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -528,7 +601,7 @@ export default () => {
                                             {(master?.firms || [])
                                                 .map((firm: string, i: number) => (
                                                 <SelectItem key={i} value={firm}>
-                                                    {firm}
+                                                    {master?.firmAliases?.[firm] || firm}
                                                 </SelectItem>
                                             ))}
                                         </SearchableSelectContent>
@@ -641,27 +714,43 @@ export default () => {
                     <div className="space-y-4">
                         <div className="flex justify-between items-center">
                             <h2 className="text-lg font-semibold">Products</h2>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => {
-                                    const lastProduct = products[products.length - 1] || {};
-                                    append({
-                                        department: lastProduct.department || '',
-                                        departmentHead: lastProduct.departmentHead || '',
-                                        productName: '',
-                                        productCategory: lastProduct.productCategory || '',
-                                        productSubCategory: '',
-                                        quantity: 1,
-                                        uom: '',
-                                        areaOfUse: lastProduct.areaOfUse || '',
-                                        attachment: undefined,
-                                        specifications: '',
-                                    });
-                                }}
-                            >
-                                Add Product
-                            </Button>
+                            <div className="flex gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        setProductGroupFilters(products.map(() => null));
+                                        products.forEach((_, i) => {
+                                            form.setValue(`products.${i}.productCategory` as any, '');
+                                            form.setValue(`products.${i}.productSubCategory` as any, '');
+                                            form.setValue(`products.${i}.specifications` as any, '');
+                                        });
+                                    }}
+                                >
+                                    Clear Filter
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        const lastProduct = products[products.length - 1] || {};
+                                        append({
+                                            department: lastProduct.department || '',
+                                            departmentHead: lastProduct.departmentHead || '',
+                                            productName: '',
+                                            productCategory: lastProduct.productCategory || '',
+                                            productSubCategory: '',
+                                            quantity: 1,
+                                            uom: '',
+                                            areaOfUse: lastProduct.areaOfUse || '',
+                                            attachment: undefined,
+                                            specifications: '',
+                                        });
+                                    }}
+                                >
+                                    Add Product
+                                </Button>
+                            </div>
                         </div>
 
                         {fields.map((field, index) => {
@@ -671,16 +760,45 @@ export default () => {
                             const selectedGroupId = productGroupFilters[index] ?? null;
                             const selectedCategoryName = products[index]?.productCategory || '';
                             const selectedCategory = productCategories.find(c => c.product_category_name === selectedCategoryName);
-                            const subCategoryOptions = (selectedCategory?.productSubCategories || []).filter(s => s.isActive !== false);
                             const selectedSubCategoryName = products[index]?.productSubCategory || '';
                             const selectedSubCategory = productSubCategoriesData.find(s => s.product_sub_category_name === selectedSubCategoryName);
+                            const selectedSpecNames = (products[index]?.specifications || '')
+                                .split(',')
+                                .map((s: string) => s.trim())
+                                .filter(Boolean);
+
+                            // Category options: narrowed to the sub category's parent if one is picked;
+                            // else narrowed to categories matching picked specifications; else every category.
+                            const categoryOptions = selectedSubCategoryName && selectedSubCategoryName !== '__none__'
+                                ? (() => {
+                                    const parent = findParentCategoryOfSubCategory(selectedSubCategoryName);
+                                    return parent ? [parent] : productCategories;
+                                })()
+                                : selectedSpecNames.length
+                                    ? productCategories.filter(c => selectedSpecNames.some((name: string) => categoryContainsSpec(c, name)))
+                                    : productCategories;
+
+                            // Sub category options: the selected category's own list if one is picked;
+                            // else narrowed to sub categories matching picked specifications; else every sub category.
+                            const subCategoryOptions = (
+                                selectedCategory
+                                    ? (selectedCategory.productSubCategories || [])
+                                    : selectedSpecNames.length
+                                        ? productSubCategoriesData.filter(sc => selectedSpecNames.some((name: string) => subCategoryContainsSpec(sc, name)))
+                                        : productSubCategoriesData
+                            ).filter(s => s.isActive !== false);
+
+                            // Specification options: linked to sub category first, else category, else everything.
                             const specificationOptions = (
                                 selectedSubCategory?.specifications?.length
                                     ? selectedSubCategory.specifications
-                                    : selectedCategory?.specifications || []
+                                    : selectedCategory?.specifications?.length
+                                        ? selectedCategory.specifications
+                                        : allSpecifications
                             );
 
-                            const allProductOptions: string[] = master?.groupHeadItems?.[departmentHead] || [];
+                            // Product Name is never limited by department — same as Firm isn't limited by anything.
+                            const allProductOptions: string[] = allProductNames;
 
                             // Filter products by selected group
                             const productOptions = selectedGroupId != null && master?.groupToItems?.[selectedGroupId]
@@ -896,7 +1014,7 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SearchableSelectContent searchPlaceholder="Search categories...">
-                                                                {productCategories.map((c) => (
+                                                                {categoryOptions.map((c) => (
                                                                     <SelectItem
                                                                         key={c.product_category_id}
                                                                         value={c.product_category_name}
@@ -919,6 +1037,17 @@ export default () => {
                                                             onValueChange={(val) => {
                                                                 field.onChange(val);
                                                                 form.setValue(`products.${index}.specifications` as any, '');
+                                                                if (val && val !== '__none__') {
+                                                                    const parent = findParentCategoryOfSubCategory(val);
+                                                                    if (parent && parent.product_category_name !== form.getValues(`products.${index}.productCategory` as any)) {
+                                                                        form.setValue(`products.${index}.productCategory` as any, parent.product_category_name);
+                                                                    }
+                                                                    const currentProd = form.getValues(`products.${index}.productName` as any);
+                                                                    if (currentProd && master?.itemToSubCategory?.[currentProd] !== val) {
+                                                                        form.setValue(`products.${index}.productName` as any, '');
+                                                                        form.setValue(`products.${index}.uom` as any, '');
+                                                                    }
+                                                                }
                                                             }}
                                                             value={field.value || ''}
                                                             disabled={subCategoryOptions.length === 0}
@@ -1028,7 +1157,6 @@ export default () => {
                                                                     onValueChange={(value) => {
                                                                         field.onChange(value);
                                                                         form.setValue(`products.${index}.uom` as any, '');
-                                                                        form.setValue(`products.${index}.productSubCategory` as any, '');
                                                                         const uom = master?.uomLookup?.[departmentHead]?.[value];
                                                                         if (uom) {
                                                                             form.setValue(`products.${index}.uom` as any, uom);
@@ -1038,6 +1166,9 @@ export default () => {
                                                                         if (cat) {
                                                                             form.setValue(`products.${index}.productCategory` as any, cat);
                                                                         }
+                                                                        // Auto-fill sub category if this product has one, else clear it
+                                                                        const subCat = master?.itemToSubCategory?.[value];
+                                                                        form.setValue(`products.${index}.productSubCategory` as any, subCat || '');
                                                                         // Auto-fill specifications linked to this product (inventory item)
                                                                         const linkedSpecs = master?.itemToSpecifications?.[value] as { id: number; name: string }[] | undefined;
                                                                         if (linkedSpecs && linkedSpecs.length) {
@@ -1060,7 +1191,6 @@ export default () => {
                                                                         }
                                                                     }}
                                                                     value={field.value}
-                                                                    disabled={!departmentHead}
                                                                 >
                                                                     <FormControl>
                                                                         <SelectTrigger className="w-full">
@@ -1085,7 +1215,9 @@ export default () => {
                                                                                     const searchMatch = dep.toLowerCase().includes(searchTermProductName.toLowerCase());
                                                                                     const currentCategory = form.getValues(`products.${index}.productCategory` as any);
                                                                                     const categoryMatch = !currentCategory || master?.itemToCategory?.[dep] === currentCategory;
-                                                                                    return searchMatch && categoryMatch;
+                                                                                    const currentSubCategory = form.getValues(`products.${index}.productSubCategory` as any);
+                                                                                    const subCategoryMatch = !currentSubCategory || currentSubCategory === '__none__' || master?.itemToSubCategory?.[dep] === currentSubCategory;
+                                                                                    return searchMatch && categoryMatch && subCategoryMatch;
                                                                                 })
                                                                                 .map((dep: string, i: number) => {
                                                                                     const depStock = getStock(dep, departmentHead);

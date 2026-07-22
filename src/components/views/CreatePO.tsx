@@ -15,6 +15,7 @@ import { useLocation } from 'react-router-dom';
 import { useSheets } from '@/context/SheetsContext';
 import { useAuth } from '@/context/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import {
     calculateGrandTotal,
     calculateSubtotal,
@@ -117,6 +118,7 @@ export default () => {
     const [poMasterSheetData, setPoMasterSheetData] = useState<any[]>([]);
     const [detailsData, setDetailsData] = useState<any>(null);
     const [vendorsData, setVendorsData] = useState<any[]>([]);
+    const [quotationHistoryData, setQuotationHistoryData] = useState<any[]>([]);
     const [inventoryData, setInventoryData] = useState<any[]>([]);
     const [users, setUsers] = useState<any[]>([]);
     const [firms, setFirms] = useState<any[]>([]);
@@ -199,6 +201,9 @@ export default () => {
                 const inventory = await fetchSheet('INVENTORY') as any[];
                 setInventoryData(inventory || []);
 
+                const quotationHistory = await fetchSheet('QUOTATION HISTORY') as any[];
+                setQuotationHistoryData(quotationHistory || []);
+
                 const firmsData = await fetchFirms();
                 setFirms(firmsData || []);
 
@@ -244,7 +249,7 @@ export default () => {
     const schema = z.object({
         poNumber: z.string().nonempty(),
         poDate: z.coerce.date(),
-        indentName: z.string().optional().default(''),
+        indentNames: z.array(z.string()).optional().default([]),
         supplierName: z.string().nonempty(),
         supplierAddress: z.string().nonempty(),
         gstin: z.string().nonempty(),
@@ -260,6 +265,7 @@ export default () => {
                     id: z.number().optional(),
                     poItemId: z.number().optional(),
                     quantity: z.coerce.number().min(0.001, 'Quantity must be greater than 0'),
+                    rate: z.coerce.number().min(0, 'Rate must be 0 or greater').default(0),
                     gst: z.coerce.number(),
                     discount: z.coerce.number().default(0).optional(),
                     discountAmount: z.coerce.number().default(0).optional(),
@@ -279,7 +285,7 @@ export default () => {
         defaultValues: {
             poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null)),
             poDate: new Date(),
-            indentName: '',
+            indentNames: [],
             supplierName: '',
             supplierAddress: '',
             preparedBy: (user as any)?.name || '',
@@ -304,7 +310,7 @@ export default () => {
 
     const indents = form.watch('indents');
     const vendor = form.watch('supplierName');
-    const indentName = form.watch('indentName');
+    const indentNames = form.watch('indentNames');
     const poDate = form.watch('poDate');
     const poNumber = form.watch('poNumber');
 
@@ -325,10 +331,10 @@ export default () => {
     const findIndentById = (id?: number) => indentSheetData.find((indent: any) => indent.id === id);
 
     const selectedIndentRows = useMemo(() => {
-        if (mode !== 'create' || !indentName) return [];
+        if (mode !== 'create' || !indentNames?.length) return [];
 
-        return indentSheetData.filter((indent: any) => indent.indentNumber === indentName);
-    }, [mode, indentName, indentSheetData]);
+        return indentSheetData.filter((indent: any) => indentNames.includes(indent.indentNumber));
+    }, [mode, indentNames, indentSheetData]);
 
     // Options for the "Indent Name" dropdown: grouped by indent number, each tagged with
     // its first product name. If a vendor is already picked, only that vendor's indents show.
@@ -349,13 +355,37 @@ export default () => {
         }));
     }, [indentSheetData, vendor]);
 
-    // If a vendor change makes the currently-selected indent invalid, clear it.
+    // Quotation numbers on file for the selected vendor, for the "Quotation" dropdown.
+    const vendorQuotationNumbers = useMemo(() => {
+        if (!vendor) return [];
+        const numbers = new Set<string>();
+        quotationHistoryData
+            .filter((q: any) => q.supplierName === vendor)
+            .forEach((q: any) => {
+                if (q.quatationNo) numbers.add(q.quatationNo);
+            });
+        return Array.from(numbers);
+    }, [quotationHistoryData, vendor]);
+
+    // If a vendor change makes the currently-selected quotation invalid, clear it.
     useEffect(() => {
-        if (mode !== 'create' || !indentName) return;
-        if (!indentGroups.some((g) => g.indentNumber === indentName)) {
-            form.setValue('indentName', '');
+        if (mode !== 'create') return;
+        const currentQuotationNumber = form.getValues('quotationNumber');
+        if (currentQuotationNumber && !vendorQuotationNumbers.includes(currentQuotationNumber)) {
+            form.setValue('quotationNumber', '');
         }
-    }, [indentGroups, mode, indentName, form]);
+    }, [vendorQuotationNumbers, mode, form]);
+
+    // If a vendor change makes any currently-selected indents invalid, drop them.
+    useEffect(() => {
+        if (mode !== 'create' || !indentNames?.length) return;
+        const validIndentNames = indentNames.filter((name) =>
+            indentGroups.some((g) => g.indentNumber === name)
+        );
+        if (validIndentNames.length !== indentNames.length) {
+            form.setValue('indentNames', validIndentNames);
+        }
+    }, [indentGroups, mode, indentNames, form]);
 
     const selectedPrimaryIndent = useMemo(() => {
         if (indents[0]?.id) return findIndentById(indents[0].id);
@@ -455,7 +485,7 @@ export default () => {
             form.reset({
                 poNumber: '',
                 poDate: undefined,
-                indentName: '',
+                indentNames: [],
                 supplierName: '',
                 supplierAddress: '',
                 preparedBy: (user as any)?.name || '',
@@ -474,7 +504,7 @@ export default () => {
             form.reset({
                 poNumber: generatePoNumber(poMasterSheetData.map((p: any) => p.poNumber || p.po_number).filter(po => po != null)),
                 poDate: new Date(),
-                indentName: '',
+                indentNames: [],
                 supplierName: '',
                 supplierAddress: '',
                 preparedBy: (user as any)?.name || '',
@@ -510,13 +540,14 @@ export default () => {
                 selectedVendor?.vendor_gstin || selectedVendor?.gstin || ''
             );
 
-            // If a specific indent is selected, only show that one; otherwise show all for this vendor
-            const currentIndentName = form.getValues('indentName');
-            if (currentIndentName) {
+            // If specific indents are selected, only show those; otherwise show all for this vendor
+            const currentIndentNames = form.getValues('indentNames');
+            if (currentIndentNames?.length) {
                 form.setValue('indents', selectedIndentRows.map((i: any) => ({
                     indentNumber: i.indentNumber,
                     id: i.id,
                     quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
+                    rate: i.approvedRate || i.approved_rate || i.rate || 0,
                     gst: 18,
                     discount: 0,
                     discountAmount: 0,
@@ -528,16 +559,17 @@ export default () => {
                         indentNumber: i.indentNumber || i.indent_number,
                         id: i.id,
                         quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
+                        rate: i.approvedRate || i.approved_rate || i.rate || 0,
                         gst: 18,
                         discount: 0,
                     }))
                 );
             }
         }
-    }, [vendor, indentName, indentSheetData, vendorsData, selectedIndentRows]);
+    }, [vendor, indentNames, indentSheetData, vendorsData, selectedIndentRows]);
 
     useEffect(() => {
-        if (indentName && mode === 'create') {
+        if (indentNames?.length && mode === 'create') {
             const selectedIndent = selectedIndentRows[0];
             if (selectedIndent) {
                 form.setValue('supplierName', selectedIndent.approvedVendorName || selectedIndent.approved_vendor_name || '');
@@ -545,13 +577,14 @@ export default () => {
                     indentNumber: i.indentNumber,
                     id: i.id,
                     quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
+                    rate: i.approvedRate || i.approved_rate || i.rate || 0,
                     gst: 18,
                     discount: 0,
                     discountAmount: 0,
                 })));
             }
         }
-    }, [indentName, mode, selectedIndentRows]);
+    }, [indentNames, mode, selectedIndentRows]);
 
     useEffect(() => {
         const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
@@ -581,6 +614,7 @@ export default () => {
                         indentNumber: poItem.internalCode || poItem.internal_code || poItem.indent_number || '',
                         poItemId: poItem.id,
                         quantity: poItem.quantity || 0,
+                        rate: poItem.rate || 0,
                         gst: poItem.gstPercent || poItem.gst_percent || 0,
                         discount: poItem.discountPercent || poItem.discount_percent || 0,
                         discountAmount: 0,
@@ -1057,29 +1091,66 @@ export default () => {
                                     {mode === 'create' && (
                                         <FormField
                                             control={form.control}
-                                            name="indentName"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Indent Name</FormLabel>
-                                                    <FormControl>
-                                                        <Select onValueChange={field.onChange} value={field.value}>
+                                            name="indentNames"
+                                            render={({ field }) => {
+                                                const selected: string[] = field.value || [];
+                                                const available = indentGroups.filter(
+                                                    (g) => !selected.includes(g.indentNumber)
+                                                );
+                                                const addIndent = (name: string) => {
+                                                    if (name && !selected.includes(name)) {
+                                                        field.onChange([...selected, name]);
+                                                    }
+                                                };
+                                                const removeIndent = (name: string) => {
+                                                    field.onChange(selected.filter((s) => s !== name));
+                                                };
+                                                return (
+                                                    <FormItem>
+                                                        <FormLabel>Indent Name</FormLabel>
+                                                        <Select value="" onValueChange={addIndent}>
                                                             <FormControl>
                                                                 <SelectTrigger size="sm" className="w-full">
                                                                     <SelectValue placeholder="Select indent" />
                                                                 </SelectTrigger>
                                                             </FormControl>
-                                                            <SelectContent>
-                                                                {indentGroups.map((g, k: number) => (
-                                                                    <SelectItem key={k} value={g.indentNumber}>
-                                                                        {g.indentNumber}
-                                                                        {g.firstProductName ? ` — ${g.firstProductName}` : ''}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
+                                                            <SearchableSelectContent searchPlaceholder="Search indents...">
+                                                                {available.length > 0 ? (
+                                                                    available.map((g, k: number) => (
+                                                                        <SelectItem key={k} value={g.indentNumber}>
+                                                                            {g.indentNumber}
+                                                                            {g.firstProductName ? ` — ${g.firstProductName}` : ''}
+                                                                        </SelectItem>
+                                                                    ))
+                                                                ) : (
+                                                                    <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                                                                        {selected.length > 0 ? 'No more indents' : 'No indents available'}
+                                                                    </p>
+                                                                )}
+                                                            </SearchableSelectContent>
                                                         </Select>
-                                                    </FormControl>
-                                                </FormItem>
-                                            )}
+                                                        {selected.length > 0 && (
+                                                            <div className="flex flex-wrap gap-2 pt-2">
+                                                                {selected.map((name: string) => (
+                                                                    <span
+                                                                        key={name}
+                                                                        className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-xs font-medium"
+                                                                    >
+                                                                        {name}
+                                                                        <button
+                                                                            type="button"
+                                                                            className="text-muted-foreground hover:text-destructive transition-colors"
+                                                                            onClick={() => removeIndent(name)}
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </FormItem>
+                                                );
+                                            }}
                                         />
                                     )}
                                     <FormField
@@ -1092,7 +1163,7 @@ export default () => {
                                                         <Select
                                                             onValueChange={field.onChange}
                                                             value={field.value}
-                                                            disabled={!!indentName}
+                                                            disabled={!!indentNames?.length}
                                                         >
                                                             <FormLabel>Vendor Name <span className="text-red-500">*</span></FormLabel>
                                                             <FormControl>
@@ -1172,6 +1243,41 @@ export default () => {
                                             </FormItem>
                                         )}
                                     />
+                                    {mode === 'create' && (
+                                        <FormField
+                                            control={form.control}
+                                            name="quotationNumber"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Quotation</FormLabel>
+                                                    <FormControl>
+                                                        <Select
+                                                            onValueChange={field.onChange}
+                                                            value={field.value}
+                                                            disabled={!vendor}
+                                                        >
+                                                            <SelectTrigger size="sm" className="w-full">
+                                                                <SelectValue placeholder={vendor ? 'Select quotation' : 'Select vendor first'} />
+                                                            </SelectTrigger>
+                                                            <SearchableSelectContent searchPlaceholder="Search quotations...">
+                                                                {vendorQuotationNumbers.length > 0 ? (
+                                                                    vendorQuotationNumbers.map((no) => (
+                                                                        <SelectItem key={no} value={no}>
+                                                                            {no}
+                                                                        </SelectItem>
+                                                                    ))
+                                                                ) : (
+                                                                    <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                                                                        {vendor ? 'No quotations found' : 'Select a vendor first'}
+                                                                    </p>
+                                                                )}
+                                                            </SearchableSelectContent>
+                                                        </Select>
+                                                    </FormControl>
+                                                </FormItem>
+                                            )}
+                                        />
+                                    )}
                                 </div>
                             </div>
 
@@ -1365,7 +1471,22 @@ export default () => {
                                                     </TableCell>
                                                     <TableCell className="px-2 py-1">{indent?.uom || indent?.unit}</TableCell>
                                                     <TableCell className="px-2 py-1">
-                                                        {indent?.approvedRate || indent?.approved_rate || indent?.rate}
+                                                        <FormField
+                                                            control={form.control}
+                                                            name={`indents.${index}.rate`}
+                                                            render={({ field: indentField }) => (
+                                                                <FormItem className="space-y-0">
+                                                                    <FormControl>
+                                                                        <Input
+                                                                            type="number"
+                                                                            className="rounded-sm h-7 w-20 p-0 text-center text-xs"
+                                                                            onFocus={(e) => e.target.select()}
+                                                                            {...indentField}
+                                                                        />
+                                                                    </FormControl>
+                                                                </FormItem>
+                                                            )}
+                                                        />
                                                     </TableCell>
                                                     <TableCell className="px-2 py-1">
                                                         <FormField
