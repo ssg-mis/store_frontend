@@ -35,6 +35,7 @@ interface POMasterItem {
     approvedBy: string;
     firm: string;
     transportationType: string;
+    destinationAddress: string;
     terms: string[];
     pdf: string;
 }
@@ -118,6 +119,7 @@ export default () => {
                     approvedBy: sheet.approvedBy || '',
                     firm: sheet.firm || sheet.indent?.firm || 'N/A',
                     transportationType: sheet.transportationType || '',
+                    destinationAddress: sheet.destinationAddress || '',
                     terms: [
                         sheet.term1, sheet.term2, sheet.term3, sheet.term4, sheet.term5,
                         sheet.term6, sheet.term7, sheet.term8, sheet.term9, sheet.term10,
@@ -176,9 +178,9 @@ export default () => {
             companyPan: firmObj?.pan_number || details?.companyPan || '',
             companyAddress: firmAddress,
             billingAddress: firmAddress || details?.billingAddress || '',
-            destinationAddress: details?.destinationAddress
-                ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
-                : [companyName, firmAddress].filter(Boolean).join('\n'),
+            // The user-edited destination address is saved per-PO (POMaster.destinationAddress).
+            // Fall back to the firm's own address for POs created before this field existed.
+            destinationAddress: first.destinationAddress || [companyName, firmAddress].filter(Boolean).join('\n'),
             supplierName: first.partyName,
             supplierAddress: vendor?.address || '',
             supplierGstin: vendor?.gstin || '',
@@ -270,6 +272,7 @@ export default () => {
                 approvedBy: sheet.approvedBy || '',
                 firm: sheet.firm || sheet.indent?.firm || 'N/A',
                 transportationType: sheet.transportationType || '',
+                destinationAddress: sheet.destinationAddress || '',
                 terms: [
                     sheet.term1, sheet.term2, sheet.term3, sheet.term4, sheet.term5,
                     sheet.term6, sheet.term7, sheet.term8, sheet.term9, sheet.term10,

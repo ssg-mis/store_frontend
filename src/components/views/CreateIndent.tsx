@@ -171,19 +171,26 @@ export default () => {
 
     const normalizeLookupValue = (value?: string | null) => value?.toLowerCase().trim() || '';
 
-    const getUOMOptionsForProduct = (itemName: string, departmentHead: string) => {
-        if (!itemName) return uoms;
+    const getUOMOptionsForProduct = (
+        itemName: string,
+        departmentHead: string,
+        facets?: { category?: string; subCategory?: string }
+    ) => {
+        const hasSubCategoryFacet = facets?.subCategory && facets.subCategory !== '__none__';
+        if (!itemName && !facets?.category && !hasSubCategoryFacet) return uoms;
 
         const allowedUOMNames = [
             ...new Set(
                 (inventorySheet || [])
-                    .filter((item) =>
-                        normalizeLookupValue(item.itemName) === normalizeLookupValue(itemName) &&
+                    .filter((item: any) =>
+                        (!itemName || normalizeLookupValue(item.itemName) === normalizeLookupValue(itemName)) &&
                         (!departmentHead || normalizeLookupValue(item.departmentHead) === normalizeLookupValue(departmentHead)) &&
+                        (!facets?.category || normalizeLookupValue(item.itemCategoryName) === normalizeLookupValue(facets.category)) &&
+                        (!hasSubCategoryFacet || normalizeLookupValue(item.productSubCategoryName) === normalizeLookupValue(facets!.subCategory!)) &&
                         item.uom &&
                         item.uom !== '-'
                     )
-                    .map((item) => item.uom.trim())
+                    .map((item: any) => item.uom.trim())
             ),
         ];
 
@@ -215,6 +222,87 @@ export default () => {
             });
 
         return Array.from(options.values());
+    };
+
+    // Inventory rows double as the source of truth for which category / sub category /
+    // uom combinations actually belong together for a given product — used to cross-filter
+    // and autofill Product Name, Product Category, Product Sub Category and UOM against each other.
+    const filterProductCombos = (facets: {
+        itemName?: string;
+        itemCategoryName?: string;
+        productSubCategoryName?: string;
+        uom?: string;
+        departmentHead?: string;
+    }) => {
+        const hasSubCategoryFacet = facets.productSubCategoryName && facets.productSubCategoryName !== '__none__';
+        return ((inventorySheet || []) as any[]).filter((c) =>
+            (!facets.itemName || normalizeLookupValue(c.itemName) === normalizeLookupValue(facets.itemName)) &&
+            (!facets.itemCategoryName || normalizeLookupValue(c.itemCategoryName) === normalizeLookupValue(facets.itemCategoryName)) &&
+            (!hasSubCategoryFacet || normalizeLookupValue(c.productSubCategoryName) === normalizeLookupValue(facets.productSubCategoryName!)) &&
+            (!facets.uom || normalizeLookupValue(c.uom) === normalizeLookupValue(facets.uom)) &&
+            (!facets.departmentHead || !c.departmentHead || normalizeLookupValue(c.departmentHead) === normalizeLookupValue(facets.departmentHead))
+        );
+    };
+
+    const uniqueComboValues = (rows: any[], key: 'itemName' | 'itemCategoryName' | 'productSubCategoryName' | 'uom') =>
+        Array.from(new Set(rows.map((r) => r[key]).filter((v) => v && v !== '-'))) as string[];
+
+    type ProductFacetField = 'productName' | 'productCategory' | 'productSubCategory' | 'uom';
+    const FACET_FIELDS: { formField: ProductFacetField; comboKey: 'itemName' | 'itemCategoryName' | 'productSubCategoryName' | 'uom' }[] = [
+        { formField: 'productName', comboKey: 'itemName' },
+        { formField: 'productCategory', comboKey: 'itemCategoryName' },
+        { formField: 'productSubCategory', comboKey: 'productSubCategoryName' },
+        { formField: 'uom', comboKey: 'uom' },
+    ];
+
+    // Reconciles Product Name / Product Category / Product Sub Category / UOM against each
+    // other whenever any one of them changes: fields with exactly one remaining valid value
+    // get auto-filled, fields whose current value is no longer valid get cleared, and fields
+    // with multiple remaining valid values are left for the dropdown to narrow (see render).
+    const reconcileProductFacets = (index: number, changedFormField: ProductFacetField, newValue: string) => {
+        const departmentHead = form.getValues(`products.${index}.departmentHead` as any) || '';
+
+        const current: Record<ProductFacetField, string> = {
+            productName: form.getValues(`products.${index}.productName` as any) || '',
+            productCategory: form.getValues(`products.${index}.productCategory` as any) || '',
+            productSubCategory: form.getValues(`products.${index}.productSubCategory` as any) || '',
+            uom: form.getValues(`products.${index}.uom` as any) || '',
+        };
+        current[changedFormField] = newValue;
+
+        // Products with no Inventory record at all can't be cross-referenced — leave the rest alone.
+        if (current.productName && !((inventorySheet || []) as any[]).some((c) => normalizeLookupValue(c.itemName) === normalizeLookupValue(current.productName))) {
+            return;
+        }
+
+        FACET_FIELDS.forEach(({ formField, comboKey }) => {
+            if (formField === changedFormField) return;
+
+            const facets: Record<string, string> = { departmentHead };
+            FACET_FIELDS.forEach((f) => {
+                if (f.formField === formField) return;
+                const val = current[f.formField];
+                if (val) facets[f.comboKey] = val;
+            });
+
+            const candidates = uniqueComboValues(filterProductCombos(facets), comboKey);
+            const curVal = current[formField];
+
+            if (curVal && curVal !== '__none__') {
+                const stillValid = candidates.length === 0 || candidates.some((v) => normalizeLookupValue(v) === normalizeLookupValue(curVal));
+                if (!stillValid) {
+                    form.setValue(`products.${index}.${formField}` as any, '');
+                    current[formField] = '';
+                    if (formField === 'productCategory') {
+                        form.setValue(`products.${index}.productSubCategory` as any, '');
+                        current.productSubCategory = '';
+                    }
+                }
+            } else if (!curVal && candidates.length === 1) {
+                form.setValue(`products.${index}.${formField}` as any, candidates[0]);
+                current[formField] = candidates[0];
+            }
+        });
     };
 
     useEffect(() => {
@@ -814,6 +902,44 @@ export default () => {
                                     ? master.itemToGroups[selectedProductName] as { id: number; name: string }[]
                                     : allGroups;
 
+                            // Cross-filter candidates derived from real Inventory item↔category↔subCategory↔uom
+                            // combinations — narrows each of these four fields by whichever of the other three
+                            // are already picked, so choosing any one of them updates what's valid in the rest.
+                            const comboCategoryCandidates = (selectedProductName || products[index]?.uom || (selectedSubCategoryName && selectedSubCategoryName !== '__none__'))
+                                ? new Set(uniqueComboValues(filterProductCombos({
+                                    itemName: selectedProductName || undefined,
+                                    uom: products[index]?.uom || undefined,
+                                    productSubCategoryName: selectedSubCategoryName || undefined,
+                                    departmentHead,
+                                }), 'itemCategoryName').map(normalizeLookupValue))
+                                : null;
+
+                            const comboSubCategoryCandidates = (selectedProductName || products[index]?.uom)
+                                ? new Set(uniqueComboValues(filterProductCombos({
+                                    itemName: selectedProductName || undefined,
+                                    uom: products[index]?.uom || undefined,
+                                    itemCategoryName: selectedCategoryName || undefined,
+                                    departmentHead,
+                                }), 'productSubCategoryName').map(normalizeLookupValue))
+                                : null;
+
+                            const comboProductNameCandidates = (selectedCategoryName || (selectedSubCategoryName && selectedSubCategoryName !== '__none__') || products[index]?.uom)
+                                ? new Set(uniqueComboValues(filterProductCombos({
+                                    itemCategoryName: selectedCategoryName || undefined,
+                                    productSubCategoryName: selectedSubCategoryName || undefined,
+                                    uom: products[index]?.uom || undefined,
+                                    departmentHead,
+                                }), 'itemName').map(normalizeLookupValue))
+                                : null;
+
+                            const categoryOptionsFinal = (comboCategoryCandidates && comboCategoryCandidates.size > 0)
+                                ? categoryOptions.filter(c => comboCategoryCandidates.has(normalizeLookupValue(c.product_category_name)))
+                                : categoryOptions;
+
+                            const subCategoryOptionsFinal = (comboSubCategoryCandidates && comboSubCategoryCandidates.size > 0)
+                                ? subCategoryOptions.filter(s => comboSubCategoryCandidates.has(normalizeLookupValue(s.product_sub_category_name)))
+                                : subCategoryOptions;
+
                             return (
                                 <div
                                     key={field.id}
@@ -998,13 +1124,16 @@ export default () => {
                                                         <Select
                                                             onValueChange={(val) => {
                                                                 field.onChange(val);
-                                                                form.setValue(`products.${index}.productSubCategory` as any, '');
                                                                 form.setValue(`products.${index}.specifications` as any, '');
-                                                                const currentProd = form.getValues(`products.${index}.productName` as any);
-                                                                if (currentProd && master?.itemToCategory?.[currentProd] !== val) {
-                                                                    form.setValue(`products.${index}.productName` as any, '');
-                                                                    form.setValue(`products.${index}.uom` as any, '');
+                                                                // Structural check: sub category must belong to this category's own hierarchy.
+                                                                const currentSub = form.getValues(`products.${index}.productSubCategory` as any);
+                                                                if (currentSub && currentSub !== '__none__') {
+                                                                    const parent = findParentCategoryOfSubCategory(currentSub);
+                                                                    if (parent && parent.product_category_name !== val) {
+                                                                        form.setValue(`products.${index}.productSubCategory` as any, '');
+                                                                    }
                                                                 }
+                                                                reconcileProductFacets(index, 'productCategory', val);
                                                             }}
                                                             value={field.value}
                                                         >
@@ -1014,7 +1143,7 @@ export default () => {
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SearchableSelectContent searchPlaceholder="Search categories...">
-                                                                {categoryOptions.map((c) => (
+                                                                {categoryOptionsFinal.map((c) => (
                                                                     <SelectItem
                                                                         key={c.product_category_id}
                                                                         value={c.product_category_name}
@@ -1042,24 +1171,20 @@ export default () => {
                                                                     if (parent && parent.product_category_name !== form.getValues(`products.${index}.productCategory` as any)) {
                                                                         form.setValue(`products.${index}.productCategory` as any, parent.product_category_name);
                                                                     }
-                                                                    const currentProd = form.getValues(`products.${index}.productName` as any);
-                                                                    if (currentProd && master?.itemToSubCategory?.[currentProd] !== val) {
-                                                                        form.setValue(`products.${index}.productName` as any, '');
-                                                                        form.setValue(`products.${index}.uom` as any, '');
-                                                                    }
                                                                 }
+                                                                reconcileProductFacets(index, 'productSubCategory', val);
                                                             }}
                                                             value={field.value || ''}
-                                                            disabled={subCategoryOptions.length === 0}
+                                                            disabled={subCategoryOptionsFinal.length === 0}
                                                         >
                                                             <FormControl>
                                                                 <SelectTrigger className="w-full">
-                                                                    <SelectValue placeholder={subCategoryOptions.length === 0 ? 'No sub categories' : 'Select sub category'} />
+                                                                    <SelectValue placeholder={subCategoryOptionsFinal.length === 0 ? 'No sub categories' : 'Select sub category'} />
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SearchableSelectContent searchPlaceholder="Search sub categories...">
                                                                 <SelectItem value="__none__">— None —</SelectItem>
-                                                                {subCategoryOptions.map(s => (
+                                                                {subCategoryOptionsFinal.map(s => (
                                                                     <SelectItem key={s.product_sub_category_id} value={s.product_sub_category_name}>
                                                                         {s.product_sub_category_name}
                                                                     </SelectItem>
@@ -1156,19 +1281,7 @@ export default () => {
                                                                 <Select
                                                                     onValueChange={(value) => {
                                                                         field.onChange(value);
-                                                                        form.setValue(`products.${index}.uom` as any, '');
-                                                                        const uom = master?.uomLookup?.[departmentHead]?.[value];
-                                                                        if (uom) {
-                                                                            form.setValue(`products.${index}.uom` as any, uom);
-                                                                        }
-                                                                        // Auto-fill category if not set or different
-                                                                        const cat = master?.itemToCategory?.[value];
-                                                                        if (cat) {
-                                                                            form.setValue(`products.${index}.productCategory` as any, cat);
-                                                                        }
-                                                                        // Auto-fill sub category if this product has one, else clear it
-                                                                        const subCat = master?.itemToSubCategory?.[value];
-                                                                        form.setValue(`products.${index}.productSubCategory` as any, subCat || '');
+                                                                        reconcileProductFacets(index, 'productName', value);
                                                                         // Auto-fill specifications linked to this product (inventory item)
                                                                         const linkedSpecs = master?.itemToSpecifications?.[value] as { id: number; name: string }[] | undefined;
                                                                         if (linkedSpecs && linkedSpecs.length) {
@@ -1213,11 +1326,8 @@ export default () => {
                                                                             {productOptions
                                                                                 ?.filter((dep: string) => {
                                                                                     const searchMatch = dep.toLowerCase().includes(searchTermProductName.toLowerCase());
-                                                                                    const currentCategory = form.getValues(`products.${index}.productCategory` as any);
-                                                                                    const categoryMatch = !currentCategory || master?.itemToCategory?.[dep] === currentCategory;
-                                                                                    const currentSubCategory = form.getValues(`products.${index}.productSubCategory` as any);
-                                                                                    const subCategoryMatch = !currentSubCategory || currentSubCategory === '__none__' || master?.itemToSubCategory?.[dep] === currentSubCategory;
-                                                                                    return searchMatch && categoryMatch && subCategoryMatch;
+                                                                                    const facetMatch = !comboProductNameCandidates || comboProductNameCandidates.has(normalizeLookupValue(dep));
+                                                                                    return searchMatch && facetMatch;
                                                                                 })
                                                                                 .map((dep: string, i: number) => {
                                                                                     const depStock = getStock(dep, departmentHead);
@@ -1268,7 +1378,10 @@ export default () => {
                                                 name={`products.${index}.uom`}
                                                 render={({ field }) => {
                                                     const productName = products[index]?.productName || '';
-                                                    const uomOptions = getUOMOptionsForProduct(productName, departmentHead);
+                                                    const uomOptions = getUOMOptionsForProduct(productName, departmentHead, {
+                                                        category: selectedCategoryName || undefined,
+                                                        subCategory: selectedSubCategoryName || undefined,
+                                                    });
 
                                                     return (
                                                         <FormItem>
@@ -1279,10 +1392,12 @@ export default () => {
                                                                 </span>
                                                             </FormLabel>
                                                             <Select
-                                                                key={`${departmentHead || 'no-head'}-${productName || 'no-product'}`}
-                                                                onValueChange={field.onChange}
+                                                                key={`${departmentHead || 'no-head'}-${productName || 'no-product'}-${selectedCategoryName || 'no-cat'}-${selectedSubCategoryName || 'no-subcat'}`}
+                                                                onValueChange={(val) => {
+                                                                    field.onChange(val);
+                                                                    reconcileProductFacets(index, 'uom', val);
+                                                                }}
                                                                 value={field.value}
-                                                                disabled={!productName}
                                                             >
                                                                 <FormControl>
                                                                     <SelectTrigger className="w-full">

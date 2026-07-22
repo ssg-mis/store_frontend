@@ -196,9 +196,9 @@ export default function ApprovalPO() {
                 companyPan: firm?.pan_number || details?.companyPan || '',
                 companyAddress: firmAddress,
                 billingAddress: firmAddress || details?.billingAddress || '',
-                destinationAddress: details?.destinationAddress
-                    ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
-                    : [companyName, firmAddress].filter(Boolean).join('\n'),
+                // The user-edited destination address is saved per-PO (POMaster.destinationAddress).
+                // Fall back to the firm's own address for POs created before this field existed.
+                destinationAddress: first.destinationAddress || [companyName, firmAddress].filter(Boolean).join('\n'),
                 supplierName: group.partyName,
                 supplierAddress: vendor?.address || '',
                 supplierGstin: vendor?.gstin || '',
@@ -301,9 +301,9 @@ export default function ApprovalPO() {
                     companyPan: firm?.pan_number || details?.companyPan || '',
                     companyAddress: firmAddress,
                     billingAddress: firmAddress || details?.billingAddress || '',
-                    destinationAddress: details?.destinationAddress
-                        ? [companyName, firmAddress, details.destinationAddress].filter(Boolean).join('\n')
-                        : [companyName, firmAddress].filter(Boolean).join('\n'),
+                    // The user-edited destination address is saved per-PO (POMaster.destinationAddress).
+                    // Fall back to the firm's own address for POs created before this field existed.
+                    destinationAddress: first.destinationAddress || [companyName, firmAddress].filter(Boolean).join('\n'),
                     supplierName: group.partyName,
                     supplierAddress: vendor?.address || '',
                     supplierGstin: vendor?.gstin || '',

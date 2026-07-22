@@ -824,6 +824,7 @@ export default () => {
                     preparedBy: values.preparedBy,
                     approvedBy: values.approvedBy,
                     transportationType: values.transportationType,
+                    destinationAddress: destinationAddress || null,
                     quotationNumber: values.quotationNumber,
                     quotationDate: values.quotationDate ? new Date(values.quotationDate) : null,
                     enquiryNumber: values.ourEnqNo,
