@@ -198,12 +198,11 @@ export async function fetchIndentMasterData() {
             .filter(g => g.isActive !== false)
             .map(g => ({ id: g.product_group_id, name: g.product_group_name }));
 
-        // Build item → specifications lookup from Inventory specifications JSON
-        const itemToSpecifications: Record<string, { id: number; name: string }[]> = {};
+        // Build item → specification lookup from Inventory's free-text specifications field
+        const itemToSpecifications: Record<string, string> = {};
         inventoryData.forEach((d: any) => {
             if (!d.itemName) return;
-            const specs: { id: number; name: string }[] = Array.isArray(d.specifications) ? d.specifications : [];
-            if (specs.length) itemToSpecifications[d.itemName] = specs;
+            if (d.specifications) itemToSpecifications[d.itemName] = d.specifications;
         });
 
         return {

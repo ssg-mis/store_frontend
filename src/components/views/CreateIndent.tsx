@@ -23,7 +23,7 @@ import { ClipboardList, Trash, Search, FileDown } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
-import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchProductSubCategories, fetchUsers, fetchSpecifications } from '@/lib/fetchers';
+import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchProductSubCategories, fetchUsers } from '@/lib/fetchers';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
 import IndentPdf from '../element/IndentPdf';
@@ -65,7 +65,6 @@ export default () => {
     const [uoms, setUoms] = useState<UOMRow[]>([]);
     const [productCategories, setProductCategories] = useState<{ product_category_id: number; product_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[]; productSubCategories?: { product_sub_category_id: number; product_sub_category_name: string; isActive: boolean }[] }[]>([]);
     const [productSubCategoriesData, setProductSubCategoriesData] = useState<{ product_sub_category_id: number; product_sub_category_name: string; isActive?: boolean; specifications?: { id: number; name: string }[] }[]>([]);
-    const [allSpecifications, setAllSpecifications] = useState<{ id: number; name: string }[]>([]);
     const [exportingPdf, setExportingPdf] = useState(false);
 
     const refreshMaster = async () => {
@@ -82,7 +81,6 @@ export default () => {
         fetchUOMs().then((data) => setUoms(data.filter((u) => u.isActive !== false)));
         fetchProductCategories().then((data) => setProductCategories(data.filter((c) => c.isActive !== false)));
         fetchProductSubCategories().then((data) => setProductSubCategoriesData(data.filter((s) => s.isActive !== false)));
-        fetchSpecifications().then((data: { id: number; name: string; isActive?: boolean }[]) => setAllSpecifications(data.filter((s) => s.isActive !== false)));
         updateInventorySheet(true); // silent refresh so stock check uses latest data
     }, []);
 
@@ -638,15 +636,6 @@ export default () => {
     const findParentCategoryOfSubCategory = (subCategoryName: string) =>
         productCategories.find(c => (c.productSubCategories || []).some(s => s.product_sub_category_name === subCategoryName));
 
-    const categoryContainsSpec = (category: typeof productCategories[number], specName: string) =>
-        (category.specifications || []).some(s => s.name === specName);
-
-    const subCategoryContainsSpec = (subCategory: typeof productSubCategoriesData[number], specName: string) => {
-        if ((subCategory.specifications || []).some(s => s.name === specName)) return true;
-        const parent = findParentCategoryOfSubCategory(subCategory.product_sub_category_name);
-        return (parent?.specifications || []).some(s => s.name === specName);
-    };
-
     return (
         <div>
             <Heading heading="Indent Form" subtext="Create new Indent">
@@ -808,9 +797,17 @@ export default () => {
                                     variant="outline"
                                     onClick={() => {
                                         setProductGroupFilters(products.map(() => null));
+                                        // Department/Department Head/Area Of Use are only editable on row 0
+                                        // (other rows mirror it via the existing sync effect) — clearing row 0
+                                        // here cascades to every row automatically.
+                                        form.setValue(`products.0.department` as any, '');
+                                        form.setValue(`products.0.departmentHead` as any, '');
+                                        form.setValue(`products.0.areaOfUse` as any, '');
                                         products.forEach((_, i) => {
+                                            form.setValue(`products.${i}.productName` as any, '');
                                             form.setValue(`products.${i}.productCategory` as any, '');
                                             form.setValue(`products.${i}.productSubCategory` as any, '');
+                                            form.setValue(`products.${i}.uom` as any, '');
                                             form.setValue(`products.${i}.specifications` as any, '');
                                         });
                                     }}
@@ -849,41 +846,20 @@ export default () => {
                             const selectedCategoryName = products[index]?.productCategory || '';
                             const selectedCategory = productCategories.find(c => c.product_category_name === selectedCategoryName);
                             const selectedSubCategoryName = products[index]?.productSubCategory || '';
-                            const selectedSubCategory = productSubCategoriesData.find(s => s.product_sub_category_name === selectedSubCategoryName);
-                            const selectedSpecNames = (products[index]?.specifications || '')
-                                .split(',')
-                                .map((s: string) => s.trim())
-                                .filter(Boolean);
-
-                            // Category options: narrowed to the sub category's parent if one is picked;
-                            // else narrowed to categories matching picked specifications; else every category.
+                            // Category options: narrowed to the sub category's parent if one is picked; else every category.
                             const categoryOptions = selectedSubCategoryName && selectedSubCategoryName !== '__none__'
                                 ? (() => {
                                     const parent = findParentCategoryOfSubCategory(selectedSubCategoryName);
                                     return parent ? [parent] : productCategories;
                                 })()
-                                : selectedSpecNames.length
-                                    ? productCategories.filter(c => selectedSpecNames.some((name: string) => categoryContainsSpec(c, name)))
-                                    : productCategories;
+                                : productCategories;
 
-                            // Sub category options: the selected category's own list if one is picked;
-                            // else narrowed to sub categories matching picked specifications; else every sub category.
+                            // Sub category options: the selected category's own list if one is picked; else every sub category.
                             const subCategoryOptions = (
                                 selectedCategory
                                     ? (selectedCategory.productSubCategories || [])
-                                    : selectedSpecNames.length
-                                        ? productSubCategoriesData.filter(sc => selectedSpecNames.some((name: string) => subCategoryContainsSpec(sc, name)))
-                                        : productSubCategoriesData
+                                    : productSubCategoriesData
                             ).filter(s => s.isActive !== false);
-
-                            // Specification options: linked to sub category first, else category, else everything.
-                            const specificationOptions = (
-                                selectedSubCategory?.specifications?.length
-                                    ? selectedSubCategory.specifications
-                                    : selectedCategory?.specifications?.length
-                                        ? selectedCategory.specifications
-                                        : allSpecifications
-                            );
 
                             // Product Name is never limited by department — same as Firm isn't limited by anything.
                             const allProductOptions: string[] = allProductNames;
@@ -1124,7 +1100,6 @@ export default () => {
                                                         <Select
                                                             onValueChange={(val) => {
                                                                 field.onChange(val);
-                                                                form.setValue(`products.${index}.specifications` as any, '');
                                                                 // Structural check: sub category must belong to this category's own hierarchy.
                                                                 const currentSub = form.getValues(`products.${index}.productSubCategory` as any);
                                                                 if (currentSub && currentSub !== '__none__') {
@@ -1165,7 +1140,6 @@ export default () => {
                                                         <Select
                                                             onValueChange={(val) => {
                                                                 field.onChange(val);
-                                                                form.setValue(`products.${index}.specifications` as any, '');
                                                                 if (val && val !== '__none__') {
                                                                     const parent = findParentCategoryOfSubCategory(val);
                                                                     if (parent && parent.product_category_name !== form.getValues(`products.${index}.productCategory` as any)) {
@@ -1197,72 +1171,17 @@ export default () => {
                                             <FormField
                                                 control={form.control}
                                                 name={`products.${index}.specifications`}
-                                                render={({ field }) => {
-                                                    const selected = (field.value || '')
-                                                        .split(',')
-                                                        .map((s: string) => s.trim())
-                                                        .filter(Boolean);
-                                                    // All specifications available to add (linked-to-category first,
-                                                    // then any other master spec) — deduped by name, minus already-selected.
-                                                    const optionMap = new Map<string, { id: number; name: string }>();
-                                                    [...specificationOptions, ...allSpecifications].forEach(s => {
-                                                        if (s?.name && !optionMap.has(s.name)) optionMap.set(s.name, s);
-                                                    });
-                                                    const available = Array.from(optionMap.values())
-                                                        .filter(s => !selected.includes(s.name));
-                                                    const addSpec = (name: string) => {
-                                                        if (name && !selected.includes(name)) {
-                                                            field.onChange([...selected, name].join(', '));
-                                                        }
-                                                    };
-                                                    const removeSpec = (name: string) => {
-                                                        field.onChange(selected.filter((s: string) => s !== name).join(', '));
-                                                    };
-                                                    return (
-                                                        <FormItem>
-                                                            <FormLabel>Specifications</FormLabel>
-                                                            <Select value="" onValueChange={addSpec}>
-                                                                <FormControl>
-                                                                    <SelectTrigger className="w-full">
-                                                                        <SelectValue placeholder="Add specification" />
-                                                                    </SelectTrigger>
-                                                                </FormControl>
-                                                                <SearchableSelectContent searchPlaceholder="Search specifications..." className="max-h-72">
-                                                                    {available.length > 0 ? (
-                                                                        available.map(s => (
-                                                                            <SelectItem key={s.id} value={s.name}>
-                                                                                {s.name}
-                                                                            </SelectItem>
-                                                                        ))
-                                                                    ) : (
-                                                                        <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                                                                            {selected.length > 0 ? 'No more specifications' : 'No specifications available'}
-                                                                        </p>
-                                                                    )}
-                                                                </SearchableSelectContent>
-                                                            </Select>
-                                                            {selected.length > 0 && (
-                                                                <div className="flex flex-wrap gap-2 pt-2">
-                                                                    {selected.map((name: string) => (
-                                                                        <span
-                                                                            key={name}
-                                                                            className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-3 py-1 text-xs font-medium"
-                                                                        >
-                                                                            {name}
-                                                                            <button
-                                                                                type="button"
-                                                                                className="text-muted-foreground hover:text-destructive transition-colors"
-                                                                                onClick={() => removeSpec(name)}
-                                                                            >
-                                                                                ×
-                                                                            </button>
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </FormItem>
-                                                    );
-                                                }}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Specifications</FormLabel>
+                                                        <FormControl>
+                                                            <Textarea
+                                                                placeholder="Specification (auto-filled from product, editable)"
+                                                                {...field}
+                                                            />
+                                                        </FormControl>
+                                                    </FormItem>
+                                                )}
                                             />
                                             <FormField
                                                 control={form.control}
@@ -1282,24 +1201,48 @@ export default () => {
                                                                     onValueChange={(value) => {
                                                                         field.onChange(value);
                                                                         reconcileProductFacets(index, 'productName', value);
-                                                                        // Auto-fill specifications linked to this product (inventory item)
-                                                                        const linkedSpecs = master?.itemToSpecifications?.[value] as { id: number; name: string }[] | undefined;
-                                                                        if (linkedSpecs && linkedSpecs.length) {
-                                                                            form.setValue(
-                                                                                `products.${index}.specifications` as any,
-                                                                                linkedSpecs.map(s => s.name).join(', ')
-                                                                            );
+                                                                        // Auto-fill specification saved on this product (Inventory item)
+                                                                        const linkedSpec = master?.itemToSpecifications?.[value] as string | undefined;
+                                                                        form.setValue(`products.${index}.specifications` as any, linkedSpec || '');
+
+                                                                        // Department / Department Head are only ever editable on row 0
+                                                                        // (other rows just mirror row 0) — autofill there only, and
+                                                                        // only when the product unambiguously belongs to one head.
+                                                                        // This is a soft suggestion, not a restriction: the Department
+                                                                        // and Department Head dropdowns keep showing every option.
+                                                                        if (index === 0) {
+                                                                            const headsForItem = Object.entries(master?.groupHeadItems || {})
+                                                                                .filter(([, items]) => (items as string[]).includes(value))
+                                                                                .map(([dh]) => dh);
+                                                                            if (headsForItem.length === 1) {
+                                                                                const dh = headsForItem[0];
+                                                                                form.setValue(`products.0.departmentHead` as any, dh);
+                                                                                const dep = master?.groupHeadToDepartment?.[dh];
+                                                                                if (dep) form.setValue(`products.0.department` as any, dep);
+                                                                            }
                                                                         }
-                                                                        // If current group filter doesn't contain the newly selected product, reset it
-                                                                        const curGroup = productGroupFilters[index];
-                                                                        if (curGroup != null) {
-                                                                            const itemsInGroup = master?.groupToItems?.[curGroup] as string[] | undefined;
-                                                                            if (itemsInGroup && !itemsInGroup.includes(value)) {
-                                                                                setProductGroupFilters(prev => {
-                                                                                    const next = [...prev];
-                                                                                    next[index] = null;
-                                                                                    return next;
-                                                                                });
+
+                                                                        // Product Group filter: auto-pick it only when this product
+                                                                        // belongs to exactly one group; otherwise leave the choice to
+                                                                        // the dropdown (reset only if the current pick no longer fits).
+                                                                        const linkedGroups = master?.itemToGroups?.[value] as { id: number; name: string }[] | undefined;
+                                                                        if (linkedGroups && linkedGroups.length === 1) {
+                                                                            setProductGroupFilters(prev => {
+                                                                                const next = [...prev];
+                                                                                next[index] = linkedGroups[0].id;
+                                                                                return next;
+                                                                            });
+                                                                        } else {
+                                                                            const curGroup = productGroupFilters[index];
+                                                                            if (curGroup != null) {
+                                                                                const itemsInGroup = master?.groupToItems?.[curGroup] as string[] | undefined;
+                                                                                if (itemsInGroup && !itemsInGroup.includes(value)) {
+                                                                                    setProductGroupFilters(prev => {
+                                                                                        const next = [...prev];
+                                                                                        next[index] = null;
+                                                                                        return next;
+                                                                                    });
+                                                                                }
                                                                             }
                                                                         }
                                                                     }}
