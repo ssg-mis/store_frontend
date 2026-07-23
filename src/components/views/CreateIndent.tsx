@@ -258,8 +258,6 @@ export default () => {
     // get auto-filled, fields whose current value is no longer valid get cleared, and fields
     // with multiple remaining valid values are left for the dropdown to narrow (see render).
     const reconcileProductFacets = (index: number, changedFormField: ProductFacetField, newValue: string) => {
-        const departmentHead = form.getValues(`products.${index}.departmentHead` as any) || '';
-
         const current: Record<ProductFacetField, string> = {
             productName: form.getValues(`products.${index}.productName` as any) || '',
             productCategory: form.getValues(`products.${index}.productCategory` as any) || '',
@@ -276,7 +274,9 @@ export default () => {
         FACET_FIELDS.forEach(({ formField, comboKey }) => {
             if (formField === changedFormField) return;
 
-            const facets: Record<string, string> = { departmentHead };
+            // Department/Department Head are intentionally NOT a facet here — they're
+            // free-choice fields independent of product/category/subCategory/uom.
+            const facets: Record<string, string> = {};
             FACET_FIELDS.forEach((f) => {
                 if (f.formField === formField) return;
                 const val = current[f.formField];
@@ -881,12 +881,13 @@ export default () => {
                             // Cross-filter candidates derived from real Inventory item↔category↔subCategory↔uom
                             // combinations — narrows each of these four fields by whichever of the other three
                             // are already picked, so choosing any one of them updates what's valid in the rest.
+                            // Department/Department Head are deliberately NOT part of this — they're free-choice
+                            // fields and must never restrict which products/categories/uoms are selectable.
                             const comboCategoryCandidates = (selectedProductName || products[index]?.uom || (selectedSubCategoryName && selectedSubCategoryName !== '__none__'))
                                 ? new Set(uniqueComboValues(filterProductCombos({
                                     itemName: selectedProductName || undefined,
                                     uom: products[index]?.uom || undefined,
                                     productSubCategoryName: selectedSubCategoryName || undefined,
-                                    departmentHead,
                                 }), 'itemCategoryName').map(normalizeLookupValue))
                                 : null;
 
@@ -895,7 +896,6 @@ export default () => {
                                     itemName: selectedProductName || undefined,
                                     uom: products[index]?.uom || undefined,
                                     itemCategoryName: selectedCategoryName || undefined,
-                                    departmentHead,
                                 }), 'productSubCategoryName').map(normalizeLookupValue))
                                 : null;
 
@@ -904,7 +904,6 @@ export default () => {
                                     itemCategoryName: selectedCategoryName || undefined,
                                     productSubCategoryName: selectedSubCategoryName || undefined,
                                     uom: products[index]?.uom || undefined,
-                                    departmentHead,
                                 }), 'itemName').map(normalizeLookupValue))
                                 : null;
 
