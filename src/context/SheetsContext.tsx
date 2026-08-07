@@ -65,24 +65,6 @@ function computeBadgeCounts(indentSheet: IndentSheet[], receivedSheet: ReceivedS
     const storeOut = new Set<string>();
     const loanOut = new Set<string>();
 
-    const receivedTotals = new Map<string, number>();
-    receivedSheet.forEach((record: Record<string, any>) => {
-        const key = normalizeKey(record.indentId ?? record.indent_id);
-        if (!key) return;
-        const totalForRecord =
-            (Number(record.receivedQuantity ?? record.received_quantity) || 0) +
-            (Number(record.damagedQuantity ?? record.damaged_quantity) || 0) +
-            (Number(record.purchaseReturn ?? record.purchase_return) || 0);
-        receivedTotals.set(key, (receivedTotals.get(key) || 0) + totalForRecord);
-    });
-
-    const poTotals = new Map<string, number>();
-    poMasterSheet.forEach((record: Record<string, any>) => {
-        const key = normalizeKey(record.indentId ?? record.indent_id);
-        if (!key) return;
-        poTotals.set(key, (poTotals.get(key) || 0) + (Number(record.quantity) || 0));
-    });
-
     indentSheet.forEach((indent: IndentSheet & Record<string, any>) => {
         const key = getIndentKey(indent);
         if (!key) return;
@@ -92,6 +74,8 @@ function computeBadgeCounts(indentSheet: IndentSheet[], receivedSheet: ReceivedS
         const actual6 = indent.actual6 ?? indent.actual_6;
         const planned4 = indent.planned4 ?? indent.planned_4;
         const actual4 = indent.actual4 ?? indent.actual_4;
+        const planned5 = indent.planned5 ?? indent.planned_5;
+        const actual5 = indent.actual5 ?? indent.actual_5;
 
         if (isPurchase && !hasRows(indent.approvedIndents)) {
             approveIndent.add(key);
@@ -109,10 +93,7 @@ function computeBadgeCounts(indentSheet: IndentSheet[], receivedSheet: ReceivedS
             pendingPOs.add(key);
         }
 
-        const indentIdKey = normalizeKey(indent.id);
-        const poQty = poTotals.get(indentIdKey) || 0;
-        const receivedQty = receivedTotals.get(indentIdKey) || 0;
-        if (isPurchase && poQty > receivedQty) {
+        if (isPurchase && hasValue(planned5) && !hasValue(actual5)) {
             receiveItems.add(key);
         }
 

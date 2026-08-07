@@ -9,7 +9,9 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
-import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber } from '@/lib/fetchers';
+import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO } from '@/lib/fetchers';
+import { pdf } from '@react-pdf/renderer';
+import POPdf, { type POPdfProps } from '../element/POPdf';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useSheets } from '@/context/SheetsContext';
@@ -847,7 +849,6 @@ export default () => {
                 };
             });
 
-
             // Insert each PO record into the database using API
             const poResult = await postToSheet(poData, 'insert', 'PO_MASTER');
             if (!poResult.success) throw new Error((poResult.error as any)?.message || 'Failed to save PO records');
@@ -882,6 +883,118 @@ export default () => {
             updatePoMasterSheet();
             updateRelatedSheets();
             form.reset();
+
+            // ── WHATSAPP-ONLY PDF (separate from approval PDF lifecycle) ──────────────
+            // Generate a brand-new PDF specifically for WhatsApp immediately after the
+            // PO is saved.  This does NOT touch po_master.pdf and does NOT interfere
+            // with ApprovalPO.tsx or the approval PDF flow in any way.
+            // Wrapped in its own try/catch so any failure here cannot break the save.
+            try {
+                // Build firm / vendor data the same way ApprovalPO.tsx does it.
+                const whatsappFirm = firms.find((f: any) => f.firm_name === displayFirm);
+                const whatsappVendor = vendorsData.find((v: any) =>
+                    (v.vendor_name || '').trim().toLowerCase() === values.supplierName.trim().toLowerCase()
+                );
+
+                const waFirmAddress = (() => {
+                    if (!whatsappFirm) return detailsData?.companyAddress || '';
+                    const lines = [
+                        whatsappFirm.firm_address || '',
+                        [whatsappFirm.state, whatsappFirm.pin_code].filter(Boolean).join(' '),
+                    ].filter(Boolean);
+                    return lines.join('\n') || detailsData?.companyAddress || '';
+                })();
+
+                const waCompanyName = whatsappFirm?.firm_name || detailsData?.companyName || displayFirm;
+
+                let waLogoBase64 = '';
+                try {
+                    const logoBlob = await fetch('/logo.png').then(r => r.blob());
+                    waLogoBase64 = await new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.readAsDataURL(logoBlob);
+                    });
+                } catch { /* logo is optional */ }
+
+                const waProps: POPdfProps = {
+                    companyLogo: waLogoBase64,
+                    companyName: waCompanyName,
+                    companyPhone: whatsappFirm?.mobile || detailsData?.companyPhone || '',
+                    companyGstin: whatsappFirm?.firm_gstin || detailsData?.companyGstin || '',
+                    companyPan: whatsappFirm?.pan_number || detailsData?.companyPan || '',
+                    companyAddress: waFirmAddress,
+                    billingAddress: waFirmAddress || detailsData?.billingAddress || '',
+                    destinationAddress: destinationAddress || [waCompanyName, waFirmAddress].filter(Boolean).join('\n'),
+                    supplierName: values.supplierName,
+                    supplierAddress: whatsappVendor?.vendor_address || whatsappVendor?.address || values.supplierAddress || '',
+                    supplierGstin: whatsappVendor?.vendor_gstin || whatsappVendor?.gstin || values.gstin || '',
+                    orderNumber: poNumber,
+                    orderDate: values.poDate ? formatDate(new Date(values.poDate)) : formatDate(new Date()),
+                    quotationNumber: values.quotationNumber || '',
+                    quotationDate: values.quotationDate ? formatDate(new Date(values.quotationDate)) : '',
+                    enqNo: values.ourEnqNo || '',
+                    enqDate: values.enquiryDate ? formatDate(new Date(values.enquiryDate)) : '',
+                    description: values.description || '',
+                    items: values.indents.map((v) => {
+                        const indent = enrichedFetchedIndents.find((i: any) =>
+                            v.id ? i.id === v.id : i.indentNumber === v.indentNumber
+                        );
+                        const rate = indent?.approvedRate || indent?.approved_rate || indent?.rate || v.rate || 0;
+                        return {
+                            internalCode: v.indentNumber,
+                            firm: displayFirm,
+                            product: indent?.productName || indent?.product_name || indent?.product || '',
+                            description: values.description || '',
+                            quantity: v.quantity,
+                            unit: indent?.uom || indent?.unit || '',
+                            rate: Number(rate),
+                            gst: Number(v.gst || 0),
+                            discount: Number(v.discount || 0),
+                            amount: calculateTotal(Number(rate), Number(v.gst || 0), Number(v.discount || 0), v.quantity),
+                        };
+                    }),
+                    total: grandTotal,
+                    gstAmount: 0,
+                    grandTotal,
+                    terms: values.terms,
+                    preparedBy: values.preparedBy,
+                    approvedBy: values.approvedBy,
+                    transportationType: values.transportationType,
+                    firm: displayFirm,
+                };
+
+                // Generate the whatsapp_pdf blob
+                const whatsappPdfBlob = await pdf(<POPdf {...waProps} />).toBlob();
+                // Use a distinct filename so it is clearly identifiable in S3
+                const safePoNumber = poNumber.replace(/[^a-zA-Z0-9-]/g, '_');
+                const whatsappPdfFile = new File(
+                    [whatsappPdfBlob],
+                    `whatsapp_pdf_${safePoNumber}.pdf`,
+                    { type: 'application/pdf' }
+                );
+
+                // Upload to S3 under the 'whatsapp_pdf' folder (separate from approval PDFs)
+                const whatsappPdfUrl = await uploadFile(
+                    whatsappPdfFile,
+                    'whatsapp_pdf'
+                );
+
+                // Send WhatsApp with the new URL as template {{3}}
+                const waResult = await sendWhatsAppPdfForPO(poNumber, whatsappPdfUrl);
+                if (waResult.success) {
+                    toast.success('WhatsApp notification sent with PO PDF');
+                } else {
+                    console.error('[WhatsApp PDF] Send failed:', waResult.error);
+                    // Non-fatal — PO was already saved successfully
+                    toast.warning('PO saved. WhatsApp notification could not be sent.');
+                }
+            } catch (waPdfErr: any) {
+                // Non-fatal — the PO is already saved, only the WhatsApp step failed
+                console.error('[WhatsApp PDF] Generation/upload/send failed:', waPdfErr);
+                toast.warning('PO saved. WhatsApp PDF could not be sent: ' + waPdfErr.message);
+            }
+            // ── END WHATSAPP-ONLY PDF ─────────────────────────────────────────────────
 
             // Refresh data after submission
             const [updatedIndents, updatedApprovals] = await Promise.all([
