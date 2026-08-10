@@ -56,6 +56,7 @@ interface VendorUpdateData {
     requestDate: string;
     approvalDate: string;
     date: string;
+    rawDate?: string;
     validityDate: string;
 }
 interface HistoryData {
@@ -73,6 +74,7 @@ interface HistoryData {
     rate1: number;
     vendorType: 'Three Party' | 'Regular';
     date: string;
+    rawDate?: string;
     lastUpdated?: string;
     vendorName1?: string;
     vendorName2?: string;
@@ -225,7 +227,7 @@ export default () => {
 
         try {
             const data: any = await fetchFromSupabasePaginated('approved_indent', '*',
-                { column: 'createdAt', options: { ascending: true } },
+                { column: 'createdAt', options: { ascending: false } },
                 undefined, undefined,
                 { page: pageValue, limit: 50, search: searchQuery, status: 'Pending' }
             );
@@ -254,6 +256,7 @@ export default () => {
                     requestDate: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                     approvalDate: record.planned ? formatDate(new Date(record.planned)) : '',
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                    rawDate: record.createdAt || record.planned || '',
                     validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '',
                 }));
                 setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
@@ -285,12 +288,12 @@ export default () => {
             // Fetch from vendor_rate_update (Pending = not yet three-party approved)
             const [rateData, threePartyData]: [any, any] = await Promise.all([
                 fetchFromSupabasePaginated('vendor_rate_update', '*',
-                    { column: 'createdAt', options: { ascending: true } },
+                    { column: 'createdAt', options: { ascending: false } },
                     undefined, undefined,
                     { page: pageValue, limit: 50, search: searchQuery }
                 ),
                 fetchFromSupabasePaginated('three_party_approval', '*',
-                    { column: 'createdAt', options: { ascending: true } },
+                    { column: 'createdAt', options: { ascending: false } },
                     undefined, undefined,
                     { page: pageValue, limit: 50, search: searchQuery }
                 )
@@ -306,6 +309,7 @@ export default () => {
                         id: record.id,
                         source: 'rate_update',
                         date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        rawDate: record.createdAt || '',
                         indentNo: record.indentNumber || '',
                         firm: record.firm || 'N/A',
                         indenter: record.indenterName || '',
@@ -341,6 +345,7 @@ export default () => {
                         id: record.id,
                         source: 'three_party',
                         date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
+                        rawDate: record.createdAt || '',
                         indentNo: record.indentNumber || '',
                         firm: record.firm || 'N/A',
                         indenter: record.indenterName || '',
@@ -556,10 +561,12 @@ export default () => {
         return Array.from(groups.entries())
             .map(([groupKey, items]) => {
                 const [baseIndentNo] = groupKey.split('::');
-                // Sort items within group by date ascending
-                const sortedItems = [...items].sort((a, b) => 
-                    new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
-                );
+                // Sort items within group by raw date descending (newest first)
+                const sortedItems = [...items].sort((a, b) => {
+                    const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
+                    const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
+                    return timeB - timeA;
+                });
 
                 const itemsWithCode = sortedItems.map(item => {
                     return {
@@ -586,8 +593,13 @@ export default () => {
                     items: itemsWithCode,
                 };
             })
-            // Sort groups by date ascending
-            .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+            // Sort groups by raw date timestamp descending (Newest on top), fallback to numeric indent number
+            .sort((a, b) => {
+                const timeA = a.rawDate ? new Date(a.rawDate).getTime() : (a.items[0]?.id || 0);
+                const timeB = b.rawDate ? new Date(b.rawDate).getTime() : (b.items[0]?.id || 0);
+                if (timeB !== timeA) return timeB - timeA;
+                return b.indentNo.localeCompare(a.indentNo, undefined, { numeric: true });
+            });
     }, [filteredTableData]);
 
     const groupedHistoryData = useMemo(() => {
@@ -639,10 +651,13 @@ export default () => {
                         });
                     }
                 }
-                // Sort deduplicated items by date ascending
-                const deduplicatedItems = Array.from(seenProducts.values()).sort((a, b) => 
-                    new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
-                );
+                // Sort deduplicated items by date descending
+                const deduplicatedItems = Array.from(seenProducts.values()).sort((a, b) => {
+                    const timeA = a.rawDate ? new Date(a.rawDate).getTime() : a.id;
+                    const timeB = b.rawDate ? new Date(b.rawDate).getTime() : b.id;
+                    if (timeB !== timeA) return timeB - timeA;
+                    return b.indentNo.localeCompare(a.indentNo, undefined, { numeric: true });
+                });
 
                 const first = deduplicatedItems[0];
                 return {
@@ -663,13 +678,19 @@ export default () => {
                     quotes: first.quotes || [],
                     vendorType: first.vendorType,
                     date: first.date,
+                    rawDate: first.rawDate,
                     requestDate: first.requestDate,
                     approvalDate: first.approvalDate,
                     items: deduplicatedItems,
                 };
             })
-            // Sort groups by date ascending
-            .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+            // Sort groups by raw date timestamp descending (Newest on top)
+            .sort((a, b) => {
+                const timeA = a.rawDate ? new Date(a.rawDate).getTime() : (a.items[0]?.id || 0);
+                const timeB = b.rawDate ? new Date(b.rawDate).getTime() : (b.items[0]?.id || 0);
+                if (timeB !== timeA) return timeB - timeA;
+                return b.indentNo.localeCompare(a.indentNo, undefined, { numeric: true });
+            });
     }, [filteredHistoryData]);
 
     const handleIndentSelect = (groupKey: string, checked: boolean) => {
