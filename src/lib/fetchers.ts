@@ -1617,6 +1617,11 @@ export async function rejectPO(poNumber: string, reason: string, rejectedBy?: st
  * whatsappPdfUrl must be the S3 URL of the freshly uploaded whatsapp_pdf.
  */
 export async function sendWhatsAppPdfForPO(poNumber: string, whatsappPdfUrl: string) {
+    console.log(
+        '%c📱 [WhatsApp Frontend] Initiating WhatsApp notification dispatch...',
+        'color: #25d366; font-weight: bold; font-size: 13px;',
+        { poNumber, whatsappPdfUrl }
+    );
     try {
         const response = await apiFetch(`${API_BASE_URL}/po-approvals/send-whatsapp-pdf`, {
             method: 'POST',
@@ -1625,11 +1630,14 @@ export async function sendWhatsAppPdfForPO(poNumber: string, whatsappPdfUrl: str
         });
         if (!response.ok) {
             const errorText = await response.text();
+            console.error('%c❌ [WhatsApp Frontend] Backend API returned error:', 'color: #ff3333; font-weight: bold;', errorText);
             throw new Error(errorText || 'Failed to send WhatsApp notification');
         }
-        return { success: true };
+        const resData = await response.json();
+        console.log('%c✅ [WhatsApp Frontend] WhatsApp notification API request successful!', 'color: #25d366; font-weight: bold;', resData);
+        return { success: true, data: resData };
     } catch (error: any) {
-        console.error('[sendWhatsAppPdfForPO] Error:', error);
+        console.error('%c❌ [WhatsApp Frontend] Exception caught during WhatsApp API call:', 'color: #ff3333; font-weight: bold;', error);
         return { success: false, error: error.message };
     }
 }
