@@ -1610,6 +1610,30 @@ export async function rejectPO(poNumber: string, reason: string, rejectedBy?: st
     }
 }
 
+/**
+ * Sends the WhatsApp notification for a newly CREATED PO (not at approval time).
+ * Called from CreatePO.tsx after the PO is saved and the whatsapp_pdf has been
+ * uploaded to S3.  This is completely separate from the approval PDF lifecycle.
+ * whatsappPdfUrl must be the S3 URL of the freshly uploaded whatsapp_pdf.
+ */
+export async function sendWhatsAppPdfForPO(poNumber: string, whatsappPdfUrl: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-approvals/send-whatsapp-pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ poNumber, whatsappPdfUrl }),
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to send WhatsApp notification');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('[sendWhatsAppPdfForPO] Error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function fetchUsers() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/users`);
