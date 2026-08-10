@@ -589,6 +589,7 @@ export default () => {
                     requestDate: first.requestDate,
                     approvalDate: first.approvalDate,
                     date: first.date,
+                    rawDate: first.rawDate,
                     validityDate: first.validityDate,
                     items: itemsWithCode,
                 };
