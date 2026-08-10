@@ -882,7 +882,6 @@ export default () => {
             updateIndentSheet();
             updatePoMasterSheet();
             updateRelatedSheets();
-            form.reset();
 
             // ── WHATSAPP-ONLY PDF (separate from approval PDF lifecycle) ──────────────
             // Generate a brand-new PDF specifically for WhatsApp immediately after the
@@ -1008,6 +1007,7 @@ export default () => {
             ]);
 
             enrichAndSetData(updatedIndents || [], updatedApprovals || [], null as any, null, null as any);
+            form.reset();
         } catch (e: any) {
             console.log(e);
             toast.error(`Failed to ${mode} purchase order: ${e.message}`);
