@@ -889,6 +889,12 @@ export default () => {
             // with ApprovalPO.tsx or the approval PDF flow in any way.
             // Wrapped in its own try/catch so any failure here cannot break the save.
             try {
+                console.log(
+                    '%c📱 [CreatePO WhatsApp] Starting WhatsApp PDF generation...',
+                    'color: #25d366; font-weight: bold; font-size: 13px;',
+                    { poNumber, supplierName: values.supplierName, itemsCount: values.indents.length }
+                );
+
                 // Build firm / vendor data the same way ApprovalPO.tsx does it.
                 const whatsappFirm = firms.find((f: any) => f.firm_name === displayFirm);
                 const whatsappVendor = vendorsData.find((v: any) =>
@@ -979,18 +985,25 @@ export default () => {
                     'whatsapp_pdf'
                 );
 
+                console.log(
+                    '%c📱 [CreatePO WhatsApp] PDF uploaded to S3:',
+                    'color: #25d366; font-weight: bold;',
+                    whatsappPdfUrl
+                );
+
                 // Send WhatsApp with the new URL as template {{3}}
                 const waResult = await sendWhatsAppPdfForPO(poNumber, whatsappPdfUrl);
                 if (waResult.success) {
                     toast.success('WhatsApp notification sent with PO PDF');
+                    console.log('%c✅ [CreatePO WhatsApp] WhatsApp notification flow complete!', 'color: #25d366; font-weight: bold;');
                 } else {
-                    console.error('[WhatsApp PDF] Send failed:', waResult.error);
+                    console.error('❌ [CreatePO WhatsApp] Send failed:', waResult.error);
                     // Non-fatal — PO was already saved successfully
                     toast.warning('PO saved. WhatsApp notification could not be sent.');
                 }
             } catch (waPdfErr: any) {
                 // Non-fatal — the PO is already saved, only the WhatsApp step failed
-                console.error('[WhatsApp PDF] Generation/upload/send failed:', waPdfErr);
+                console.error('❌ [CreatePO WhatsApp] Generation/upload/send failed:', waPdfErr);
                 toast.warning('PO saved. WhatsApp PDF could not be sent: ' + waPdfErr.message);
             }
             // ── END WHATSAPP-ONLY PDF ─────────────────────────────────────────────────
