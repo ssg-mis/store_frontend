@@ -810,16 +810,12 @@ export default () => {
             });
 
             const grandTotal = calculateGrandTotal(
-                values.indents.map((indent) => {
-                    const value = enrichedFetchedIndents.find((i: any) => indent.id ? i.id === indent.id : i.indentNumber === indent.indentNumber) ||
-                        poMasterSheetData.find((p: any) => indent.poItemId ? p.id === indent.poItemId : (p.internalCode || p.poNumber) === indent.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
-                    return {
-                        quantity: indent.quantity,
-                        rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
-                        discountPercent: indent?.discount || 0,
-                        gstPercent: indent.gst,
-                    };
-                })
+                values.indents.map((indent) => ({
+                    quantity: Number(indent.quantity) || 0,
+                    rate: Number(indent.rate) || 0,
+                    discountPercent: Number(indent?.discount) || 0,
+                    gstPercent: Number(indent.gst) || 0,
+                }))
             );
 
             // Insert PO data into Supabase
@@ -847,9 +843,9 @@ export default () => {
                     description: values.description,
                     quantity: v.quantity,
                     unit: indent?.uom || indent?.unit || '',
-                    rate: indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
+                    rate: Number(v.rate) || 0,
                     amount: calculateTotal(
-                        indent?.approvedRate || indent?.approved_rate || indent?.rate || 0,
+                        Number(v.rate) || 0,
                         v.gst,
                         v.discount || 0,
                         v.quantity
@@ -977,7 +973,7 @@ export default () => {
                         const indent = enrichedFetchedIndents.find((i: any) =>
                             v.id ? i.id === v.id : i.indentNumber === v.indentNumber
                         );
-                        const rate = indent?.approvedRate || indent?.approved_rate || indent?.rate || v.rate || 0;
+                        const rate = Number(v.rate) || 0;
                         return {
                             internalCode: v.indentNumber,
                             firm: displayFirm,

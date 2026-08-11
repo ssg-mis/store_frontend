@@ -184,8 +184,8 @@ export default function ApprovalPO() {
 
             const terms: string[] = [];
             for (let i = 1; i <= 10; i++) {
-                const t = first[`term${i}`];
-                if (t) terms.push(t);
+                const t = first[`term${i}`] || first[`term_${i}`];
+                if (t && String(t).trim()) terms.push(String(t).trim());
             }
 
             const props: POPdfProps = {
@@ -289,8 +289,8 @@ export default function ApprovalPO() {
                 const first: any = group.items[0] || {};
                 const terms: string[] = [];
                 for (let i = 1; i <= 10; i++) {
-                    const t = first[`term${i}`];
-                    if (t) terms.push(t);
+                    const t = first[`term${i}`] || first[`term_${i}`];
+                    if (t && String(t).trim()) terms.push(String(t).trim());
                 }
 
                 const props: POPdfProps = {
