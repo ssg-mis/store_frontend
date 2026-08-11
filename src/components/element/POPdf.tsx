@@ -425,16 +425,16 @@ export default ({
                                     <Text>{transportationType || '-'}</Text>
                                 </View>
                             </View>
-                            <View style={styles.metaRow}>
-                                <View style={styles.metaCell}>
-                                    <Text style={styles.label}>Quotation No.</Text>
-                                    <Text>{quotationNumber || '-'}</Text>
-                                </View>
-                                <View style={styles.metaCellLast}>
-                                    <Text style={styles.label}>Quotation Date</Text>
-                                    <Text>{quotationDate || '-'}</Text>
-                                </View>
-                            </View>
+                             <View style={styles.metaRow}>
+                                 <View style={styles.metaCell}>
+                                     <Text style={styles.label}>Quotation No.</Text>
+                                     <Text>{quotationNumber || '-'}</Text>
+                                 </View>
+                                 <View style={styles.metaCellLast}>
+                                     <Text style={styles.label}>Quotation Date</Text>
+                                     <Text>{(quotationNumber && quotationNumber !== '-') ? (quotationDate || '-') : '-'}</Text>
+                                 </View>
+                             </View>
                             <View style={styles.lastRow}>
                                 <View style={styles.metaCell}>
                                     <Text style={styles.label}>Enquiry No.</Text>
