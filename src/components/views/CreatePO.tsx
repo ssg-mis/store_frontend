@@ -12,7 +12,7 @@ import type { PoMasterSheet } from '@/types';
 import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO } from '@/lib/fetchers';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useSheets } from '@/context/SheetsContext';
 import { useAuth } from '@/context/AuthContext';
@@ -294,7 +294,7 @@ export default () => {
             approvedBy: '',
             gstin: '',
             quotationNumber: '',
-            quotationDate: new Date(),
+            quotationDate: undefined,
             ourEnqNo: '',
             enquiryDate: undefined,
             indents: [],
@@ -368,6 +368,23 @@ export default () => {
             });
         return Array.from(numbers);
     }, [quotationHistoryData, vendor]);
+
+    const watchedQuotationNumber = form.watch('quotationNumber');
+    useEffect(() => {
+        if (!watchedQuotationNumber) {
+            form.setValue('quotationDate', undefined);
+            return;
+        }
+        const qRecord = quotationHistoryData.find(
+            (q: any) => (q.quatationNo || q.quotationNo || q.quotation_no) === watchedQuotationNumber
+        );
+        if (qRecord && (qRecord.timestamp || qRecord.createdAt || qRecord.created_at)) {
+            const dateVal = new Date(qRecord.timestamp || qRecord.createdAt || qRecord.created_at);
+            if (!isNaN(dateVal.getTime())) {
+                form.setValue('quotationDate', dateVal);
+            }
+        }
+    }, [watchedQuotationNumber, quotationHistoryData, form]);
 
     // If a vendor change makes the currently-selected quotation invalid, clear it.
     useEffect(() => {
@@ -513,7 +530,7 @@ export default () => {
                 approvedBy: '',
                 gstin: '',
                 quotationNumber: '',
-                quotationDate: new Date(),
+                quotationDate: undefined,
                 ourEnqNo: '',
                 enquiryDate: undefined,
                 indents: [],
@@ -570,23 +587,38 @@ export default () => {
         }
     }, [vendor, indentNames, indentSheetData, vendorsData, selectedIndentRows]);
 
+    const prevIndentNamesLengthRef = useRef(indentNames?.length || 0);
+
     useEffect(() => {
-        if (indentNames?.length && mode === 'create') {
-            const selectedIndent = selectedIndentRows[0];
-            if (selectedIndent) {
-                form.setValue('supplierName', selectedIndent.approvedVendorName || selectedIndent.approved_vendor_name || '');
-                form.setValue('indents', selectedIndentRows.map((i: any) => ({
-                    indentNumber: i.indentNumber,
-                    id: i.id,
-                    quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
-                    rate: i.approvedRate || i.approved_rate || i.rate || 0,
-                    gst: 18,
-                    discount: 0,
-                    discountAmount: 0,
-                })));
+        const currentLength = indentNames?.length || 0;
+        const prevLength = prevIndentNamesLengthRef.current;
+
+        if (mode === 'create') {
+            if (currentLength > 0) {
+                const selectedIndent = selectedIndentRows[0];
+                if (selectedIndent) {
+                    form.setValue('supplierName', selectedIndent.approvedVendorName || selectedIndent.approved_vendor_name || '');
+                    form.setValue('indents', selectedIndentRows.map((i: any) => ({
+                        indentNumber: i.indentNumber,
+                        id: i.id,
+                        quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
+                        rate: i.approvedRate || i.approved_rate || i.rate || 0,
+                        gst: 18,
+                        discount: 0,
+                        discountAmount: 0,
+                    })));
+                }
+            } else if (prevLength > 0 && currentLength === 0) {
+                form.setValue('supplierName', '');
+                form.setValue('supplierAddress', '');
+                form.setValue('gstin', '');
+                form.setValue('quotationNumber', '');
+                form.setValue('indents', []);
             }
         }
-    }, [indentNames, mode, selectedIndentRows]);
+
+        prevIndentNamesLengthRef.current = currentLength;
+    }, [indentNames, mode, selectedIndentRows, form]);
 
     useEffect(() => {
         const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
@@ -1569,6 +1601,9 @@ export default () => {
                                                                 const indentType = indent?.indentType || '';
                                                                 const isPurchase = indentType.toLowerCase().includes('purchase');
                                                                 const isInsufficient = mode !== 'revise' && !isPurchase && Number(indentField.value) > stock;
+                                                                const approvedQty = Number(indent?.approvedQuantity || indent?.approved_quantity || 0);
+                                                                const exceedsApproved = approvedQty > 0 && Number(indentField.value) > approvedQty;
+                                                                const isInvalid = isInsufficient || exceedsApproved;
 
                                                                 return (
                                                                     <FormItem className="space-y-0">
@@ -1577,7 +1612,7 @@ export default () => {
                                                                                 type="number"
                                                                                 className={cn(
                                                                                     "rounded-sm h-7 w-20 p-0 text-center text-xs",
-                                                                                    isInsufficient && "border-red-500 focus-visible:ring-red-500"
+                                                                                    isInvalid && "border-red-500 focus-visible:ring-red-500"
                                                                                 )}
                                                                                 onFocus={(e) => e.target.select()}
                                                                                 {...indentField}
@@ -1589,6 +1624,11 @@ export default () => {
                                                                                 {indentType.toLowerCase().includes('store out') && (
                                                                                     <span> Please change Indent Type to "Purchase".</span>
                                                                                 )}
+                                                                            </p>
+                                                                        )}
+                                                                        {exceedsApproved && (
+                                                                            <p className="text-[10px] text-red-500 mt-0.5 leading-tight">
+                                                                                Cannot exceed approved qty ({approvedQty})
                                                                             </p>
                                                                         )}
                                                                     </FormItem>
@@ -1639,7 +1679,9 @@ export default () => {
                                                             control={form.control}
                                                             name={`indents.${index}.discount`}
                                                             render={({ field: indentField }) => {
-                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (Number(form.getValues(`indents.${index}.quantity`)) || 0);
+                                                                const currentRate = Number(form.getValues(`indents.${index}.rate` as any)) || Number(indent?.approvedRate || indent?.approved_rate || indent?.rate || 0);
+                                                                const currentQty = Number(form.getValues(`indents.${index}.quantity` as any)) || 0;
+                                                                const baseAmt = currentRate * currentQty;
                                                                 return (
                                                                     <FormItem className="flex justify-center items-center">
                                                                         <FormControl>
@@ -1666,7 +1708,9 @@ export default () => {
                                                             control={form.control}
                                                             name={`indents.${index}.discountAmount`}
                                                             render={({ field: indentField }) => {
-                                                                const baseAmt = (indent?.approvedRate || indent?.approved_rate || indent?.rate || 0) * (Number(form.getValues(`indents.${index}.quantity`)) || 0);
+                                                                const currentRate = Number(form.getValues(`indents.${index}.rate` as any)) || Number(indent?.approvedRate || indent?.approved_rate || indent?.rate || 0);
+                                                                const currentQty = Number(form.getValues(`indents.${index}.quantity` as any)) || 0;
+                                                                const baseAmt = currentRate * currentQty;
                                                                 return (
                                                                     <FormItem className="flex justify-center items-center">
                                                                         <FormControl>
@@ -1715,18 +1759,11 @@ export default () => {
                                             <span>Total:</span>
                                             <span className="text-end">
                                                 {calculateSubtotal(
-                                                    indents.map((indentRow) => {
-                                                        const value = indentSheetData.find(
-                                                            (i: any) => indentRow.id ? i.id === indentRow.id : (i.indentNumber || i.indent_number) === indentRow.indentNumber
-                                                        ) || poMasterSheetData.find(
-                                                            (p: any) => indentRow.poItemId ? p.id === indentRow.poItemId : (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
-                                                        );
-                                                        return {
-                                                            quantity: indentRow.quantity,
-                                                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
-                                                            discountPercent: indentRow?.discount || 0,
-                                                        };
-                                                    })
+                                                    indents.map((indentRow) => ({
+                                                        quantity: Number(indentRow.quantity) || 0,
+                                                        rate: Number(indentRow.rate) || 0,
+                                                        discountPercent: Number(indentRow?.discount) || 0,
+                                                    }))
                                                 )}
                                             </span>
                                         </p>
@@ -1735,19 +1772,12 @@ export default () => {
                                             <span>GST Amount:</span>
                                             <span className="text-end">
                                                 {calculateTotalGst(
-                                                    indents.map((indentRow) => {
-                                                        const value = indentSheetData.find(
-                                                            (i: any) => indentRow.id ? i.id === indentRow.id : (i.indentNumber || i.indent_number) === indentRow.indentNumber
-                                                        ) || poMasterSheetData.find(
-                                                            (p: any) => indentRow.poItemId ? p.id === indentRow.poItemId : (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
-                                                        );
-                                                        return {
-                                                            quantity: indentRow.quantity,
-                                                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
-                                                            discountPercent: indentRow?.discount || 0,
-                                                            gstPercent: indentRow.gst,
-                                                        };
-                                                    })
+                                                    indents.map((indentRow) => ({
+                                                        quantity: Number(indentRow.quantity) || 0,
+                                                        rate: Number(indentRow.rate) || 0,
+                                                        discountPercent: Number(indentRow?.discount) || 0,
+                                                        gstPercent: Number(indentRow.gst) || 0,
+                                                    }))
                                                 )}
                                             </span>
                                         </p>
@@ -1756,19 +1786,12 @@ export default () => {
                                             <span>Grand Total:</span>
                                             <span className="text-end">
                                                 {calculateGrandTotal(
-                                                    indents.map((indentRow) => {
-                                                        const value = indentSheetData.find(
-                                                            (i: any) => indentRow.id ? i.id === indentRow.id : (i.indentNumber || i.indent_number) === indentRow.indentNumber
-                                                        ) || poMasterSheetData.find(
-                                                            (p: any) => indentRow.poItemId ? p.id === indentRow.poItemId : (p.internalCode || p.internal_code || p.indent_number) === indentRow.indentNumber && (p.poNumber || p.po_number) === poNumber
-                                                        );
-                                                        return {
-                                                            quantity: indentRow.quantity,
-                                                            rate: value?.approvedRate || value?.approved_rate || value?.rate || 0,
-                                                            discountPercent: indentRow?.discount || 0,
-                                                            gstPercent: indentRow.gst,
-                                                        };
-                                                    })
+                                                    indents.map((indentRow) => ({
+                                                        quantity: Number(indentRow.quantity) || 0,
+                                                        rate: Number(indentRow.rate) || 0,
+                                                        discountPercent: Number(indentRow?.discount) || 0,
+                                                        gstPercent: Number(indentRow.gst) || 0,
+                                                    }))
                                                 )}
                                             </span>
                                         </p>
