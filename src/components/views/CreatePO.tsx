@@ -354,8 +354,17 @@ export default () => {
         return Array.from(groups.entries()).map(([indentNumber, items]) => ({
             indentNumber,
             firstProductName: items[0]?.productName || items[0]?.product_name || '',
-        }));
+            }));
     }, [indentSheetData, vendor]);
+
+    // When a vendor is selected, keep the linked indent selection in sync.
+    // If that vendor only has one indent in the current PO queue, auto-select it.
+    const vendorIndentNumbers = useMemo(() => {
+        if (!vendor) return [];
+        return indentGroups.map((g) => g.indentNumber);
+    }, [indentGroups, vendor]);
+    const lastAutoSelectedVendorRef = useRef<string>('');
+    const manuallyClearedVendorRef = useRef<string>('');
 
     // Quotation numbers on file for the selected vendor, for the "Quotation" dropdown.
     const vendorQuotationNumbers = useMemo(() => {
@@ -559,8 +568,21 @@ export default () => {
                 selectedVendor?.vendor_gstin || selectedVendor?.gstin || ''
             );
 
-            // If specific indents are selected, only show those; otherwise show all for this vendor
+            // If the vendor maps to a single indent, auto-select it so the indent
+            // name and item rows stay aligned when users choose the vendor first.
             const currentIndentNames = form.getValues('indentNames');
+            const shouldAutoSelect =
+                !currentIndentNames?.length &&
+                vendorIndentNumbers.length === 1 &&
+                lastAutoSelectedVendorRef.current !== vendor &&
+                manuallyClearedVendorRef.current !== vendor;
+
+            if (shouldAutoSelect) {
+                form.setValue('indentNames', vendorIndentNumbers);
+                lastAutoSelectedVendorRef.current = vendor;
+            }
+
+            // If specific indents are selected, only show those; otherwise show all for this vendor
             if (currentIndentNames?.length) {
                 form.setValue('indents', selectedIndentRows.map((i: any) => ({
                     indentNumber: i.indentNumber,
@@ -583,9 +605,12 @@ export default () => {
                         discount: 0,
                     }))
                 );
+                if (!vendorIndentNumbers.length) {
+                    lastAutoSelectedVendorRef.current = '';
+                }
             }
         }
-    }, [vendor, indentNames, indentSheetData, vendorsData, selectedIndentRows]);
+    }, [vendor, indentNames, indentSheetData, vendorsData, selectedIndentRows, vendorIndentNumbers, form]);
 
     const prevIndentNamesLengthRef = useRef(indentNames?.length || 0);
 
@@ -609,16 +634,26 @@ export default () => {
                     })));
                 }
             } else if (prevLength > 0 && currentLength === 0) {
+                if (vendor) {
+                    manuallyClearedVendorRef.current = vendor;
+                }
                 form.setValue('supplierName', '');
                 form.setValue('supplierAddress', '');
                 form.setValue('gstin', '');
                 form.setValue('quotationNumber', '');
                 form.setValue('indents', []);
+                lastAutoSelectedVendorRef.current = '';
             }
         }
 
         prevIndentNamesLengthRef.current = currentLength;
     }, [indentNames, mode, selectedIndentRows, form]);
+
+    useEffect(() => {
+        if (vendor !== manuallyClearedVendorRef.current) {
+            manuallyClearedVendorRef.current = '';
+        }
+    }, [vendor]);
 
     useEffect(() => {
         const po = poMasterSheetData.find((p: any) => (p.poNumber || p.po_number) === poNumber)!;
@@ -1258,6 +1293,9 @@ export default () => {
                                                     }
                                                 };
                                                 const removeIndent = (name: string) => {
+                                                    if (vendor) {
+                                                        manuallyClearedVendorRef.current = vendor;
+                                                    }
                                                     field.onChange(selected.filter((s) => s !== name));
                                                 };
                                                 return (
@@ -1314,40 +1352,40 @@ export default () => {
                                         render={({ field }) => (
                                             <FormItem>
                                                 {mode === 'create' ? (
-                                                    <FormControl>
-                                                        <Select
-                                                            onValueChange={field.onChange}
-                                                            value={field.value}
-                                                            disabled={!!indentNames?.length}
-                                                        >
-                                                            <FormLabel>Vendor Name <span className="text-red-500">*</span></FormLabel>
-                                                            <FormControl>
+                                                    <>
+                                                        <FormLabel>Vendor Name <span className="text-red-500">*</span></FormLabel>
+                                                        <FormControl>
+                                                            <Select
+                                                                onValueChange={field.onChange}
+                                                                value={field.value}
+                                                                disabled={!!indentNames?.length}
+                                                            >
                                                                 <SelectTrigger
                                                                     size="sm"
                                                                     className="w-full"
                                                                 >
                                                                     <SelectValue placeholder="Select vendor" />
                                                                 </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                {[
-                                                                    ...new Map(
-                                                                        indentSheetData
-                                                                            .filter(
-                                                                                (i: any) =>
-                                                                                    (i.approvedVendorName || i.approved_vendor_name) &&
-                                                                                    (i.approvedVendorName || i.approved_vendor_name) !== ''
-                                                                            )
-                                                                            .map((i: any) => [i.approvedVendorName || i.approved_vendor_name, i])
-                                                                    ).values()
-                                                                ].map((i: any, k) => (
-                                                                    <SelectItem key={k} value={i.approvedVendorName || i.approved_vendor_name}>
-                                                                        {i.approvedVendorName || i.approved_vendor_name}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </FormControl>
+                                                                <SelectContent>
+                                                                    {[
+                                                                        ...new Map(
+                                                                            indentSheetData
+                                                                                .filter(
+                                                                                    (i: any) =>
+                                                                                        (i.approvedVendorName || i.approved_vendor_name) &&
+                                                                                        (i.approvedVendorName || i.approved_vendor_name) !== ''
+                                                                                )
+                                                                                .map((i: any) => [i.approvedVendorName || i.approved_vendor_name, i])
+                                                                        ).values()
+                                                                    ].map((i: any, k) => (
+                                                                        <SelectItem key={k} value={i.approvedVendorName || i.approved_vendor_name}>
+                                                                            {i.approvedVendorName || i.approved_vendor_name}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </FormControl>
+                                                    </>
                                                 ) : (
                                                     <>
                                                         <FormLabel>Vendor Name<span className="text-red-500">*</span></FormLabel>
