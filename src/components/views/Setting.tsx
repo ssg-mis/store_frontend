@@ -39,6 +39,7 @@ interface UsersTableData {
     username: string;
     name: string;
     password: string;
+    contactNumber?: string;
     role: string;
     modifyAccess: 'EDIT' | 'VIEW';
     permissions: string[];
@@ -134,6 +135,7 @@ export default () => {
                         username: user.username,
                         name: user.name,
                         password: user.password,
+                        contactNumber: user.contactNumber || user.contact_number || '',
                         role: user.role || 'USER',
                         modifyAccess: (String(user.modifyAccess || user.modify_access || 'EDIT').toUpperCase() === 'VIEW' ? 'VIEW' : 'EDIT'),
                         permissions: permissionKeys,
@@ -154,6 +156,15 @@ export default () => {
     const columns: ColumnDef<UsersTableData>[] = [
         { accessorKey: 'username', header: 'Username' },
         { accessorKey: 'name', header: 'Name' },
+        {
+            accessorKey: 'contactNumber',
+            header: 'Contact No.',
+            cell: ({ row }) => (
+                <span className="font-mono text-sm text-foreground/90">
+                    {row.original.contactNumber || '-'}
+                </span>
+            ),
+        },
         {
             accessorKey: 'role',
             header: 'Role',
@@ -238,6 +249,11 @@ export default () => {
         name: z.string().nonempty(),
         username: z.string().nonempty(),
         password: z.string().nonempty(),
+        contactNumber: z
+            .string()
+            .regex(/^\d*$/, 'Contact number must contain only numbers')
+            .max(12, 'Contact number cannot exceed 12 digits')
+            .optional(),
         role: z.string().default('USER'),
         modifyAccess: z.enum(['EDIT', 'VIEW']).default('EDIT'),
         permissions: z.array(z.string()),
@@ -253,6 +269,7 @@ export default () => {
                 username: selectedUser.username,
                 name: selectedUser.name,
                 password: selectedUser.password,
+                contactNumber: selectedUser.contactNumber || '',
                 role: selectedUser.role || 'USER',
                 modifyAccess: selectedUser.modifyAccess || 'EDIT',
                 permissions: selectedUser.permissions,
@@ -265,6 +282,7 @@ export default () => {
             username: '',
             name: '',
             password: '',
+            contactNumber: '',
             role: 'USER',
             modifyAccess: 'EDIT',
             permissions: [],
@@ -294,6 +312,7 @@ export default () => {
                     username: value.username,
                     name: value.name,
                     password: value.password,
+                    contactNumber: value.contactNumber || '',
                     role: value.role,
                     modifyAccess: 'EDIT',
                     pageAccess,
@@ -320,6 +339,7 @@ export default () => {
                 username: value.username,
                 name: value.name,
                 password: value.password,
+                contactNumber: value.contactNumber || '',
                 role: value.role,
                 modifyAccess: value.modifyAccess,
                 pageAccess,
@@ -353,7 +373,7 @@ export default () => {
                 <DataTable
                     data={tableData}
                     columns={columns}
-                    searchFields={['name', 'username', 'permissions']}
+                    searchFields={['name', 'username', 'contactNumber', 'permissions']}
                     dataLoading={dataLoading}
                     className="h-[60dvh]"
                     extraActions={
@@ -425,8 +445,8 @@ export default () => {
                                                         className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-transparent active:bg-transparent"
                                                         tabIndex={-1}
                                                         onMouseDown={(e) => {
-                                                            e.preventDefault();
-                                                            setShowPassword(!showPassword);
+                                                             e.preventDefault();
+                                                             setShowPassword(!showPassword);
                                                         }}
                                                     >
                                                         {showPassword ? <EyeClosed /> : <Eye />}
@@ -435,6 +455,29 @@ export default () => {
                                                         </span>
                                                     </Button>
                                                 </div>
+                                            </FormControl>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="contactNumber"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Contact Number</FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    type="tel"
+                                                    inputMode="numeric"
+                                                    pattern="[0-9]*"
+                                                    maxLength={12}
+                                                    placeholder="Enter contact number (max 12 digits)"
+                                                    value={field.value || ''}
+                                                    onChange={(e) => {
+                                                        const onlyDigits = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                                        field.onChange(onlyDigits);
+                                                    }}
+                                                />
                                             </FormControl>
                                         </FormItem>
                                     )}
