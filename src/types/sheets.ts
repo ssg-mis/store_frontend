@@ -249,6 +249,8 @@ export type UserPermissions = {
     username: string;
     password: string;
     name: string;
+    contactNumber?: string;
+    contact_number?: string;
     role?: string;
     modifyAccess?: 'EDIT' | 'VIEW';
     modify_access?: 'EDIT' | 'VIEW';
