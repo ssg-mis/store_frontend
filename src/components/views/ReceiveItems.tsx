@@ -4,9 +4,9 @@ import DataTable from '../element/DataTable';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { DownloadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
-import { uploadFile, fetchFromSupabasePaginated, postToSheet, fetchPaymentTerms } from '@/lib/fetchers';
+import { uploadFile, fetchFromSupabasePaginated, postToSheet, fetchPaymentTerms, updateReceivedPhotoApi } from '@/lib/fetchers';
 import {
     Dialog,
     DialogContent,
@@ -237,6 +237,11 @@ const ReceiveItems = () => {
                         billStatus: receivedRecord.billStatus || '',
                         billNumber: receivedRecord.billNumber || '',
                         billAmount: Number(receivedRecord.billAmount) || 0,
+                        typeOfBill: receivedRecord.typeOfBill || '',
+                        paymentType: receivedRecord.paymentType || '',
+                        discountAmount: Number(receivedRecord.discountAmount) || 0,
+                        advanceAmount: Number(receivedRecord.advanceAmount) || 0,
+                        leadTimeToLiftMaterial: receivedRecord.leadTimeToLiftMaterial || '',
                         photoOfBill: receivedRecord.photoOfBill || '',
                     };
                 });
@@ -349,27 +354,166 @@ const ReceiveItems = () => {
     );
 
 
-    const handleDownload = (data: (RecieveItemsData | HistoryData)[]) => {
-        if (!data || data.length === 0) {
-            toast.error("No data to download");
+    const [exportPendingLoading, setExportPendingLoading] = useState(false);
+    const [exportHistoryLoading, setExportHistoryLoading] = useState(false);
+
+    const onPendingDownloadClick = async () => {
+        const dataToExport = filteredTableData.length > 0 ? filteredTableData : tableData;
+        if (!dataToExport || dataToExport.length === 0) {
+            toast.error("No pending items to export");
             return;
         }
 
-        const worksheet = XLSX.utils.json_to_sheet(data);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Receive Items");
-        XLSX.writeFile(workbook, `receive-items-${Date.now()}.xlsx`);
+        setExportPendingLoading(true);
+        try {
+            const formattedRows = dataToExport.map((item, index) => ({
+                'S.No': index + 1,
+                'Indent Number': item.indentNumber || '—',
+                'PO Number': item.poNumber || '—',
+                'PO Date': item.poDate ? formatDate(new Date(item.poDate)) : '—',
+                'Vendor Name': item.vendor || '—',
+                'Firm': item.firm || '—',
+                'Product Name': item.product || '—',
+                'Product Code': item.productCode || '—',
+                'UOM': item.uom || '—',
+                'Ordered Quantity': item.quantity ?? 0,
+                'Rate': item.rate ? Number(item.rate) : 0,
+                'Total Amount': item.totalAmount ? Number(item.totalAmount) : 0,
+                'Remaining Quantity': item.remainingQty ?? 0,
+                'Quotation No': item.quotationNo || '—',
+                'Quotation Date': item.quotationDate ? formatDate(new Date(item.quotationDate)) : '—',
+                'Transport Type': item.transportType || '—',
+                'Lead Time': item.leadTime || '—',
+                'PO Copy Link': item.poCopy || '—',
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(formattedRows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Pending Receive Items");
+            const dateStr = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Pending_Receive_Items_${dateStr}.xlsx`);
+            toast.success("Pending items exported successfully");
+        } catch (err) {
+            console.error("Export error:", err);
+            toast.error("Failed to export pending items");
+        } finally {
+            setExportPendingLoading(false);
+        }
     };
 
-    const onDownloadClick = async () => {
-        setLoading(true);
+    const onHistoryDownloadClick = async () => {
+        const dataToExport = filteredHistoryData.length > 0 ? filteredHistoryData : historyData;
+        if (!dataToExport || dataToExport.length === 0) {
+            toast.error("No history items to export");
+            return;
+        }
+
+        setExportHistoryLoading(true);
         try {
-            await handleDownload(tableData);
-            toast.success("File downloaded successfully");
-        } catch {
-            toast.error("Failed to download file");
+            const formattedRows = dataToExport.map((item, index) => ({
+                'S.No': index + 1,
+                'GRN Number': item.grnNumber || '—',
+                'PO Number': item.poNumber || '—',
+                'Indent Number': item.indentNumber || '—',
+                'Vendor Name': item.vendor || '—',
+                'Firm': item.firm || '—',
+                'Product Name': item.product || '—',
+                'Product Code': item.productCode || '—',
+                'UOM': item.uom || '—',
+                'Order Quantity': item.orderQuantity ?? 0,
+                'Received Quantity': item.receivedQuantity ?? 0,
+                'Damaged Quantity': item.damagedQuantity ?? 0,
+                'Purchase Return': item.purchaseReturn ?? 0,
+                'Received Date': item.receivedDate || '—',
+                'Bill Status': item.billStatus || '—',
+                'Bill Number': item.billNumber || '—',
+                'Bill Amount': item.billAmount ? Number(item.billAmount) : 0,
+                'Type of Bill': item.typeOfBill || '—',
+                'Payment Type': item.paymentType || '—',
+                'Discount Amount': item.discountAmount ? Number(item.discountAmount) : 0,
+                'Advance Amount': item.advanceAmount ? Number(item.advanceAmount) : 0,
+                'Lead Time To Lift': item.leadTimeToLiftMaterial || '—',
+                'Product Photo': item.photoOfProduct || '—',
+                'Bill Photo': item.photoOfBill || '—',
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(formattedRows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Received History");
+            const dateStr = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Received_Items_History_${dateStr}.xlsx`);
+            toast.success("Received history exported successfully");
+        } catch (err) {
+            console.error("Export history error:", err);
+            toast.error("Failed to export history items");
         } finally {
-            setLoading(false);
+            setExportHistoryLoading(false);
+        }
+    };
+
+    const [isUpdatingPhoto, setIsUpdatingPhoto] = useState(false);
+    const [photoUpdateType, setPhotoUpdateType] = useState<'product' | 'bill' | null>(null);
+
+    const handleUpdatePhoto = async (file: File, type: 'product' | 'bill') => {
+        if (!historyViewGroup || !file) return;
+
+        const first = historyViewGroup.items[0];
+        const oldPhotoUrl = type === 'product' ? first?.photoOfProduct : first?.photoOfBill;
+
+        setIsUpdatingPhoto(true);
+        setPhotoUpdateType(type);
+
+        const toastId = toast.loading(`Uploading and updating ${type === 'product' ? 'item' : 'bill'} photo...`);
+        try {
+            // 1. Upload new file to S3
+            const newUrl = await uploadFile(file, type === 'product' ? 'RECEIVED_PRODUCT_PHOTOS' : 'RECEIVED_BILL_PHOTOS');
+
+            // 2. Update DB & delete old photo from S3
+            await updateReceivedPhotoApi({
+                poNumber: historyViewGroup.poNumber,
+                grnNumber: first?.grnNumber,
+                photoOfProduct: type === 'product' ? newUrl : undefined,
+                photoOfBill: type === 'bill' ? newUrl : undefined,
+                oldPhotoUrl,
+            });
+
+            // 3. Update local state for historyViewGroup
+            setHistoryViewGroup(prev => {
+                if (!prev) return null;
+                const updatedItems = prev.items.map(it => ({
+                    ...it,
+                    photoOfProduct: type === 'product' ? newUrl : it.photoOfProduct,
+                    photoOfBill: type === 'bill' ? newUrl : it.photoOfBill,
+                }));
+                return {
+                    ...prev,
+                    items: updatedItems,
+                };
+            });
+
+            // 4. Update local state for historyData
+            setHistoryData(prev =>
+                prev.map(it => {
+                    const match = (it.grnNumber && first?.grnNumber && it.grnNumber === first.grnNumber) ||
+                                  (it.poNumber && historyViewGroup.poNumber && it.poNumber === historyViewGroup.poNumber);
+                    if (match) {
+                        return {
+                            ...it,
+                            photoOfProduct: type === 'product' ? newUrl : it.photoOfProduct,
+                            photoOfBill: type === 'bill' ? newUrl : it.photoOfBill,
+                        };
+                    }
+                    return it;
+                })
+            );
+
+            toast.success(`${type === 'product' ? 'Item' : 'Bill'} photo updated successfully!`, { id: toastId });
+        } catch (err: any) {
+            console.error('Failed to update photo:', err);
+            toast.error(err.message || 'Failed to update photo', { id: toastId });
+        } finally {
+            setIsUpdatingPhoto(false);
+            setPhotoUpdateType(null);
         }
     };
 
@@ -650,7 +794,8 @@ const ReceiveItems = () => {
                                 </div>
                                 <Button
                                     variant="default"
-                                    onClick={onDownloadClick}
+                                    onClick={onPendingDownloadClick}
+                                    disabled={exportPendingLoading}
                                     style={{
                                         background: "linear-gradient(90deg, #4CAF50, #2E7D32)",
                                         border: "none",
@@ -664,7 +809,7 @@ const ReceiveItems = () => {
                                     }}
                                 >
                                     <DownloadOutlined />
-                                    {loading ? "Downloading..." : "Download"}
+                                    {exportPendingLoading ? "Exporting..." : "Export Excel"}
                                 </Button>
                             </div>
 
@@ -769,7 +914,31 @@ const ReceiveItems = () => {
                             pagination={true}
                             pageSize={50}
                             extraActions={
-                                <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                                <div className="flex items-center gap-2">
+                                    <FilterBar filters={historyFilters} setFilters={setHistoryFilters} data={historyData} />
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={onHistoryDownloadClick}
+                                        disabled={exportHistoryLoading}
+                                        style={{
+                                            background: "linear-gradient(90deg, #4CAF50, #2E7D32)",
+                                            border: "none",
+                                            borderRadius: "6px",
+                                            padding: "0 12px",
+                                            fontWeight: "bold",
+                                            boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "6px",
+                                            height: "28px",
+                                            fontSize: "11px",
+                                        }}
+                                    >
+                                        <DownloadOutlined />
+                                        {exportHistoryLoading ? "Exporting..." : "Export Excel"}
+                                    </Button>
+                                </div>
                             }
                         />
                     </TabsContent>
@@ -1184,16 +1353,76 @@ const ReceiveItems = () => {
                                         <p className="text-sm font-medium">{first?.billAmount ? `₹${first.billAmount.toLocaleString()}` : '—'}</p>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Item Photo</p>
-                                        {first?.photoOfProduct
-                                            ? <a href={first.photoOfProduct} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline font-medium">View</a>
-                                            : <p className="text-sm text-muted-foreground">—</p>}
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Item Photo</p>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {first?.photoOfProduct ? (
+                                                <a href={first.photoOfProduct} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline font-semibold px-2 py-0.5 bg-blue-50 border border-blue-200 rounded">
+                                                    View
+                                                </a>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground">—</span>
+                                            )}
+                                            <input
+                                                type="file"
+                                                id={`upload-item-photo-${historyViewGroup?.poNumber}`}
+                                                accept="image/*"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                        handleUpdatePhoto(file, 'product');
+                                                        e.target.value = '';
+                                                    }
+                                                }}
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-6 text-[10px] px-2 flex items-center gap-1 border-slate-300 hover:bg-slate-100 shadow-none font-medium"
+                                                disabled={isUpdatingPhoto}
+                                                onClick={() => document.getElementById(`upload-item-photo-${historyViewGroup?.poNumber}`)?.click()}
+                                            >
+                                                <UploadOutlined className="text-[10px]" />
+                                                {isUpdatingPhoto && photoUpdateType === 'product' ? 'Updating...' : 'Update Photo'}
+                                            </Button>
+                                        </div>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Bill Photo</p>
-                                        {first?.photoOfBill
-                                            ? <a href={first.photoOfBill} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline font-medium">View</a>
-                                            : <p className="text-sm text-muted-foreground">—</p>}
+                                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Bill Photo</p>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {first?.photoOfBill ? (
+                                                <a href={first.photoOfBill} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline font-semibold px-2 py-0.5 bg-blue-50 border border-blue-200 rounded">
+                                                    View
+                                                </a>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground">—</span>
+                                            )}
+                                            <input
+                                                type="file"
+                                                id={`upload-bill-photo-${historyViewGroup?.poNumber}`}
+                                                accept="image/*,application/pdf"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                        handleUpdatePhoto(file, 'bill');
+                                                        e.target.value = '';
+                                                    }
+                                                }}
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-6 text-[10px] px-2 flex items-center gap-1 border-slate-300 hover:bg-slate-100 shadow-none font-medium"
+                                                disabled={isUpdatingPhoto}
+                                                onClick={() => document.getElementById(`upload-bill-photo-${historyViewGroup?.poNumber}`)?.click()}
+                                            >
+                                                <UploadOutlined className="text-[10px]" />
+                                                {isUpdatingPhoto && photoUpdateType === 'bill' ? 'Updating...' : 'Update Photo'}
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
                             );

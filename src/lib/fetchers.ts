@@ -1722,4 +1722,30 @@ export async function fetchPOStatusDetails(poNumber: string): Promise<any | null
     }
 }
 
+export async function updateReceivedPhotoApi({
+    poNumber,
+    grnNumber,
+    photoOfProduct,
+    photoOfBill,
+    oldPhotoUrl,
+}: {
+    poNumber?: string;
+    grnNumber?: string;
+    photoOfProduct?: string;
+    photoOfBill?: string;
+    oldPhotoUrl?: string;
+}) {
+    const response = await apiFetch(`${API_BASE_URL}/received/photo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ poNumber, grnNumber, photoOfProduct, photoOfBill, oldPhotoUrl }),
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update photo');
+    }
+    return response.json();
+}
+
+
 
