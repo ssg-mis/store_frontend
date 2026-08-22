@@ -11,6 +11,7 @@ interface Item {
     gst: number;
     discount: number;
     amount: number;
+    make?: string;
 }
 
 export interface POPdfProps {
@@ -483,6 +484,7 @@ export default ({
                             <Text style={[styles.cell, styles.desc]}>
                                 {item.product}
                                 {item.description ? `\n${item.description}` : ''}
+                                {item.make ? `\nMake: ${item.make}` : ''}
                             </Text>
                             <Text style={[styles.cell, styles.qty]}>{formatQty(item.quantity, item.unit)}</Text>
                             <Text style={[styles.cell, styles.rate]}>{formatMoney(item.rate)}</Text>

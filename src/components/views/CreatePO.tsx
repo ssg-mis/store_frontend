@@ -1,4 +1,5 @@
 import { ChevronsRightLeft, FilePlus2, Pencil, Save, Send, Trash, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -271,6 +272,7 @@ export default () => {
                     gst: z.coerce.number(),
                     discount: z.coerce.number().default(0).optional(),
                     discountAmount: z.coerce.number().default(0).optional(),
+                    make: z.string().optional().default(''),
                 })
             ),
         terms: z.array(z.string().nonempty()).max(10),
@@ -592,6 +594,7 @@ export default () => {
                     gst: 18,
                     discount: 0,
                     discountAmount: 0,
+                    make: '',
                 })));
             } else {
                 form.setValue(
@@ -603,6 +606,7 @@ export default () => {
                         rate: i.approvedRate || i.approved_rate || i.rate || 0,
                         gst: 18,
                         discount: 0,
+                        make: '',
                     }))
                 );
                 if (!vendorIndentNumbers.length) {
@@ -631,6 +635,7 @@ export default () => {
                         gst: 18,
                         discount: 0,
                         discountAmount: 0,
+                        make: '',
                     })));
                 }
             } else if (prevLength > 0 && currentLength === 0) {
@@ -687,6 +692,7 @@ export default () => {
                         gst: poItem.gstPercent || poItem.gst_percent || 0,
                         discount: poItem.discountPercent || poItem.discount_percent || 0,
                         discountAmount: 0,
+                        make: poItem.make || '',
                     }))
             );
 
@@ -909,6 +915,7 @@ export default () => {
                     leadTime: values.leadTime || null,
                     indent_number: v.indentNumber,
                     indent_id: v.id || indent?.id || null,
+                    make: v.make || null,
                 };
             });
 
@@ -1020,6 +1027,7 @@ export default () => {
                             gst: Number(v.gst || 0),
                             discount: Number(v.discount || 0),
                             amount: calculateTotal(Number(rate), Number(v.gst || 0), Number(v.discount || 0), v.quantity),
+                            make: v.make || '',
                         };
                     }),
                     total: grandTotal,
@@ -1600,6 +1608,7 @@ export default () => {
                                             <TableHead className="px-2 py-1 whitespace-nowrap">GST (%)</TableHead>
                                             <TableHead className="px-2 py-1 whitespace-nowrap">Disc (%)</TableHead>
                                             <TableHead className="px-2 py-1 whitespace-nowrap">Disc Amt</TableHead>
+                                            <TableHead className="px-2 py-1 whitespace-nowrap">Make</TableHead>
                                             <TableHead className="px-2 py-1"></TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -1760,6 +1769,75 @@ export default () => {
                                                                                     form.setValue(`indents.${index}.discount` as any, pct);
                                                                                 }}
                                                                             />
+                                                                        </FormControl>
+                                                                    </FormItem>
+                                                                );
+                                                            }}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="px-2 py-1">
+                                                        <FormField
+                                                            control={form.control}
+                                                            name={`indents.${index}.make`}
+                                                            render={({ field: indentField }) => {
+                                                                const [open, setOpen] = useState(false);
+                                                                const [draft, setDraft] = useState(indentField.value || '');
+                                                                const handleOpen = () => {
+                                                                    setDraft(indentField.value || '');
+                                                                    setOpen(true);
+                                                                };
+                                                                const handleSave = () => {
+                                                                    indentField.onChange(draft);
+                                                                    setOpen(false);
+                                                                };
+                                                                return (
+                                                                    <FormItem className="space-y-0">
+                                                                        <FormControl>
+                                                                            <>
+                                                                                {/* Clickable display */}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={handleOpen}
+                                                                                    className="flex items-center gap-1 min-w-[64px] max-w-[96px] px-2 py-1 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 hover:bg-muted/60 hover:border-primary/50 transition-all text-xs text-left group"
+                                                                                    title="Click to enter Make"
+                                                                                >
+                                                                                    <span className={`truncate flex-1 ${indentField.value ? 'text-foreground font-medium' : 'text-muted-foreground italic'}`}>
+                                                                                        {indentField.value || 'Add…'}
+                                                                                    </span>
+                                                                                    <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
+                                                                                </button>
+                                                                                {/* Edit Dialog */}
+                                                                                <Dialog open={open} onOpenChange={setOpen}>
+                                                                                    <DialogContent className="sm:max-w-md">
+                                                                                        <DialogHeader>
+                                                                                            <DialogTitle className="flex items-center gap-2">
+                                                                                                <Pencil className="h-4 w-4 text-primary" />
+                                                                                                Enter Make / Brand
+                                                                                            </DialogTitle>
+                                                                                        </DialogHeader>
+                                                                                        <div className="py-2">
+                                                                                            <p className="text-xs text-muted-foreground mb-3">
+                                                                                                Enter the manufacturer or brand name for this item. You can type any text or numbers.
+                                                                                            </p>
+                                                                                            <Input
+                                                                                                autoFocus
+                                                                                                type="text"
+                                                                                                placeholder="e.g. Havells, Anchor, D-Link, 3M…"
+                                                                                                className="text-sm h-10"
+                                                                                                value={draft}
+                                                                                                onChange={(e) => setDraft(e.target.value)}
+                                                                                                onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setOpen(false); }}
+                                                                                            />
+                                                                                        </div>
+                                                                                        <DialogFooter className="gap-2">
+                                                                                            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+                                                                                            <Button type="button" size="sm" onClick={handleSave} className="gap-1">
+                                                                                                <Save className="h-3.5 w-3.5" /> Save
+                                                                                            </Button>
+                                                                                        </DialogFooter>
+                                                                                    </DialogContent>
+                                                                                </Dialog>
+                                                                            </>
                                                                         </FormControl>
                                                                     </FormItem>
                                                                 );

@@ -1551,6 +1551,66 @@ export async function fetchPurchaseHistory(product: string): Promise<PurchaseHis
     }
 }
 
+export interface PartyCompletedReceivedItem {
+    id: number;
+    poNumber: string;
+    poDate: string;
+    vendor: string;
+    product: string;
+    receivedQuantity: number;
+    uom: string;
+    damagedQuantity?: number;
+    purchaseReturn?: number;
+    grnNumber?: string;
+    billNumber?: string;
+    billAmount?: number | null;
+    billStatus?: string;
+    receivedStatus?: string;
+    photoOfProduct?: string | null;
+    photoOfBill?: string | null;
+    createdAt: string;
+    firm: string;
+    department: string;
+    indentNumber: string;
+}
+
+export interface PartyCompletedStoreOutItem {
+    id: number;
+    indentNumber: string;
+    product: string;
+    issuedQuantity: number;
+    uom: string;
+    issueApprovedBy: string;
+    issueStatus: string;
+    areaOfUse?: string;
+    department?: string;
+    departmentHead?: string;
+    indenterName?: string;
+    firm: string;
+    createdAt: string;
+    delay?: string;
+}
+
+export interface PartyCompletedHistory {
+    partyName: string;
+    totalPOs: number;
+    totalReceived: number;
+    totalStoreOut: number;
+    receivedItems: PartyCompletedReceivedItem[];
+    storeOutItems: PartyCompletedStoreOutItem[];
+}
+
+export async function fetchPartyCompletedHistory(partyName: string): Promise<PartyCompletedHistory | null> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/party-completed-history?partyName=${encodeURIComponent(partyName)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching party completed history:', error);
+        return null;
+    }
+}
+
 /* ───── PO Approval ───── */
 export async function fetchPOApprovals(status: 'Pending' | 'Rejected' | 'Approved' = 'Pending') {
     try {

@@ -1,16 +1,19 @@
-import { ListTodo, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { ListTodo, Search, ChevronDown, ChevronRight, History, Building2, PackageCheck, LogOut, ExternalLink, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatDate, debounce } from '@/lib/utils';
-import { fetchFromSupabasePaginated, fetchVendors, fetchFirms, uploadFile, updatePOMasterPdf } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, fetchVendors, fetchFirms, uploadFile, updatePOMasterPdf, fetchPartyCompletedHistory, type PartyCompletedHistory } from '@/lib/fetchers';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { useSheets } from '@/context/SheetsContext';
 import { useAuth } from '@/context/AuthContext';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 import { toast } from 'sonner';
+import { ClipLoader as Loader } from 'react-spinners';
 
 interface POMasterItem {
     id: number;
@@ -38,6 +41,7 @@ interface POMasterItem {
     destinationAddress: string;
     terms: string[];
     pdf: string;
+    make: string;
 }
 
 const parseGSTPercent = (value: any): number => {
@@ -73,9 +77,30 @@ export default () => {
     const [vendors, setVendors] = useState<any[]>([]);
     const [firms, setFirms] = useState<any[]>([]);
     const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
-    const [regenerating, setRegenerating] = useState(false);
-    const [regenProgress, setRegenProgress] = useState<{ done: number; total: number } | null>(null);
+    const [selectedPartyForHistory, setSelectedPartyForHistory] = useState<string | null>(null);
+    const [partyHistoryData, setPartyHistoryData] = useState<PartyCompletedHistory | null>(null);
+    const [partyHistoryLoading, setPartyHistoryLoading] = useState(false);
+    const [partyHistoryTab, setPartyHistoryTab] = useState<'received' | 'store-out'>('received');
+    const [partyHistorySearch, setPartyHistorySearch] = useState('');
+    const [previewImage, setPreviewImage] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+
+    const handleOpenPartyHistory = async (partyName: string) => {
+        if (!partyName) return;
+        setSelectedPartyForHistory(partyName);
+        setPartyHistoryLoading(true);
+        setPartyHistoryTab('received');
+        setPartyHistorySearch('');
+        try {
+            const data = await fetchPartyCompletedHistory(partyName);
+            setPartyHistoryData(data);
+        } catch (err) {
+            console.error('Error fetching party history:', err);
+            toast.error('Failed to load party completed history');
+        } finally {
+            setPartyHistoryLoading(false);
+        }
+    };
 
     const fetchData = useCallback(async (pageValue = 1, searchQuery = '', append = false) => {
         if (abortRef.current) abortRef.current.abort();
@@ -125,6 +150,7 @@ export default () => {
                         sheet.term6, sheet.term7, sheet.term8, sheet.term9, sheet.term10,
                     ].filter(Boolean),
                     pdf: sheet.pdf || '',
+                    make: sheet.make || '',
                 }));
                 setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
                 setTotal(data.total);
@@ -278,6 +304,7 @@ export default () => {
                     sheet.term6, sheet.term7, sheet.term8, sheet.term9, sheet.term10,
                 ].filter(Boolean),
                 pdf: sheet.pdf || '',
+                make: sheet.make || '',
             }));
 
             const groups = new Map<string, POMasterItem[]>();
@@ -383,6 +410,34 @@ export default () => {
         });
     }, [tableData]);
 
+    const filteredReceived = useMemo(() => {
+        if (!partyHistoryData?.receivedItems) return [];
+        const q = partyHistorySearch.toLowerCase().trim();
+        if (!q) return partyHistoryData.receivedItems;
+        return partyHistoryData.receivedItems.filter(item =>
+            item.product?.toLowerCase().includes(q) ||
+            item.poNumber?.toLowerCase().includes(q) ||
+            item.grnNumber?.toLowerCase().includes(q) ||
+            item.billNumber?.toLowerCase().includes(q) ||
+            item.indentNumber?.toLowerCase().includes(q) ||
+            item.firm?.toLowerCase().includes(q)
+        );
+    }, [partyHistoryData, partyHistorySearch]);
+
+    const filteredStoreOut = useMemo(() => {
+        if (!partyHistoryData?.storeOutItems) return [];
+        const q = partyHistorySearch.toLowerCase().trim();
+        if (!q) return partyHistoryData.storeOutItems;
+        return partyHistoryData.storeOutItems.filter(item =>
+            item.product?.toLowerCase().includes(q) ||
+            item.indentNumber?.toLowerCase().includes(q) ||
+            item.areaOfUse?.toLowerCase().includes(q) ||
+            item.department?.toLowerCase().includes(q) ||
+            item.indenterName?.toLowerCase().includes(q) ||
+            item.firm?.toLowerCase().includes(q)
+        );
+    }, [partyHistoryData, partyHistorySearch]);
+
     const toggleGroup = (poNumber: string) => {
         setExpandedGroups(prev => {
             const next = new Set(prev);
@@ -397,53 +452,40 @@ export default () => {
                 <ListTodo size={50} className="text-primary" />
             </Heading>
 
-            <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative">
-                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                    <div className="relative flex-1 max-w-sm">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Search POs..."
-                            className="pl-8 h-8 text-xs w-[200px]"
+                            placeholder="Search POs, vendors, products..."
+                            className="pl-8 text-xs sm:text-sm h-9"
+                            defaultValue={search}
                             onChange={(e) => debouncedSearch(e.target.value)}
                         />
                     </div>
-                    {false && isAdmin && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 text-xs"
-                            disabled={regenerating}
-                            onClick={handleRegenerateAllPdfs}
-                        >
-                            {regenerating
-                                ? `Regenerating... ${regenProgress ? `${regenProgress.done}/${regenProgress.total}` : ''}`
-                                : 'Regenerate All PDFs'}
-                        </Button>
-                    )}
                 </div>
 
-                {isSearching && (
-                    <div className="w-full h-0.5 bg-primary/20 rounded-full overflow-hidden">
-                        <div className="h-full w-1/2 bg-primary animate-pulse rounded-full" />
-                    </div>
-                )}
-
                 {initialLoading ? (
-                    <div className="space-y-2">
-                        {[...Array(5)].map((_, i) => (
-                            <div key={i} className="h-10 bg-muted animate-pulse rounded" />
-                        ))}
+                    <div className="flex flex-col items-center justify-center h-64 gap-3">
+                        <Loader color="#2563eb" size={36} />
+                        <span className="text-xs text-muted-foreground">Loading purchase orders...</span>
+                    </div>
+                ) : isSearching ? (
+                    <div className="flex flex-col items-center justify-center h-64 gap-3">
+                        <Loader color="#2563eb" size={30} />
+                        <span className="text-xs text-muted-foreground">Searching...</span>
                     </div>
                 ) : groupedData.length === 0 ? (
-                    <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-                        No POs found
+                    <div className="flex flex-col items-center justify-center h-64 border rounded-md text-muted-foreground gap-2">
+                        <ListTodo className="h-8 w-8 text-muted-foreground/50" />
+                        <p className="text-sm font-medium">No purchase orders found</p>
                     </div>
                 ) : (
-                    <div className="rounded-md border overflow-x-auto">
+                    <div className="border rounded-md overflow-x-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-8"></TableHead>
+                                    <TableHead className="w-8" />
                                     <TableHead>PO Number</TableHead>
                                     <TableHead>Party Name</TableHead>
                                     <TableHead>PO Date</TableHead>
@@ -476,7 +518,17 @@ export default () => {
                                                         {group.poNumber}
                                                     </button>
                                                 </TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm" onClick={(e) => e.stopPropagation()}>
+                                                    <button
+                                                        type="button"
+                                                        className="text-left font-medium text-foreground hover:text-primary hover:underline transition-colors group inline-flex items-center gap-1.5 cursor-pointer py-1 px-1.5 -mx-1.5 rounded hover:bg-muted/70"
+                                                        onClick={() => handleOpenPartyHistory(group.partyName)}
+                                                        title="Click to view all completed Received & Store Out items for this party"
+                                                    >
+                                                        <span>{group.partyName}</span>
+                                                        <History className="h-3 w-3 text-muted-foreground group-hover:text-primary transition-colors" />
+                                                    </button>
+                                                </TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.timestamp}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.preparedBy}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.approvedBy}</TableCell>
@@ -502,7 +554,10 @@ export default () => {
                                             {isExpanded && group.items.map((item, idx) => (
                                                 <TableRow key={`${group.poNumber}-${idx}`} className="bg-muted/20">
                                                     <TableCell className="text-xs text-muted-foreground pl-6">{item.internalCode || '-'}</TableCell>
-                                                    <TableCell className="text-xs">{item.product}</TableCell>
+                                                    <TableCell className="text-xs">
+                                                        {item.product}
+                                                        {item.make ? <span className="ml-1 text-muted-foreground">(Make: {item.make})</span> : null}
+                                                    </TableCell>
                                                     <TableCell className="text-xs">{item.description || '-'}</TableCell>
                                                     <TableCell className="text-xs">{item.quantity} {item.unit}</TableCell>
                                                     <TableCell className="text-xs">&#8377;{item.rate.toLocaleString()}</TableCell>
@@ -534,6 +589,267 @@ export default () => {
                     </div>
                 )}
             </div>
+
+            {/* ── Party Completed History Dialog (Received & Store Out) ── */}
+            <Dialog open={!!selectedPartyForHistory} onOpenChange={(open) => { if (!open) { setSelectedPartyForHistory(null); setPartyHistoryData(null); } }}>
+                <DialogContent className="max-w-[95vw] sm:max-w-5xl max-h-[90vh] flex flex-col p-6 overflow-hidden">
+                    <DialogHeader className="shrink-0 pb-2 border-b">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                                    <Building2 className="h-5 w-5 text-primary" />
+                                    <span>Party Completed History</span>
+                                </DialogTitle>
+                                <DialogDescription className="text-xs mt-1">
+                                    All completed items (Received & Store Out) for <strong className="text-foreground">{selectedPartyForHistory}</strong>
+                                </DialogDescription>
+                            </div>
+                        </div>
+
+                        {/* Top KPI Cards */}
+                        {partyHistoryData && !partyHistoryLoading && (
+                            <div className="grid grid-cols-3 gap-3 mt-3">
+                                <div className="rounded-lg border bg-blue-50/50 dark:bg-blue-950/20 p-2.5 flex items-center gap-3">
+                                    <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-md text-blue-600 dark:text-blue-400">
+                                        <Building2 className="h-4 w-4" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase font-semibold text-muted-foreground">Total POs</p>
+                                        <p className="text-base font-bold text-blue-700 dark:text-blue-300">{partyHistoryData.totalPOs}</p>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-lg border bg-green-50/50 dark:bg-green-950/20 p-2.5 flex items-center gap-3">
+                                    <div className="p-2 bg-green-100 dark:bg-green-900/40 rounded-md text-green-600 dark:text-green-400">
+                                        <PackageCheck className="h-4 w-4" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase font-semibold text-muted-foreground">Received Done</p>
+                                        <p className="text-base font-bold text-green-700 dark:text-green-300">{partyHistoryData.totalReceived}</p>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-lg border bg-purple-50/50 dark:bg-purple-950/20 p-2.5 flex items-center gap-3">
+                                    <div className="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-md text-purple-600 dark:text-purple-400">
+                                        <LogOut className="h-4 w-4" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase font-semibold text-muted-foreground">Store Out Done</p>
+                                        <p className="text-base font-bold text-purple-700 dark:text-purple-300">{partyHistoryData.totalStoreOut}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </DialogHeader>
+
+                    {partyHistoryLoading ? (
+                        <div className="flex flex-col items-center justify-center h-72 gap-3">
+                            <Loader color="#2563eb" size={36} />
+                            <span className="text-xs text-muted-foreground">Loading party completed history...</span>
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex flex-col min-h-0 pt-3">
+                            {/* Tabs & Search */}
+                            <Tabs value={partyHistoryTab} onValueChange={(v) => setPartyHistoryTab(v as 'received' | 'store-out')} className="flex-1 flex flex-col min-h-0">
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0 pb-3 border-b">
+                                    <TabsList className="grid w-full sm:w-auto grid-cols-2">
+                                        <TabsTrigger value="received" className="text-xs px-4 flex items-center gap-1.5">
+                                            <PackageCheck className="h-3.5 w-3.5" />
+                                            <span>Received Items</span>
+                                            <span className="ml-1 rounded-full bg-primary/10 text-primary px-1.5 py-0.2 text-[10px] font-semibold">
+                                                {partyHistoryData?.receivedItems.length || 0}
+                                            </span>
+                                        </TabsTrigger>
+                                        <TabsTrigger value="store-out" className="text-xs px-4 flex items-center gap-1.5">
+                                            <LogOut className="h-3.5 w-3.5" />
+                                            <span>Store Out Items</span>
+                                            <span className="ml-1 rounded-full bg-purple-500/10 text-purple-600 px-1.5 py-0.2 text-[10px] font-semibold">
+                                                {partyHistoryData?.storeOutItems.length || 0}
+                                            </span>
+                                        </TabsTrigger>
+                                    </TabsList>
+
+                                    <div className="relative flex-1 sm:max-w-xs">
+                                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search items, PO, Indent, GRN..."
+                                            value={partyHistorySearch}
+                                            onChange={(e) => setPartyHistorySearch(e.target.value)}
+                                            className="pl-8 h-8 text-xs"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Tab 1: Received Items */}
+                                <TabsContent value="received" className="flex-1 overflow-auto mt-2 outline-none">
+                                    {filteredReceived.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center h-48 text-muted-foreground text-xs gap-2 border rounded-md my-2">
+                                            <PackageCheck className="h-7 w-7 text-muted-foreground/40" />
+                                            <p>{partyHistorySearch ? 'No received items match your filter.' : 'No completed received items found for this party.'}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="border rounded-md overflow-x-auto w-full">
+                                            <Table className="min-w-[1100px] w-full text-left">
+                                                <TableHeader>
+                                                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                                                        <TableHead className="text-xs w-10 text-center">#</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[160px]">PO Number</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[260px]">Product</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[110px]">Indent #</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[160px]">Firm</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[120px]">Received Qty</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[140px]">GRN #</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[160px]">Bill No & Amount</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[110px]">Received Date</TableHead>
+                                                        <TableHead className="text-xs text-center min-w-[130px]">Photos</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {filteredReceived.map((item, idx) => (
+                                                        <TableRow key={`rcv-${item.id}-${idx}`} className="hover:bg-muted/40">
+                                                            <TableCell className="text-xs text-muted-foreground text-center">{idx + 1}</TableCell>
+                                                            <TableCell className="text-xs font-semibold text-primary text-left whitespace-nowrap">{item.poNumber || '—'}</TableCell>
+                                                            <TableCell className="text-xs font-medium text-left max-w-[280px] whitespace-normal break-words">
+                                                                <div className="font-semibold text-foreground">{item.product}</div>
+                                                                {item.department && item.department !== 'N/A' && (
+                                                                    <div className="text-[10px] text-muted-foreground mt-0.5">{item.department}</div>
+                                                                )}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left whitespace-nowrap">{item.indentNumber || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left max-w-[180px] whitespace-normal break-words">{item.firm || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-left whitespace-nowrap">
+                                                                <span className="font-bold text-green-600 dark:text-green-400">
+                                                                    {item.receivedQuantity} {item.uom}
+                                                                </span>
+                                                                {item.damagedQuantity ? (
+                                                                    <div className="text-[10px] text-red-500 font-medium">Damaged: {item.damagedQuantity}</div>
+                                                                ) : null}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs font-mono font-medium text-left whitespace-nowrap">{item.grnNumber || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-left whitespace-nowrap">
+                                                                {item.billNumber ? (
+                                                                    <div>
+                                                                        <span className="font-medium">{item.billNumber}</span>
+                                                                        {item.billAmount !== null && item.billAmount !== undefined && (
+                                                                            <span className="text-muted-foreground ml-1">(₹{Number(item.billAmount).toLocaleString()})</span>
+                                                                        )}
+                                                                    </div>
+                                                                ) : '—'}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs whitespace-nowrap text-muted-foreground text-left">
+                                                                {item.createdAt ? formatDate(new Date(item.createdAt)) : '—'}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs whitespace-nowrap text-center">
+                                                                <div className="flex items-center justify-center gap-1.5">
+                                                                    {item.photoOfProduct && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setPreviewImage(item.photoOfProduct || null)}
+                                                                            className="text-xs text-blue-600 hover:underline flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800"
+                                                                            title="View Product Photo"
+                                                                        >
+                                                                            <ImageIcon className="h-3 w-3" /> Product
+                                                                        </button>
+                                                                    )}
+                                                                    {item.photoOfBill && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setPreviewImage(item.photoOfBill || null)}
+                                                                            className="text-xs text-emerald-600 hover:underline flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800"
+                                                                            title="View Bill Photo"
+                                                                        >
+                                                                            <ImageIcon className="h-3 w-3" /> Bill
+                                                                        </button>
+                                                                    )}
+                                                                    {!item.photoOfProduct && !item.photoOfBill && '—'}
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    )}
+                                </TabsContent>
+
+                                {/* Tab 2: Store Out Items */}
+                                <TabsContent value="store-out" className="flex-1 overflow-auto mt-2 outline-none">
+                                    {filteredStoreOut.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center h-48 text-muted-foreground text-xs gap-2 border rounded-md my-2">
+                                            <LogOut className="h-7 w-7 text-muted-foreground/40" />
+                                            <p>{partyHistorySearch ? 'No store out items match your filter.' : 'No completed store out items found for this party.'}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="border rounded-md overflow-x-auto w-full">
+                                            <Table className="min-w-[1100px] w-full text-left">
+                                                <TableHeader>
+                                                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                                                        <TableHead className="text-xs w-10 text-center">#</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[110px]">Indent #</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[260px]">Product</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[120px]">Issued Qty</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[140px]">Area of Use</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[130px]">Department</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[120px]">Indenter</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[120px]">Approved By</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[160px]">Firm</TableHead>
+                                                        <TableHead className="text-xs text-left min-w-[110px]">Issue Date</TableHead>
+                                                        <TableHead className="text-xs text-center min-w-[100px]">Status</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {filteredStoreOut.map((item, idx) => (
+                                                        <TableRow key={`so-${item.id}-${idx}`} className="hover:bg-muted/40">
+                                                            <TableCell className="text-xs text-muted-foreground text-center">{idx + 1}</TableCell>
+                                                            <TableCell className="text-xs font-semibold text-primary text-left whitespace-nowrap">{item.indentNumber || '—'}</TableCell>
+                                                            <TableCell className="text-xs font-medium text-left max-w-[280px] whitespace-normal break-words">
+                                                                <span className="font-semibold text-foreground">{item.product}</span>
+                                                            </TableCell>
+                                                            <TableCell className="text-xs text-left whitespace-nowrap">
+                                                                <span className="font-bold text-purple-600 dark:text-purple-400">
+                                                                    {item.issuedQuantity} {item.uom}
+                                                                </span>
+                                                            </TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left max-w-[160px] whitespace-normal break-words">{item.areaOfUse || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left whitespace-nowrap">{item.department || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left whitespace-nowrap">{item.indenterName || '—'}</TableCell>
+                                                            <TableCell className="text-xs font-medium text-left whitespace-nowrap">{item.issueApprovedBy || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left max-w-[180px] whitespace-normal break-words">{item.firm || '—'}</TableCell>
+                                                            <TableCell className="text-xs whitespace-nowrap text-muted-foreground text-left">
+                                                                {item.createdAt ? formatDate(new Date(item.createdAt)) : '—'}
+                                                            </TableCell>
+                                                            <TableCell className="text-xs whitespace-nowrap text-center">
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                                                    <CheckCircle2 className="h-3 w-3" />
+                                                                    {item.issueStatus || 'Done'}
+                                                                </span>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    )}
+                                </TabsContent>
+                            </Tabs>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* ── Photo Preview Dialog ── */}
+            <Dialog open={!!previewImage} onOpenChange={(open) => { if (!open) setPreviewImage(null); }}>
+                <DialogContent className="max-w-xl p-3 flex flex-col items-center">
+                    <DialogHeader className="w-full pb-2">
+                        <DialogTitle className="text-sm">Attachment Photo Preview</DialogTitle>
+                    </DialogHeader>
+                    {previewImage && (
+                        <div className="max-h-[75vh] overflow-auto rounded-md border flex items-center justify-center p-1 bg-black/5">
+                            <img src={previewImage} alt="Attachment" className="max-h-[70vh] object-contain rounded" />
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
