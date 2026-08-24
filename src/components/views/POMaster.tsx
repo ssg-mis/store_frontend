@@ -77,6 +77,8 @@ export default () => {
     const [vendors, setVendors] = useState<any[]>([]);
     const [firms, setFirms] = useState<any[]>([]);
     const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
+    const [regenerating, setRegenerating] = useState(false);
+    const [regenProgress, setRegenProgress] = useState<{ done: number; total: number } | null>(null);
     const [selectedPartyForHistory, setSelectedPartyForHistory] = useState<string | null>(null);
     const [partyHistoryData, setPartyHistoryData] = useState<PartyCompletedHistory | null>(null);
     const [partyHistoryLoading, setPartyHistoryLoading] = useState(false);
@@ -463,6 +465,28 @@ export default () => {
                             onChange={(e) => debouncedSearch(e.target.value)}
                         />
                     </div>
+                    {isAdmin && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={regenerating}
+                            onClick={handleRegenerateAllPdfs}
+                            className="text-xs flex items-center gap-2"
+                        >
+                            {regenerating ? (
+                                <>
+                                    <Loader color="currentColor" size={14} />
+                                    <span>
+                                        {regenProgress
+                                            ? `Regenerating (${regenProgress.done}/${regenProgress.total})...`
+                                            : 'Regenerating PDFs...'}
+                                    </span>
+                                </>
+                            ) : (
+                                'Regenerate Stored PDFs'
+                            )}
+                        </Button>
+                    )}
                 </div>
 
                 {initialLoading ? (
