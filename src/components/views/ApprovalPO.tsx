@@ -38,6 +38,7 @@ interface PORow {
     pdf: string | null;
     rejectionReason: string | null;
     approvalStatus: string;
+    make: string | null;
 }
 
 interface POGroup {
@@ -464,6 +465,7 @@ export default function ApprovalPO() {
                                         <TableHead>Prepared By</TableHead>
                                         <TableHead>Total Amount</TableHead>
                                         <TableHead>Items</TableHead>
+                                        <TableHead>Make</TableHead>
                                         {tab === 'rejected' && <TableHead>Rejection Reason</TableHead>}
                                     </TableRow>
                                 </TableHeader>
@@ -494,6 +496,12 @@ export default function ApprovalPO() {
                                                     <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                                                         {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
                                                     </span>
+                                                </TableCell>
+                                                <TableCell className="text-xs sm:text-sm text-muted-foreground">
+                                                    {(() => {
+                                                        const makes = [...new Set(group.items.map(i => i.make).filter(Boolean))];
+                                                        return makes.length ? makes.join(', ') : '—';
+                                                    })()}
                                                 </TableCell>
                                                 {tab === 'rejected' && (
                                                     <TableCell className="text-xs text-destructive max-w-[220px] break-words whitespace-normal">
@@ -572,6 +580,7 @@ export default function ApprovalPO() {
                                 <TableHead className="text-xs">GST</TableHead>
                                 <TableHead className="text-xs">Amount (excl. GST)</TableHead>
                                 <TableHead className="text-xs">Amount</TableHead>
+                                <TableHead className="text-xs">Make</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -617,6 +626,7 @@ export default function ApprovalPO() {
                                         </TableCell>
                                         <TableCell className="text-xs">&#8377;{Number(exclGst.toFixed(2)).toLocaleString()}</TableCell>
                                         <TableCell className="text-xs font-semibold">&#8377;{Number(item.amount || 0).toLocaleString()}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">{item.make || '—'}</TableCell>
                                     </TableRow>
                                 );
                             })}
