@@ -181,10 +181,13 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     desc: {
-        width: '38%',
+        width: '28%',
+    },
+    make: {
+        width: '12%',
     },
     qty: {
-        width: '13%',
+        width: '12%',
         textAlign: 'right',
     },
     rate: {
@@ -192,7 +195,7 @@ const styles = StyleSheet.create({
         textAlign: 'right',
     },
     discount: {
-        width: '9%',
+        width: '8%',
         textAlign: 'right',
     },
     per: {
@@ -204,18 +207,18 @@ const styles = StyleSheet.create({
         textAlign: 'right',
     },
     totalLabel: {
-        width: '44%',
+        width: '46%',
         textAlign: 'right',
     },
     totalQty: {
-        width: '13%',
+        width: '12%',
         textAlign: 'right',
     },
     totalRate: {
         width: '10%',
     },
     totalDiscount: {
-        width: '9%',
+        width: '8%',
     },
     totalPer: {
         width: '7%',
@@ -471,6 +474,7 @@ export default ({
                     <View style={styles.itemHeader}>
                         <Text style={[styles.cell, styles.sl, styles.bold]}>Sl{'\n'}No.</Text>
                         <Text style={[styles.cell, styles.desc, styles.bold]}>Description of Goods</Text>
+                        <Text style={[styles.cell, styles.make, styles.bold]}>Make</Text>
                         <Text style={[styles.cell, styles.qty, styles.bold]}>Quantity</Text>
                         <Text style={[styles.cell, styles.rate, styles.bold]}>Rate</Text>
                         <Text style={[styles.cell, styles.discount, styles.bold]}>Discount</Text>
@@ -484,8 +488,8 @@ export default ({
                             <Text style={[styles.cell, styles.desc]}>
                                 {item.product}
                                 {item.description ? `\n${item.description}` : ''}
-                                {item.make ? `\nMake: ${item.make}` : ''}
                             </Text>
+                            <Text style={[styles.cell, styles.make]}>{item.make || '-'}</Text>
                             <Text style={[styles.cell, styles.qty]}>{formatQty(item.quantity, item.unit)}</Text>
                             <Text style={[styles.cell, styles.rate]}>{formatMoney(item.rate)}</Text>
                             <Text style={[styles.cell, styles.discount]}>{formatDiscount(item.discount)}</Text>
