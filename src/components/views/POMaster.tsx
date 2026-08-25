@@ -230,6 +230,7 @@ export default () => {
                 gst: it.gstPercent,
                 discount: it.discountPercent,
                 amount: it.amount,
+                make: it.make,
             })),
             total: first.totalPoAmount,
             gstAmount: 0,
