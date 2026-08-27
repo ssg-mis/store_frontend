@@ -21,10 +21,13 @@ interface InventoryTable {
     indented: number;
     approved: number;
     purchaseQuantity: number;
+    stockIn: number;
     storeOut: number;
     loanOut: number;
     current: number;
 }
+
+
 
 export default () => {
     const { inventorySheet, inventoryLoading, updateInventorySheet } = useSheets();
@@ -32,7 +35,7 @@ export default () => {
     const [tableData, setTableData] = useState<InventoryTable[]>([]);
     const [viewOpen, setViewOpen] = useState(false);
     const [viewRow, setViewRow] = useState<InventoryTable | null>(null);
-    const [viewMovement, setViewMovement] = useState<{ field: 'purchaseQuantity' | 'storeOut' | 'loanOut'; label: string } | null>(null);
+    const [viewMovement, setViewMovement] = useState<{ field: 'purchaseQuantity' | 'storeOut' | 'loanOut' | 'stockIn'; label: string } | null>(null);
     const [auditLogs, setAuditLogs] = useState<InventoryAuditLog[]>([]);
     const [auditLoading, setAuditLoading] = useState(false);
 
@@ -49,6 +52,7 @@ export default () => {
                 department: i.department || 'N/A',
                 purchaseQuantity: Number(i.purchaseQuantity || 0),
                 approved: Number(i.approved || 0),
+                stockIn: Number(i.stockIn || 0),
                 storeOut: Number(i.storeOut || 0),
                 loanOut: Number(i.loanOut || 0),
             })).reverse()
@@ -64,7 +68,7 @@ export default () => {
 
     async function openViewDialog(
         row: InventoryTable,
-        movement?: { field: 'purchaseQuantity' | 'storeOut' | 'loanOut'; label: string }
+        movement?: { field: 'purchaseQuantity' | 'storeOut' | 'loanOut' | 'stockIn'; label: string }
     ) {
         setViewRow(row);
         setViewMovement(movement || null);
@@ -99,7 +103,7 @@ export default () => {
 
     const renderMovementLink = (
         row: InventoryTable,
-        field: 'purchaseQuantity' | 'storeOut' | 'loanOut',
+        field: 'purchaseQuantity' | 'storeOut' | 'loanOut' | 'stockIn',
         label: string
     ) => {
         const value = Number(row[field] || 0);
@@ -146,6 +150,11 @@ export default () => {
             accessorKey: 'purchaseQuantity',
             header: 'Purchased',
             cell: ({ row }) => renderMovementLink(row.original, 'purchaseQuantity', 'Purchased'),
+        },
+        {
+            accessorKey: 'stockIn',
+            header: 'Stock In',
+            cell: ({ row }) => renderMovementLink(row.original, 'stockIn', 'Stock In'),
         },
         {
             accessorKey: 'storeOut',
@@ -202,6 +211,9 @@ export default () => {
                             {viewRow?.itemName} {viewRow?.uom ? `(${viewRow.uom})` : ''}
                         </DialogDescription>
                     </DialogHeader>
+
+
+
                     <div className="space-y-3 py-2">
                         {auditLoading ? (
                             <div className="py-8 text-center text-sm text-muted-foreground">Loading history...</div>

@@ -437,6 +437,80 @@ export default () => {
         }
     };
 
+    const handleRejectBulkUpdates = async () => {
+        if (isViewOnly) {
+            toast.info('View-only access: you cannot perform actions on this page.');
+            return;
+        }
+
+        const selectedProductIds = pendingItems
+            .filter(item => selectedIndents.has(item.indentNo))
+            .map(item => item.id);
+
+        if (selectedProductIds.length === 0) {
+            toast.error("No items selected to reject");
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const updatesToProcess = selectedProductIds.map(id => {
+                const update = bulkUpdates.get(id);
+                const originalRecord = pendingItems.find(s => s.id === id);
+                if (!originalRecord) return null;
+
+                return {
+                    id: originalRecord.id,
+                    updatePayload: {
+                        indentNumber: originalRecord.indentNo,
+                        productCode: originalRecord.productCode,
+                        quantity: update?.quantity !== undefined ? Number(update.quantity) : originalRecord.quantity,
+                        productName: update?.product || originalRecord.product,
+                        vendorType: 'Reject',
+                        planned: update?.plannedDate || new Date().toISOString().split('T')[0],
+                        firm: update?.firm || originalRecord.firm
+                    }
+                };
+            }).filter((item): item is NonNullable<typeof item> => item !== null);
+
+            const APPROVE_BATCH_SIZE = 3;
+            const approvalResults: any[] = [];
+            for (let i = 0; i < updatesToProcess.length; i += APPROVE_BATCH_SIZE) {
+                const batch = updatesToProcess.slice(i, i + APPROVE_BATCH_SIZE);
+                const batchResults = await Promise.all(
+                    batch.map(item => approveIndent(item.id, item.updatePayload))
+                );
+                approvalResults.push(...batchResults);
+            }
+
+            const errors = approvalResults.filter(r => !r.success);
+            if (errors.length > 0) {
+                const messages = [...new Set(errors.map((r: any) => r.error).filter(Boolean))];
+                messages.forEach(msg => toast.error(msg));
+                if (approvalResults.length - errors.length > 0) {
+                    toast.warning(`${approvalResults.length - errors.length} rejected, ${errors.length} failed.`);
+                }
+            } else {
+                toast.success(`Rejected ${updatesToProcess.length} products successfully`);
+            }
+
+            updateIndentSheet();
+            updateRelatedSheets();
+            setPendingPage(1);
+            fetchPendingData(1, pendingSearch);
+            fetchHistoryData(1, historySearch);
+
+            setSelectedIndents(new Set());
+            setBulkUpdates(new Map());
+            setIsReviewOpen(false);
+        } catch (error) {
+            console.error('Error rejecting indents:', error);
+            toast.error('Failed to reject indents');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     const handleEditClick = (record: HistoryData) => {
         setEditingRow(record.indentNo);
         setEditValues(record);
@@ -847,6 +921,7 @@ export default () => {
                                                                             <SelectItem value="Select">Select</SelectItem>
                                                                             <SelectItem value="Regular">Regular</SelectItem>
                                                                             <SelectItem value="Three Party">Multi-Party</SelectItem>
+                                                                            <SelectItem value="Reject">Reject</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
                                                                 </TableCell>
@@ -878,8 +953,15 @@ export default () => {
                         }
                     </div>
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter className="gap-2 flex-wrap sm:flex-nowrap">
                         <Button variant="outline" onClick={() => setIsReviewOpen(false)}>Cancel</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleRejectBulkUpdates}
+                            disabled={submitting}
+                        >
+                            {submitting ? <Loader size={20} color="white" /> : 'Reject'}
+                        </Button>
                         <Button onClick={handleSubmitBulkUpdates} disabled={submitting} className="bg-green-600 hover:bg-green-700">
                             {submitting ? <Loader size={20} color="white" /> : 'Confirm & Approve All'}
                         </Button>

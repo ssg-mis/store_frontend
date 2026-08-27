@@ -100,6 +100,7 @@ interface MasterForm {
     itemCategoryId: string;
     productSubCategoryId: string;
     inventory_status: string;
+    stockIn: string;
 }
 
 const emptyForm: MasterForm = {
@@ -126,6 +127,7 @@ const emptyForm: MasterForm = {
     itemCategoryId: '',
     productSubCategoryId: '',
     inventory_status: 'Show',
+    stockIn: '',
 };
 
 /* ───── field helper ───── */
@@ -792,6 +794,7 @@ export default function MasterData() {
                 itemCategoryId: row.itemCategoryId?.toString() || '',
                 productSubCategoryId: '',
                 inventory_status: row.inventoryStatus || 'Show',
+                stockIn: row.stockIn !== undefined && row.stockIn !== null ? String(row.stockIn) : '',
                 alias: '',
                 firm_gstin: '',
                 firm_address: '',
@@ -862,6 +865,7 @@ export default function MasterData() {
                     additionalUoms: editAdditionalUomDrafts,
                     productGroups: editSelectedProductGroups,
                     specifications: editInventorySpecificationsText.trim() || null,
+                    stockIn: editDialogForm.stockIn ? (isNaN(parseFloat(editDialogForm.stockIn)) ? 0 : parseFloat(editDialogForm.stockIn)) : 0,
                     ...(selectedDept && { departmentId: Number(selectedDept.id) }),
                     ...(selectedHead && { departmentHeadId: Number(selectedHead.id) }),
                     ...(selectedUomObj && { uomId: Number(selectedUomObj.uom_id) }),
@@ -1346,6 +1350,7 @@ export default function MasterData() {
                 additionalUoms: additionalUomDrafts,
                 productGroups: selectedProductGroups,
                 specifications: inventorySpecificationsText.trim() || null,
+                stockIn: form.stockIn ? (isNaN(parseFloat(form.stockIn)) ? 0 : parseFloat(form.stockIn)) : 0,
             }], 'insert', 'INVENTORY');
 
             if (!result.success) throw new Error('Failed to save inventory item');
@@ -2721,6 +2726,16 @@ export default function MasterData() {
                                         </SearchableSelectContent>
                                     </Select>
                                 </div>
+
+                                <Field
+                                    label="Stock In"
+                                    id="stockIn"
+                                    type="number"
+                                    value={form.stockIn}
+                                    onChange={setField('stockIn')}
+                                    placeholder="Enter Stock In quantity (e.g. 10)"
+                                />
+
                                 <div className="pt-4 flex gap-2">
                                     <Button
                                         type="submit"
@@ -3680,6 +3695,15 @@ export default function MasterData() {
                                         </SearchableSelectContent>
                                     </Select>
                                 </div>
+
+                                <Field
+                                    label="Stock In"
+                                    id="edit_stockIn"
+                                    type="number"
+                                    value={editDialogForm.stockIn}
+                                    onChange={setEditDialogField('stockIn')}
+                                    placeholder="Enter Stock In quantity"
+                                />
 
                                 <div className="pt-4 flex gap-2">
                                     <Button

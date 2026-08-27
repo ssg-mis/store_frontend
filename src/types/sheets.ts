@@ -132,6 +132,7 @@ export type InventorySheet = {
     indented: number;
     approved: number;
     purchaseQuantity: number;
+    stockIn: number;
     storeOut: number;
     loanOut: number;
     current: number;

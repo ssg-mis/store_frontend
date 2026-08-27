@@ -678,6 +678,19 @@ export async function fetchInventoryAuditLogs(inventoryId: number): Promise<Inve
     }
 }
 
+export async function addStockInApi(inventoryId: number, quantity: number, remarks?: string) {
+    const response = await apiFetch(`${API_BASE_URL}/inventory/${inventoryId}/stock-in`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity, remarks }),
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to add Stock In');
+    }
+    return response.json();
+}
+
 export async function fetchVendors() {
     try {
         const data = await fetchFromSupabasePaginated('master_data');
