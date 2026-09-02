@@ -28,7 +28,7 @@ import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
 import ExcelEditorDialog from '../element/ExcelEditorDialog';
 import { Pill } from '../ui/pill';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { pdf } from '@react-pdf/renderer';
 import ComparisonPdf from '../element/ComparisonPdf';
 
@@ -111,6 +111,43 @@ interface PendingGroup {
     validityDate: string;
     items: (VendorUpdateData & { displayCode: string; baseIndentNo: string })[];
 }
+
+const ProductDropdownCell = ({ items }: { items: any[] }) => {
+    if (!items || items.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+
+    const getProductName = (item: any) => item.product || item.productName || item.itemName || '—';
+
+    if (items.length === 1) {
+        const name = getProductName(items[0]);
+        return (
+            <span className="text-xs font-semibold text-foreground max-w-[260px] truncate block" title={name}>
+                {name}
+            </span>
+        );
+    }
+
+    const firstName = getProductName(items[0]);
+
+    return (
+        <div className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
+            <Select defaultValue={firstName}>
+                <SelectTrigger className="border-none bg-transparent hover:bg-muted/60 p-0.5 px-1 h-auto font-semibold text-xs text-foreground focus:ring-0 focus:outline-none shadow-none inline-flex items-center gap-1 cursor-pointer max-w-[260px] rounded">
+                    <span className="truncate" title={firstName}>{firstName}</span>
+                </SelectTrigger>
+                <SelectContent className="max-w-[320px]">
+                    {items.map((item, idx) => {
+                        const pname = getProductName(item);
+                        return (
+                            <SelectItem key={idx} value={pname || `item-${idx}`} className="text-xs py-1.5 cursor-pointer">
+                                {pname}
+                            </SelectItem>
+                        );
+                    })}
+                </SelectContent>
+            </Select>
+        </div>
+    );
+};
 
 export default () => {
     const { user } = useAuth();
@@ -714,7 +751,7 @@ export default () => {
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
-                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
                         <SelectValue placeholder="All" />
@@ -727,7 +764,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
-                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
                         <SelectValue placeholder="All" />
@@ -740,7 +777,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
-                <SelectTrigger size="xxs" className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger size="xxs" className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
                         <SelectValue placeholder="All" />
@@ -771,6 +808,7 @@ export default () => {
         {
             accessorKey: 'firm',
             header: 'Firm',
+            cell: ({ getValue }) => <span title={getValue() as string}>{formatFirmName(getValue() as string)}</span>
         },
         {
             accessorKey: 'indenter',
@@ -786,6 +824,10 @@ export default () => {
                 const count = row.original.items.length;
                 return `${count} ${count === 1 ? 'product' : 'products'}`;
             },
+        },
+        {
+            header: 'Product Name',
+            cell: ({ row }) => <ProductDropdownCell items={row.original.items} />,
         },
         {
             accessorKey: 'vendorName1',
@@ -1070,7 +1112,7 @@ export default () => {
                                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                                     <Input
                                         placeholder="Search indents..."
-                                        className="pl-8 h-8 text-xs w-[200px]"
+                                        className="pl-8 h-7 text-xs w-[135px]"
                                         onChange={(e) => debouncedPendingSearch(e.target.value)}
                                     />
                                 </div>
@@ -1125,6 +1167,7 @@ export default () => {
                                             <TableHead>Date</TableHead>
                                             <TableHead>Vendor Type</TableHead>
                                             <TableHead>Products</TableHead>
+                                            <TableHead>Product Name</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -1142,7 +1185,7 @@ export default () => {
                                                     />
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.requestDate}</TableCell>
@@ -1155,6 +1198,9 @@ export default () => {
                                                     <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                                                         {group.items.length} {group.items.length === 1 ? 'product' : 'products'}
                                                     </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <ProductDropdownCell items={group.items} />
                                                 </TableCell>
                                             </TableRow>
                                         ))}

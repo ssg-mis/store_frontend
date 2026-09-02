@@ -1,7 +1,7 @@
 import { ListTodo, Search } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
@@ -209,7 +209,7 @@ export default () => {
                                             </Button>
                                         </TableCell>
                                         <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
-                                        <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                        <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                         <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                         <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
                                         <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>

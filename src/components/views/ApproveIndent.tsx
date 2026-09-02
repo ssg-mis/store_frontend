@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { Tabs, TabsContent } from '../ui/tabs';
 import { ClipboardCheck, PenSquare, Search, Send } from 'lucide-react';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
@@ -69,6 +69,43 @@ interface HistoryData {
     attachment: string;
     lastUpdated?: string;
 }
+
+const ProductDropdownCell = ({ items }: { items: any[] }) => {
+    if (!items || items.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+
+    const getProductName = (item: any) => item.product || item.productName || item.itemName || '—';
+
+    if (items.length === 1) {
+        const name = getProductName(items[0]);
+        return (
+            <span className="text-xs font-semibold text-foreground max-w-[260px] truncate block" title={name}>
+                {name}
+            </span>
+        );
+    }
+
+    const firstName = getProductName(items[0]);
+
+    return (
+        <div className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
+            <Select defaultValue={firstName}>
+                <SelectTrigger className="border-none bg-transparent hover:bg-muted/60 p-0.5 px-1 h-auto font-semibold text-xs text-foreground focus:ring-0 focus:outline-none shadow-none inline-flex items-center gap-1 cursor-pointer max-w-[260px] rounded">
+                    <span className="truncate" title={firstName}>{firstName}</span>
+                </SelectTrigger>
+                <SelectContent className="max-w-[320px]">
+                    {items.map((item, idx) => {
+                        const pname = getProductName(item);
+                        return (
+                            <SelectItem key={idx} value={pname || `item-${idx}`} className="text-xs py-1.5 cursor-pointer">
+                                {pname}
+                            </SelectItem>
+                        );
+                    })}
+                </SelectContent>
+            </Select>
+        </div>
+    );
+};
 
 export default () => {
     const { user } = useAuth();
@@ -437,6 +474,80 @@ export default () => {
         }
     };
 
+    const handleRejectBulkUpdates = async () => {
+        if (isViewOnly) {
+            toast.info('View-only access: you cannot perform actions on this page.');
+            return;
+        }
+
+        const selectedProductIds = pendingItems
+            .filter(item => selectedIndents.has(item.indentNo))
+            .map(item => item.id);
+
+        if (selectedProductIds.length === 0) {
+            toast.error("No items selected to reject");
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const updatesToProcess = selectedProductIds.map(id => {
+                const update = bulkUpdates.get(id);
+                const originalRecord = pendingItems.find(s => s.id === id);
+                if (!originalRecord) return null;
+
+                return {
+                    id: originalRecord.id,
+                    updatePayload: {
+                        indentNumber: originalRecord.indentNo,
+                        productCode: originalRecord.productCode,
+                        quantity: update?.quantity !== undefined ? Number(update.quantity) : originalRecord.quantity,
+                        productName: update?.product || originalRecord.product,
+                        vendorType: 'Reject',
+                        planned: update?.plannedDate || new Date().toISOString().split('T')[0],
+                        firm: update?.firm || originalRecord.firm
+                    }
+                };
+            }).filter((item): item is NonNullable<typeof item> => item !== null);
+
+            const APPROVE_BATCH_SIZE = 3;
+            const approvalResults: any[] = [];
+            for (let i = 0; i < updatesToProcess.length; i += APPROVE_BATCH_SIZE) {
+                const batch = updatesToProcess.slice(i, i + APPROVE_BATCH_SIZE);
+                const batchResults = await Promise.all(
+                    batch.map(item => approveIndent(item.id, item.updatePayload))
+                );
+                approvalResults.push(...batchResults);
+            }
+
+            const errors = approvalResults.filter(r => !r.success);
+            if (errors.length > 0) {
+                const messages = [...new Set(errors.map((r: any) => r.error).filter(Boolean))];
+                messages.forEach(msg => toast.error(msg));
+                if (approvalResults.length - errors.length > 0) {
+                    toast.warning(`${approvalResults.length - errors.length} rejected, ${errors.length} failed.`);
+                }
+            } else {
+                toast.success(`Rejected ${updatesToProcess.length} products successfully`);
+            }
+
+            updateIndentSheet();
+            updateRelatedSheets();
+            setPendingPage(1);
+            fetchPendingData(1, pendingSearch);
+            fetchHistoryData(1, historySearch);
+
+            setSelectedIndents(new Set());
+            setBulkUpdates(new Map());
+            setIsReviewOpen(false);
+        } catch (error) {
+            console.error('Error rejecting indents:', error);
+            toast.error('Failed to reject indents');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     const handleEditClick = (record: HistoryData) => {
         setEditingRow(record.indentNo);
         setEditValues(record);
@@ -533,7 +644,7 @@ export default () => {
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
                         <SelectValue placeholder="All" />
@@ -546,7 +657,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
                         <SelectValue placeholder="All" />
@@ -559,7 +670,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
                         <SelectValue placeholder="All" />
@@ -584,7 +695,7 @@ export default () => {
             ),
         },
         { accessorKey: 'indentNo', header: 'Indent No' },
-        { accessorKey: 'firm', header: 'Firm' },
+        { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         {
@@ -593,6 +704,10 @@ export default () => {
                 const count = row.original.items.length;
                 return `${count} ${count === 1 ? 'product' : 'products'}`;
             },
+        },
+        {
+            header: 'Product Name',
+            cell: ({ row }) => <ProductDropdownCell items={row.original.items} />,
         },
         { accessorKey: 'date', header: 'Request Date' },
         { accessorKey: 'approvedDate', header: 'Approval Date' },
@@ -622,7 +737,7 @@ export default () => {
                                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                                     <Input
                                         placeholder="Search indents..."
-                                        className="pl-8 h-8 text-xs w-[200px]"
+                                        className="pl-8 h-7 text-xs w-[135px]"
                                         onChange={(e) => debouncedPendingSearch(e.target.value)}
                                     />
                                 </div>
@@ -673,6 +788,7 @@ export default () => {
                                             <TableHead>Department</TableHead>
                                             <TableHead>Date</TableHead>
                                             <TableHead>Products</TableHead>
+                                            <TableHead>Product Name</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -690,7 +806,7 @@ export default () => {
                                                     />
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
@@ -698,6 +814,9 @@ export default () => {
                                                     <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                                                         {group.items.length} {group.items.length === 1 ? 'product' : 'products'}
                                                     </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <ProductDropdownCell items={group.items} />
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -847,6 +966,7 @@ export default () => {
                                                                             <SelectItem value="Select">Select</SelectItem>
                                                                             <SelectItem value="Regular">Regular</SelectItem>
                                                                             <SelectItem value="Three Party">Multi-Party</SelectItem>
+                                                                            <SelectItem value="Reject">Reject</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
                                                                 </TableCell>
@@ -878,8 +998,15 @@ export default () => {
                         }
                     </div>
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter className="gap-2 flex-wrap sm:flex-nowrap">
                         <Button variant="outline" onClick={() => setIsReviewOpen(false)}>Cancel</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleRejectBulkUpdates}
+                            disabled={submitting}
+                        >
+                            {submitting ? <Loader size={20} color="white" /> : 'Reject'}
+                        </Button>
                         <Button onClick={handleSubmitBulkUpdates} disabled={submitting} className="bg-green-600 hover:bg-green-700">
                             {submitting ? <Loader size={20} color="white" /> : 'Confirm & Approve All'}
                         </Button>

@@ -1,7 +1,7 @@
-import { ListTodo, Search, ChevronDown, ChevronRight, History, Building2, PackageCheck, LogOut, ExternalLink, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
+import { ListTodo, Search, ChevronDown, ChevronRight, History, Building2, PackageCheck, LogOut, ExternalLink, Image as ImageIcon, CheckCircle2, IndianRupee } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { fetchFromSupabasePaginated, fetchVendors, fetchFirms, uploadFile, updatePOMasterPdf, fetchPartyCompletedHistory, type PartyCompletedHistory } from '@/lib/fetchers';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
@@ -633,34 +633,48 @@ export default () => {
 
                         {/* Top KPI Cards */}
                         {partyHistoryData && !partyHistoryLoading && (
-                            <div className="grid grid-cols-3 gap-3 mt-3">
-                                <div className="rounded-lg border bg-blue-50/50 dark:bg-blue-950/20 p-2.5 flex items-center gap-3">
-                                    <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-md text-blue-600 dark:text-blue-400">
-                                        <Building2 className="h-4 w-4" />
+                            <div className="grid grid-cols-4 gap-2 mt-3">
+                                <div className="rounded-lg border bg-blue-50/50 dark:bg-blue-950/20 p-2 flex items-center gap-2">
+                                    <div className="p-1.5 bg-blue-100 dark:bg-blue-900/40 rounded-md text-blue-600 dark:text-blue-400 shrink-0">
+                                        <Building2 className="h-3.5 w-3.5" />
                                     </div>
-                                    <div>
-                                        <p className="text-[10px] uppercase font-semibold text-muted-foreground">Total POs</p>
-                                        <p className="text-base font-bold text-blue-700 dark:text-blue-300">{partyHistoryData.totalPOs}</p>
-                                    </div>
-                                </div>
-
-                                <div className="rounded-lg border bg-green-50/50 dark:bg-green-950/20 p-2.5 flex items-center gap-3">
-                                    <div className="p-2 bg-green-100 dark:bg-green-900/40 rounded-md text-green-600 dark:text-green-400">
-                                        <PackageCheck className="h-4 w-4" />
-                                    </div>
-                                    <div>
-                                        <p className="text-[10px] uppercase font-semibold text-muted-foreground">Received Done</p>
-                                        <p className="text-base font-bold text-green-700 dark:text-green-300">{partyHistoryData.totalReceived}</p>
+                                    <div className="min-w-0">
+                                        <p className="text-[9px] uppercase font-semibold text-muted-foreground leading-tight">Total POs</p>
+                                        <p className="text-sm font-bold text-blue-700 dark:text-blue-300">{partyHistoryData.totalPOs}</p>
                                     </div>
                                 </div>
 
-                                <div className="rounded-lg border bg-purple-50/50 dark:bg-purple-950/20 p-2.5 flex items-center gap-3">
-                                    <div className="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-md text-purple-600 dark:text-purple-400">
-                                        <LogOut className="h-4 w-4" />
+                                <div className="rounded-lg border bg-green-50/50 dark:bg-green-950/20 p-2 flex items-center gap-2">
+                                    <div className="p-1.5 bg-green-100 dark:bg-green-900/40 rounded-md text-green-600 dark:text-green-400 shrink-0">
+                                        <PackageCheck className="h-3.5 w-3.5" />
                                     </div>
-                                    <div>
-                                        <p className="text-[10px] uppercase font-semibold text-muted-foreground">Store Out Done</p>
-                                        <p className="text-base font-bold text-purple-700 dark:text-purple-300">{partyHistoryData.totalStoreOut}</p>
+                                    <div className="min-w-0">
+                                        <p className="text-[9px] uppercase font-semibold text-muted-foreground leading-tight">Received Done</p>
+                                        <p className="text-sm font-bold text-green-700 dark:text-green-300">{partyHistoryData.totalReceived}</p>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-lg border bg-purple-50/50 dark:bg-purple-950/20 p-2 flex items-center gap-2">
+                                    <div className="p-1.5 bg-purple-100 dark:bg-purple-900/40 rounded-md text-purple-600 dark:text-purple-400 shrink-0">
+                                        <LogOut className="h-3.5 w-3.5" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-[9px] uppercase font-semibold text-muted-foreground leading-tight">Store Out Done</p>
+                                        <p className="text-sm font-bold text-purple-700 dark:text-purple-300">{partyHistoryData.totalStoreOut}</p>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-lg border bg-amber-50/50 dark:bg-amber-950/20 p-2 flex items-center gap-2">
+                                    <div className="p-1.5 bg-amber-100 dark:bg-amber-900/40 rounded-md text-amber-600 dark:text-amber-400 shrink-0">
+                                        <IndianRupee className="h-3.5 w-3.5" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-[9px] uppercase font-semibold text-muted-foreground leading-tight">Total Amount</p>
+                                        <p className="text-sm font-bold text-amber-700 dark:text-amber-300 truncate">
+                                            ₹{partyHistoryData.receivedItems
+                                                .reduce((sum, item) => sum + (Number(item.billAmount) || 0), 0)
+                                                .toLocaleString('en-IN')}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -741,7 +755,7 @@ export default () => {
                                                                 )}
                                                             </TableCell>
                                                             <TableCell className="text-xs text-muted-foreground text-left whitespace-nowrap">{item.indentNumber || '—'}</TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground text-left max-w-[180px] whitespace-normal break-words">{item.firm || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left max-w-[180px] whitespace-normal break-words" title={item.firm}>{formatFirmName(item.firm)}</TableCell>
                                                             <TableCell className="text-xs text-left whitespace-nowrap">
                                                                 <span className="font-bold text-green-600 dark:text-green-400">
                                                                     {item.receivedQuantity} {item.uom}
@@ -839,7 +853,7 @@ export default () => {
                                                             <TableCell className="text-xs text-muted-foreground text-left whitespace-nowrap">{item.department || '—'}</TableCell>
                                                             <TableCell className="text-xs text-muted-foreground text-left whitespace-nowrap">{item.indenterName || '—'}</TableCell>
                                                             <TableCell className="text-xs font-medium text-left whitespace-nowrap">{item.issueApprovedBy || '—'}</TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground text-left max-w-[180px] whitespace-normal break-words">{item.firm || '—'}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground text-left max-w-[180px] whitespace-normal break-words" title={item.firm}>{formatFirmName(item.firm)}</TableCell>
                                                             <TableCell className="text-xs whitespace-nowrap text-muted-foreground text-left">
                                                                 {item.createdAt ? formatDate(new Date(item.createdAt)) : '—'}
                                                             </TableCell>

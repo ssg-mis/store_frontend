@@ -33,7 +33,7 @@ import { PackageCheck } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { Pill } from '../ui/pill';
 import { DownloadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
@@ -450,7 +450,7 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
             ]
             : []),
         { accessorKey: 'indentNo', header: 'Indent No.' },
-        { accessorKey: 'firm', header: 'Firm' },
+        { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'product', header: 'Product' },

@@ -6,7 +6,7 @@ import { useSheets } from '@/context/SheetsContext';
 import { useEffect, useState } from 'react';
 import { fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
 import type { ColumnDef } from '@tanstack/react-table';
-import { formatDate } from '@/lib/utils';
+import { formatDate, formatFirmName } from '@/lib/utils';
 import DataTable from '../element/DataTable';
 import { Pill } from '../ui/pill';
 
@@ -115,7 +115,7 @@ export default () => {
     const historyColumns: ColumnDef<HistoryData>[] = [
         { accessorKey: 'poNumber', header: 'PO Number' },
         { accessorKey: 'indentNumber', header: 'Indent Number' },
-        { accessorKey: 'firm', header: 'Firm' },
+        { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         {
             accessorKey: 'poCopy',
             header: 'PO Copy',
