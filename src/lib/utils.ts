@@ -85,6 +85,19 @@ export function formatNumber(num: number) {
     return num.toString();
 }
 
+export function formatFirmName(name?: string | null): string {
+    if (!name) return '';
+    const trimmed = name.trim();
+    const upper = trimmed.toUpperCase();
+
+    if (upper.includes('OIL EXTRACTIONS') || upper.includes('OIL EXTRACTION')) return 'SSOE pvt ltd';
+    if (upper.includes('ETHANOL')) return 'SSEAS pvt ltd';
+    if (upper.includes('WAREHOUSING')) return 'SSWAP pvt ltd';
+    if (upper.includes('GLOBAL')) return 'SSG pvt ltd';
+
+    return trimmed;
+}
+
 export function debounce<T extends (...args: any[]) => any>(
     func: T,
     wait: number
@@ -97,3 +110,4 @@ export function debounce<T extends (...args: any[]) => any>(
         }, wait);
     };
 }
+

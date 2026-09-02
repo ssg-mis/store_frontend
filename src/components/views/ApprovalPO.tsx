@@ -2,7 +2,7 @@ import { ClipboardCheck, Search, Check, X, RotateCcw, FileText, History } from '
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatDate } from '@/lib/utils';
+import { formatDate, formatFirmName } from '@/lib/utils';
 import { fetchPOApprovals, approvePO, rejectPO, fetchVendors, fetchFirms, uploadFile, fetchPurchaseHistory, fetchIndentHistory, fetchPOByNumber, type PurchaseHistoryRow } from '@/lib/fetchers';
 import { useSheets } from '@/context/SheetsContext';
 import { pdf } from '@react-pdf/renderer';
@@ -17,6 +17,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
+
+interface VendorQuote {
+    slot: number;
+    vendorName: string | null;
+    rate: number | null;
+    paymentTerm: string | null;
+    deliveryTime: number | null;
+    comparisonSheet: string | null;
+}
 
 interface PORow {
     id: number;
@@ -39,6 +48,8 @@ interface PORow {
     rejectionReason: string | null;
     approvalStatus: string;
     make: string | null;
+    vendorQuotes?: VendorQuote[];     // All vendor quotes for multi-party comparison
+    approvedVendorName?: string;      // The selected winner from Three-Party Approval
 }
 
 interface POGroup {
@@ -490,7 +501,7 @@ export default function ApprovalPO() {
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm text-primary whitespace-nowrap">{group.poNumber}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.createdAt ? formatDate(new Date(group.createdAt)) : '—'}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.preparedBy}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">&#8377;{Number(group.totalPOAmount || 0).toLocaleString()}</TableCell>
@@ -567,6 +578,93 @@ export default function ApprovalPO() {
                         </div>
                     </div>
                 </div>
+
+                {/* ── Vendor Rate Comparison Panel (Multi-Party) ── */}
+                {(() => {
+                    // Deduplicate quotes across all PO line items (they share the same indent)
+                    const firstItem: any = viewGroup?.items?.[0];
+                    const quotes: VendorQuote[] = firstItem?.vendorQuotes || [];
+                    const approvedVendor = firstItem?.approvedVendorName || viewGroup?.partyName || '';
+
+                    if (quotes.length < 2) return null;  // Only show for multi-party
+
+                    const lowestRate = Math.min(...quotes.map(q => Number(q.rate || 0)).filter(r => r > 0));
+
+                    return (
+                        <div className="rounded-md border overflow-hidden">
+                            <div className="bg-muted/40 px-4 py-2 border-b flex items-center gap-2">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vendor Rate Comparison</span>
+                                <span className="ml-auto text-[10px] text-muted-foreground">{quotes.length} vendors quoted</span>
+                            </div>
+                            <div className="grid gap-0 divide-y">
+                                {quotes.map((q) => {
+                                    const isApproved = (q.vendorName || '').trim().toLowerCase() === approvedVendor.trim().toLowerCase();
+                                    const isLowest = Number(q.rate || 0) === lowestRate && lowestRate > 0;
+                                    return (
+                                        <div
+                                            key={q.slot}
+                                            className={`flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2.5 text-xs transition-colors ${
+                                                isApproved
+                                                    ? 'bg-green-50 dark:bg-green-950/30 border-l-4 border-l-green-500'
+                                                    : 'border-l-4 border-l-transparent'
+                                            }`}
+                                        >
+                                            {/* Slot badge */}
+                                            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground shrink-0">
+                                                {q.slot}
+                                            </span>
+
+                                            {/* Vendor name */}
+                                            <span className={`font-semibold min-w-[140px] ${
+                                                isApproved ? 'text-green-700 dark:text-green-400' : 'text-foreground'
+                                            }`}>
+                                                {q.vendorName || '—'}
+                                                {isApproved && (
+                                                    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-1.5 py-0.5 text-[10px] font-semibold">
+                                                        ✓ Selected
+                                                    </span>
+                                                )}
+                                            </span>
+
+                                            {/* Rate */}
+                                            <span className={`font-mono font-semibold ${
+                                                isLowest ? 'text-green-600 dark:text-green-400' : 'text-foreground'
+                                            }`}>
+                                                ₹{Number(q.rate || 0).toLocaleString()}
+                                                {isLowest && !isApproved && (
+                                                    <span className="ml-1 text-[10px] text-green-500">↓ Lowest</span>
+                                                )}
+                                            </span>
+
+                                            {/* Payment term */}
+                                            <span className="text-muted-foreground">
+                                                {q.paymentTerm || '—'}
+                                            </span>
+
+                                            {/* Delivery */}
+                                            <span className="text-muted-foreground">
+                                                {q.deliveryTime != null ? `${q.deliveryTime} day${q.deliveryTime === 1 ? '' : 's'}` : '—'}
+                                            </span>
+
+                                            {/* Comparison sheet link */}
+                                            {q.comparisonSheet && (
+                                                <a
+                                                    href={q.comparisonSheet}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-blue-600 hover:underline flex items-center gap-0.5"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <FileText className="h-3 w-3" /> Quote
+                                                </a>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 <div className="overflow-x-auto rounded-md border">
                     <Table>

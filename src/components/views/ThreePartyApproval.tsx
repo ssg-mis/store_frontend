@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
@@ -378,7 +378,7 @@ export default () => {
             },
         },
         { accessorKey: 'indentNo', header: 'Indent No.' },
-        { accessorKey: 'firm', header: 'Firm' },
+        { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         {
@@ -464,7 +464,7 @@ export default () => {
 
     const historyColumns: ColumnDef<GroupedHistoryData>[] = [
         { accessorKey: 'indentNo', header: 'Indent No.' },
-        { accessorKey: 'firm', header: 'Firm' },
+        { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         {
@@ -806,7 +806,7 @@ export default () => {
                                                     <FormItem>
                                                         <FormLabel className="text-base font-bold">Select Approved Vendor (Final L1 Decision)</FormLabel>
                                                         <FormControl>
-                                                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-3 gap-2">
                                                                 {Object.entries(selectedIndent.vendorTotals).map(
                                                                     ([vendorName, total]) => {
                                                                         const isLowest = total === minTotal;
@@ -814,25 +814,25 @@ export default () => {
 
                                                                         return (
                                                                             <FormItem key={vendorName}>
-                                                                                <FormLabel className={`flex flex-col items-center gap-2 border hover:bg-accent p-4 rounded-lg cursor-pointer transition-all ${isLowest ? 'border-green-500 bg-green-50/30 ring-1 ring-green-500' : ''} ${field.value === vendorName ? 'border-primary ring-2 ring-primary bg-primary/5' : ''}`}>
+                                                                                <FormLabel className={`flex flex-col items-center gap-2 border hover:bg-accent p-3 rounded-lg cursor-pointer transition-all ${isLowest ? 'border-green-500 bg-green-50/30 ring-1 ring-green-500' : ''} ${field.value === vendorName ? 'border-primary ring-2 ring-primary bg-primary/5' : ''}`}>
                                                                                     <FormControl>
                                                                                         <RadioGroupItem
                                                                                             value={vendorName}
                                                                                             className="sr-only"
                                                                                         />
                                                                                     </FormControl>
-                                                                                    <div className="text-center">
-                                                                                        <p className="font-bold text-sm truncate w-full">{vendorName}</p>
-                                                                                        <p className={`text-lg font-black mt-1 ${isLowest ? 'text-green-700' : 'text-primary'}`}>
+                                                                                    <div className="text-center w-full">
+                                                                                        <p className="font-bold text-xs break-words leading-tight w-full text-center">{vendorName}</p>
+                                                                                        <p className={`text-base font-black mt-1 ${isLowest ? 'text-green-700' : 'text-primary'}`}>
                                                                                             ₹{total.toLocaleString()}
                                                                                         </p>
                                                                                         {deliveryTime != null && (
-                                                                                            <p className="text-[11px] text-muted-foreground mt-1">
+                                                                                            <p className="text-[10px] text-muted-foreground mt-1">
                                                                                                 {deliveryTime} day{deliveryTime !== 1 ? 's' : ''} delivery
                                                                                             </p>
                                                                                         )}
                                                                                         {isLowest && (
-                                                                                            <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-widest mt-2 block">
+                                                                                            <span className="text-[9px] bg-green-600 text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-widest mt-2 block">
                                                                                                 L1 Decision
                                                                                             </span>
                                                                                         )}

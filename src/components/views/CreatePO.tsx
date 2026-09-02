@@ -26,6 +26,7 @@ import {
     calculateTotalGst,
     cn,
     formatDate,
+    formatFirmName,
 } from '@/lib/utils';
 import { toast } from 'sonner';
 import { ClipLoader as Loader } from 'react-spinners';
@@ -1624,7 +1625,7 @@ export default () => {
                                                 <TableRow key={field.id} className="text-xs">
                                                     <TableCell className="px-2 py-1">{index + 1}</TableCell>
                                                     <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code}</TableCell>
-                                                    <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.firm || 'N/A'}</TableCell>
+                                                    <TableCell className="px-2 py-1 whitespace-nowrap" title={indent?.firm}>{formatFirmName(indent?.firm || 'N/A')}</TableCell>
                                                     <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.productName || indent?.product_name || indent?.product}</TableCell>
                                                     <TableCell className="px-2 py-1 max-w-[160px] truncate">
                                                         {indent?.specifications || indent?.description || (

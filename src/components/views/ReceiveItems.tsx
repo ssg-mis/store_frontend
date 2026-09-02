@@ -27,7 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsContent } from '../ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { useSheets } from '@/context/SheetsContext';
 import { Pill } from '../ui/pill';
 
@@ -325,7 +325,7 @@ const ReceiveItems = () => {
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
-                <SelectTrigger className="h-7 w-[160px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
                         <SelectValue placeholder="All" />
@@ -338,7 +338,7 @@ const ReceiveItems = () => {
                 </SelectContent>
             </Select>
             <Select value={filters.vendor} onValueChange={(val) => setFilters({ ...filters, vendor: val })}>
-                <SelectTrigger className="h-7 w-[160px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Vendor:</span>
                         <SelectValue placeholder="All" />
@@ -786,7 +786,7 @@ const ReceiveItems = () => {
                                         <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                                         <Input
                                             placeholder="Search indents..."
-                                            className="pl-8 h-8 text-xs w-[200px]"
+                                            className="pl-8 h-7 text-xs w-[135px]"
                                             onChange={(e) => debouncedPendingSearch(e.target.value)}
                                         />
                                     </div>
@@ -864,7 +864,7 @@ const ReceiveItems = () => {
                                                     <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNumber}</TableCell>
                                                     <TableCell className="text-xs sm:text-sm">{group.poNumber}</TableCell>
                                                     <TableCell className="text-xs sm:text-sm">{group.vendor}</TableCell>
-                                                    <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                                    <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                     <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
                                                     <TableCell>
                                                         <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">

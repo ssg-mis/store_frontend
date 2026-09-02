@@ -16,7 +16,7 @@ import { postToSheet, uploadFile, fetchSheet, fetchFirms } from '@/lib/fetchers'
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatDate, formatFirmName } from '@/lib/utils';
 import { toast } from 'sonner';
 import { ClipLoader as Loader } from 'react-spinners';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -949,7 +949,7 @@ export default function QuotationPage() {
                               </TableCell>
                               <TableCell>{index + 1}</TableCell>
                               <TableCell>{item.indentNumber}</TableCell>
-                              <TableCell>{item.firm || 'N/A'}</TableCell>
+                              <TableCell title={item.firm}>{formatFirmName(item.firm || 'N/A')}</TableCell>
                               <TableCell>{item.productName}</TableCell>
                               <TableCell>{item.specifications || <span className="text-muted-foreground">No Description</span>}</TableCell>
                               <TableCell>{item.quantity}</TableCell>

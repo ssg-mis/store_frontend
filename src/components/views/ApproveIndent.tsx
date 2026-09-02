@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { Tabs, TabsContent } from '../ui/tabs';
 import { ClipboardCheck, PenSquare, Search, Send } from 'lucide-react';
-import { formatDate, debounce } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
@@ -69,6 +69,43 @@ interface HistoryData {
     attachment: string;
     lastUpdated?: string;
 }
+
+const ProductDropdownCell = ({ items }: { items: any[] }) => {
+    if (!items || items.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+
+    const getProductName = (item: any) => item.product || item.productName || item.itemName || '—';
+
+    if (items.length === 1) {
+        const name = getProductName(items[0]);
+        return (
+            <span className="text-xs font-semibold text-foreground max-w-[260px] truncate block" title={name}>
+                {name}
+            </span>
+        );
+    }
+
+    const firstName = getProductName(items[0]);
+
+    return (
+        <div className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
+            <Select defaultValue={firstName}>
+                <SelectTrigger className="border-none bg-transparent hover:bg-muted/60 p-0.5 px-1 h-auto font-semibold text-xs text-foreground focus:ring-0 focus:outline-none shadow-none inline-flex items-center gap-1 cursor-pointer max-w-[260px] rounded">
+                    <span className="truncate" title={firstName}>{firstName}</span>
+                </SelectTrigger>
+                <SelectContent className="max-w-[320px]">
+                    {items.map((item, idx) => {
+                        const pname = getProductName(item);
+                        return (
+                            <SelectItem key={idx} value={pname || `item-${idx}`} className="text-xs py-1.5 cursor-pointer">
+                                {pname}
+                            </SelectItem>
+                        );
+                    })}
+                </SelectContent>
+            </Select>
+        </div>
+    );
+};
 
 export default () => {
     const { user } = useAuth();
@@ -607,7 +644,7 @@ export default () => {
     const FilterBar = ({ filters, setFilters, data }: { filters: any, setFilters: any, data: any[] }) => (
         <div className="flex flex-wrap items-center gap-1.5">
             <Select value={filters.indenter} onValueChange={(val) => setFilters({ ...filters, indenter: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Indenter:</span>
                         <SelectValue placeholder="All" />
@@ -620,7 +657,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.department} onValueChange={(val) => setFilters({ ...filters, department: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Dept:</span>
                         <SelectValue placeholder="All" />
@@ -633,7 +670,7 @@ export default () => {
                 </SelectContent>
             </Select>
             <Select value={filters.product} onValueChange={(val) => setFilters({ ...filters, product: val })}>
-                <SelectTrigger className="h-7 w-[150px] text-[11px] shadow-sm px-2">
+                <SelectTrigger className="h-7 w-[135px] text-[11px] shadow-sm px-2">
                     <div className="flex truncate">
                         <span className="font-semibold text-muted-foreground mr-1">Prod:</span>
                         <SelectValue placeholder="All" />
@@ -658,7 +695,7 @@ export default () => {
             ),
         },
         { accessorKey: 'indentNo', header: 'Indent No' },
-        { accessorKey: 'firm', header: 'Firm' },
+        { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
         {
@@ -667,6 +704,10 @@ export default () => {
                 const count = row.original.items.length;
                 return `${count} ${count === 1 ? 'product' : 'products'}`;
             },
+        },
+        {
+            header: 'Product Name',
+            cell: ({ row }) => <ProductDropdownCell items={row.original.items} />,
         },
         { accessorKey: 'date', header: 'Request Date' },
         { accessorKey: 'approvedDate', header: 'Approval Date' },
@@ -696,7 +737,7 @@ export default () => {
                                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                                     <Input
                                         placeholder="Search indents..."
-                                        className="pl-8 h-8 text-xs w-[200px]"
+                                        className="pl-8 h-7 text-xs w-[135px]"
                                         onChange={(e) => debouncedPendingSearch(e.target.value)}
                                     />
                                 </div>
@@ -747,6 +788,7 @@ export default () => {
                                             <TableHead>Department</TableHead>
                                             <TableHead>Date</TableHead>
                                             <TableHead>Products</TableHead>
+                                            <TableHead>Product Name</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -764,7 +806,7 @@ export default () => {
                                                     />
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.firm}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
@@ -772,6 +814,9 @@ export default () => {
                                                     <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                                                         {group.items.length} {group.items.length === 1 ? 'product' : 'products'}
                                                     </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <ProductDropdownCell items={group.items} />
                                                 </TableCell>
                                             </TableRow>
                                         ))}
