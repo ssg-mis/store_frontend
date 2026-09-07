@@ -137,7 +137,7 @@ export default () => {
     const [allIndentsData, setAllIndentsData] = useState<any[]>([]);
     // Admin-only override: lets a rejected PO be re-pointed at a different firm while revising
     const [firmOverrideName, setFirmOverrideName] = useState<string>('');
- 
+
 
 
     const enrichAndSetData = (allIndents: any[], approvals: any[], poData: any[], masterData: any, vendors: any[]) => {
@@ -333,32 +333,107 @@ export default () => {
         setReviseNavApplied(true);
     }, [revisePoFromNav, poMasterSheetData, reviseNavApplied]);
 
-    const findIndentById = (id?: number) => indentSheetData.find((indent: any) => indent.id === id);
+    const subIndentSheetData = useMemo(() => {
+        // Group all approvals for each base indent to determine multi-vendor suffixing
+        const approvalsByBase = new Map<string, any[]>();
+        (approvalsData || []).forEach((a: any) => {
+            const base = (a.indentNumber || a.indent_number || '').trim();
+            if (!base) return;
+            if (!approvalsByBase.has(base)) approvalsByBase.set(base, []);
+            approvalsByBase.get(base)!.push(a);
+        });
+
+        // Collect all base indent numbers
+        const allBaseNumbers = new Set<string>();
+        approvalsByBase.forEach((_, base) => allBaseNumbers.add(base));
+        (indentSheetData || []).forEach((i: any) => {
+            const base = (i.indentNumber || i.indent_number || '').trim();
+            if (base) allBaseNumbers.add(base);
+        });
+
+        const baseVendorSuffixMap = new Map<string, Map<string, string>>();
+
+        allBaseNumbers.forEach((base) => {
+            const apprList = approvalsByBase.get(base) || [];
+            // Preserve creation/approval order (by approval id)
+            const orderedVendors: string[] = [];
+            [...apprList]
+                .sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
+                .forEach((a: any) => {
+                    const v = (a.approvedVendorName || a.approved_vendor_name || '').trim();
+                    if (v && !orderedVendors.some(ov => ov.toLowerCase() === v.toLowerCase())) {
+                        orderedVendors.push(v);
+                    }
+                });
+
+            // Also include any vendors present on pending items in indentSheetData
+            (indentSheetData || [])
+                .filter((i: any) => (i.indentNumber || i.indent_number || '').trim() === base)
+                .forEach((i: any) => {
+                    const v = (i.approvedVendorName || i.approved_vendor_name || '').trim();
+                    if (v && !orderedVendors.some(ov => ov.toLowerCase() === v.toLowerCase())) {
+                        orderedVendors.push(v);
+                    }
+                });
+
+            const vendorMap = new Map<string, string>();
+            if (orderedVendors.length > 1) {
+                // If an indent is split across multiple vendors, assign letters A, B, C...
+                orderedVendors.forEach((v, idx) => {
+                    const letter = String.fromCharCode(65 + idx); // 0 -> 'A', 1 -> 'B', 2 -> 'C'...
+                    vendorMap.set(v.toLowerCase(), letter);
+                });
+            }
+            baseVendorSuffixMap.set(base, vendorMap);
+        });
+
+        return indentSheetData.map((item: any) => {
+            const base = (item.indentNumber || item.indent_number || '').trim();
+            const vendorName = (item.approvedVendorName || item.approved_vendor_name || '').trim();
+            const suffixMap = baseVendorSuffixMap.get(base);
+            const suffix = suffixMap?.get(vendorName.toLowerCase()) || '';
+            const subIndentNumber = suffix ? `${base}${suffix}` : base;
+
+            return {
+                ...item,
+                baseIndentNumber: base,
+                subIndentNumber,
+                displayIndentNumber: subIndentNumber,
+            };
+        });
+    }, [indentSheetData, approvalsData]);
+
+    const findIndentById = (id?: number) => subIndentSheetData.find((indent: any) => indent.id === id);
 
     const selectedIndentRows = useMemo(() => {
         if (mode !== 'create' || !indentNames?.length) return [];
 
-        return indentSheetData.filter((indent: any) => indentNames.includes(indent.indentNumber));
-    }, [mode, indentNames, indentSheetData]);
+        return subIndentSheetData.filter((indent: any) =>
+            indentNames.includes(indent.subIndentNumber || indent.indentNumber)
+        );
+    }, [mode, indentNames, subIndentSheetData]);
 
-    // Options for the "Indent Name" dropdown: grouped by indent number, each tagged with
-    // its first product name. If a vendor is already picked, only that vendor's indents show.
+    // Options for the "Indent Name" dropdown: grouped by sub-indent number (e.g. SI-0336A, SI-0336B)
+    // and tagged with vendor and product name. If a vendor is picked, only that vendor's indents show.
     const indentGroups = useMemo(() => {
         const groups = new Map<string, any[]>();
-        indentSheetData
-            .filter((i: any) => i.indentNumber || i.indent_number)
+        subIndentSheetData
+            .filter((i: any) => i.subIndentNumber || i.indentNumber)
             .filter((i: any) => !vendor || (i.approvedVendorName || i.approved_vendor_name) === vendor)
             .forEach((i: any) => {
-                const num = i.indentNumber || i.indent_number;
+                const num = i.subIndentNumber || i.indentNumber;
                 if (!groups.has(num)) groups.set(num, []);
                 groups.get(num)!.push(i);
             });
 
         return Array.from(groups.entries()).map(([indentNumber, items]) => ({
             indentNumber,
+            baseIndentNumber: items[0]?.baseIndentNumber || indentNumber,
+            vendorName: items[0]?.approvedVendorName || items[0]?.approved_vendor_name || '',
             firstProductName: items[0]?.productName || items[0]?.product_name || '',
-            }));
-    }, [indentSheetData, vendor]);
+            itemCount: items.length,
+        }));
+    }, [subIndentSheetData, vendor]);
 
     // When a vendor is selected, keep the linked indent selection in sync.
     // If that vendor only has one indent in the current PO queue, auto-select it.
@@ -421,7 +496,7 @@ export default () => {
     const selectedPrimaryIndent = useMemo(() => {
         if (indents[0]?.id) return findIndentById(indents[0].id);
         return selectedIndentRows[0];
-    }, [indents, selectedIndentRows, indentSheetData]);
+    }, [indents, selectedIndentRows, subIndentSheetData]);
 
     const selectedPoRejectionReason = useMemo(() => {
         if (mode !== 'revise' || !poNumber) return null;
@@ -471,7 +546,7 @@ export default () => {
     // Initialize destination address from details
     useEffect(() => {
         const baseAddr = [displayFirm, selectedFirmAddress].filter(Boolean).join('\n');
-        
+
         if (detailsData?.destinationAddress) {
             setDestinationAddress(`${baseAddr}\n${detailsData.destinationAddress}`);
         } else if (detailsData?.destination_address) {
@@ -509,7 +584,7 @@ export default () => {
                 )
             );
         }
-    }, [poDate, poMasterSheetData, mode, indents, indentSheetData, form, firms]);
+    }, [poDate, poMasterSheetData, mode, indents, subIndentSheetData, form, firms]);
 
     useEffect(() => {
         if (mode === 'revise') {
@@ -555,7 +630,7 @@ export default () => {
 
     useEffect(() => {
         if (vendor && mode === 'create') {
-            const items = indentSheetData.filter(
+            const items = subIndentSheetData.filter(
                 (i: any) => (i.approvedVendorName || i.approved_vendor_name) === vendor
             );
 
@@ -588,7 +663,7 @@ export default () => {
             // If specific indents are selected, only show those; otherwise show all for this vendor
             if (currentIndentNames?.length) {
                 form.setValue('indents', selectedIndentRows.map((i: any) => ({
-                    indentNumber: i.indentNumber,
+                    indentNumber: i.subIndentNumber || i.indentNumber,
                     id: i.id,
                     quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
                     rate: i.approvedRate || i.approved_rate || i.rate || 0,
@@ -601,12 +676,13 @@ export default () => {
                 form.setValue(
                     'indents',
                     items.map((i: any) => ({
-                        indentNumber: i.indentNumber || i.indent_number,
+                        indentNumber: i.subIndentNumber || i.indentNumber || i.indent_number,
                         id: i.id,
                         quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
                         rate: i.approvedRate || i.approved_rate || i.rate || 0,
                         gst: 18,
                         discount: 0,
+                        discountAmount: 0,
                         make: '',
                     }))
                 );
@@ -615,7 +691,7 @@ export default () => {
                 }
             }
         }
-    }, [vendor, indentNames, indentSheetData, vendorsData, selectedIndentRows, vendorIndentNumbers, form]);
+    }, [vendor, indentNames, subIndentSheetData, vendorsData, selectedIndentRows, vendorIndentNumbers, form]);
 
     const prevIndentNamesLengthRef = useRef(indentNames?.length || 0);
 
@@ -627,9 +703,12 @@ export default () => {
             if (currentLength > 0) {
                 const selectedIndent = selectedIndentRows[0];
                 if (selectedIndent) {
-                    form.setValue('supplierName', selectedIndent.approvedVendorName || selectedIndent.approved_vendor_name || '');
+                    const vendorName = selectedIndent.approvedVendorName || selectedIndent.approved_vendor_name || '';
+                    if (vendorName) {
+                        form.setValue('supplierName', vendorName);
+                    }
                     form.setValue('indents', selectedIndentRows.map((i: any) => ({
-                        indentNumber: i.indentNumber,
+                        indentNumber: i.subIndentNumber || i.indentNumber,
                         id: i.id,
                         quantity: i.approvedQuantity || i.approved_quantity || i.quantity || 0,
                         rate: i.approvedRate || i.approved_rate || i.rate || 0,
@@ -638,6 +717,16 @@ export default () => {
                         discountAmount: 0,
                         make: '',
                     })));
+
+                    // Auto-fill Lead Time if available
+                    const approval = (approvalsData || []).find((a: any) =>
+                        (a.indent_id || a.indentId) === selectedIndent.id
+                    ) || (approvalsData || []).find((a: any) =>
+                        (a.indentNumber || a.indent_number) === (selectedIndent.baseIndentNumber || selectedIndent.indentNumber)
+                    );
+                    if (approval?.approvedActualTime != null) {
+                        form.setValue('leadTime', `${approval.approvedActualTime} days`);
+                    }
                 }
             } else if (prevLength > 0 && currentLength === 0) {
                 if (vendor) {
@@ -653,7 +742,7 @@ export default () => {
         }
 
         prevIndentNamesLengthRef.current = currentLength;
-    }, [indentNames, mode, selectedIndentRows, form]);
+    }, [indentNames, mode, selectedIndentRows, approvalsData, form]);
 
     useEffect(() => {
         if (vendor !== manuallyClearedVendorRef.current) {
@@ -759,8 +848,8 @@ export default () => {
         if (mode !== 'revise') {
             const qtyErrors: string[] = [];
             values.indents.forEach((itemRow) => {
-                const indent = indentSheetData.find((i: any) =>
-                    itemRow.id ? i.id === itemRow.id : (i.indentNumber || i.indent_number) === itemRow.indentNumber
+                const indent = subIndentSheetData.find((i: any) =>
+                    itemRow.id ? i.id === itemRow.id : (i.subIndentNumber || i.indentNumber || i.indent_number) === itemRow.indentNumber
                 );
                 const approvedQty = Number(indent?.approvedQuantity || indent?.approved_quantity || 0);
                 if (approvedQty > 0 && itemRow.quantity > approvedQty) {
@@ -777,8 +866,8 @@ export default () => {
         // Stock Validation (skipped in revise mode — already checked at PO creation)
         const stockErrors: string[] = [];
         if (mode !== 'revise') values.indents.forEach((itemRow) => {
-            const indent = indentSheetData.find((i: any) =>
-                itemRow.id ? i.id === itemRow.id : (i.indentNumber || i.indent_number) === itemRow.indentNumber
+            const indent = subIndentSheetData.find((i: any) =>
+                itemRow.id ? i.id === itemRow.id : (i.subIndentNumber || i.indentNumber || i.indent_number) === itemRow.indentNumber
             );
             const itemName = indent?.productName || indent?.product_name || '';
             const departmentHead = indent?.departmentHead || '';
@@ -821,19 +910,33 @@ export default () => {
             }
 
             // Fetch all indents and approvals associated with this PO to ensure we have correct data and IDs
-            const indentNumbers = values.indents.map(i => i.indentNumber);
+            const indentIds = values.indents.map(i => i.id).filter(Boolean);
+            const baseIndentNumbers = Array.from(new Set(
+                values.indents.map(i => {
+                    const matchedItem = subIndentSheetData.find((s: any) => s.id === i.id || s.subIndentNumber === i.indentNumber);
+                    return matchedItem?.baseIndentNumber || (i.indentNumber ? i.indentNumber.replace(/[A-Z]$/, '') : i.indentNumber);
+                })
+            ));
+
             const [allIndentsForPO, approvals] = await Promise.all([
-                fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'id', options: { ascending: true } },
-                    (q) => q.in('indentNumber', indentNumbers)
-                ),
+                indentIds.length > 0
+                    ? fetchFromSupabasePaginated(
+                        'indent',
+                        '*',
+                        { column: 'id', options: { ascending: true } },
+                        (q) => q.in('id', indentIds)
+                    )
+                    : fetchFromSupabasePaginated(
+                        'indent',
+                        '*',
+                        { column: 'id', options: { ascending: true } },
+                        (q) => q.in('indentNumber', baseIndentNumbers)
+                    ),
                 fetchFromSupabasePaginated(
                     'three_party_approval',
                     '*',
                     { column: 'id', options: { ascending: true } },
-                    (q) => q.in('indentNumber', indentNumbers)
+                    (q) => indentIds.length > 0 ? q.in('indent_id', indentIds) : q.in('indentNumber', baseIndentNumbers)
                 )
             ]);
 
@@ -862,19 +965,8 @@ export default () => {
 
             // Insert PO data into Supabase
             const poData: Partial<PoMasterSheet>[] = values.indents.map((v) => {
-                const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : i.indentNumber === v.indentNumber) ||
+                const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : (i.indentNumber === v.indentNumber || i.indentNumber === v.indentNumber.replace(/[A-Z]$/, ''))) ||
                     poMasterSheetData.find((p: any) => v.poItemId ? p.id === v.poItemId : (p.internalCode || p.indent_number) === v.indentNumber && (p.poNumber || p.po_number) === values.poNumber);
-
-                // Validate and process dates
-                const validateDate = (date: Date | null | undefined) => {
-                    if (!date) return null;
-                    const dateObj = new Date(date);
-                    if (isNaN(dateObj.getTime())) {
-                        console.error('Invalid date detected:', date);
-                        return null;
-                    }
-                    return dateObj.toISOString();
-                };
 
                 return {
                     createdAt: new Date(),
@@ -914,7 +1006,7 @@ export default () => {
                     discountPercent: v.discount || 0,
                     gstPercent: v.gst,
                     leadTime: values.leadTime || null,
-                    indent_number: v.indentNumber,
+                    indent_number: indent?.indentNumber || indent?.indent_number || v.indentNumber,
                     indent_id: v.id || indent?.id || null,
                     make: v.make || null,
                 };
@@ -926,10 +1018,10 @@ export default () => {
 
             // Update corresponding indent records to sync with Receive Items and Get Purchase stages
             const indentUpdates: any[] = values.indents.map((v) => {
-                const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : i.indentNumber === v.indentNumber);
+                const indent = enrichedFetchedIndents.find((i: any) => v.id ? i.id === v.id : (i.indentNumber === v.indentNumber || i.indentNumber === v.indentNumber.replace(/[A-Z]$/, '')));
                 return {
                     id: indent.id,
-                    indentNumber: v.indentNumber,
+                    indentNumber: indent.indentNumber || indent.indent_number,
                     actual_4: getCurrentFormattedDateTime(), // PO Completion Date (removes from "Pending for PO")
                     // planned_5 (Receive Items) is enabled only after the PO is approved
                     // on the Approval of PO page — not at creation time.
@@ -1014,7 +1106,7 @@ export default () => {
                     description: values.description || '',
                     items: values.indents.map((v) => {
                         const indent = enrichedFetchedIndents.find((i: any) =>
-                            v.id ? i.id === v.id : i.indentNumber === v.indentNumber
+                            v.id ? i.id === v.id : (i.indentNumber === v.indentNumber || i.indentNumber === v.indentNumber.replace(/[A-Z]$/, ''))
                         );
                         const rate = Number(v.rate) || 0;
                         return {
@@ -1320,8 +1412,13 @@ export default () => {
                                                                 {available.length > 0 ? (
                                                                     available.map((g, k: number) => (
                                                                         <SelectItem key={k} value={g.indentNumber}>
-                                                                            {g.indentNumber}
-                                                                            {g.firstProductName ? ` — ${g.firstProductName}` : ''}
+                                                                            <span className="font-semibold text-foreground">{g.indentNumber}</span>
+                                                                            {g.vendorName ? <span className="text-muted-foreground"> — {g.vendorName}</span> : ''}
+                                                                            {g.firstProductName ? (
+                                                                                <span className="text-xs text-muted-foreground ml-1 font-normal">
+                                                                                    ({g.firstProductName}{g.itemCount > 1 ? ` +${g.itemCount - 1} more` : ''})
+                                                                                </span>
+                                                                            ) : ''}
                                                                         </SelectItem>
                                                                     ))
                                                                 ) : (
@@ -1378,7 +1475,7 @@ export default () => {
                                                                 <SelectContent>
                                                                     {[
                                                                         ...new Map(
-                                                                            indentSheetData
+                                                                            subIndentSheetData
                                                                                 .filter(
                                                                                     (i: any) =>
                                                                                         (i.approvedVendorName || i.approved_vendor_name) &&
@@ -1616,15 +1713,15 @@ export default () => {
                                     <TableBody>
                                         {itemsArray.fields.map((field, index) => {
                                             const value = indents[index];
-                                            const indent = indentSheetData.find(
-                                                (i: any) => value.id ? i.id === value.id : (i.indentNumber || i.indent_number) === value.indentNumber
+                                            const indent = subIndentSheetData.find(
+                                                (i: any) => value.id ? i.id === value.id : (i.subIndentNumber || i.indentNumber || i.indent_number) === value.indentNumber
                                             ) || poMasterSheetData.find(
                                                 (p: any) => value.poItemId ? p.id === value.poItemId : (p.internalCode || p.internal_code || p.indent_number) === value.indentNumber && (p.poNumber || p.po_number) === poNumber
                                             );
                                             return (
                                                 <TableRow key={field.id} className="text-xs">
                                                     <TableCell className="px-2 py-1">{index + 1}</TableCell>
-                                                    <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code}</TableCell>
+                                                    <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.subIndentNumber || indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || value.indentNumber}</TableCell>
                                                     <TableCell className="px-2 py-1 whitespace-nowrap" title={indent?.firm}>{formatFirmName(indent?.firm || 'N/A')}</TableCell>
                                                     <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.productName || indent?.product_name || indent?.product}</TableCell>
                                                     <TableCell className="px-2 py-1 max-w-[160px] truncate">
@@ -1639,7 +1736,7 @@ export default () => {
                                                             render={({ field: indentField }) => {
                                                                 const inventoryItem = inventoryData.find(
                                                                     i => i.itemName?.toLowerCase().trim() === (indent?.productName || indent?.product_name || '').toLowerCase().trim() &&
-                                                                         (!indent?.departmentHead || i.departmentHead?.toLowerCase().trim() === (indent?.departmentHead || '').toLowerCase().trim())
+                                                                        (!indent?.departmentHead || i.departmentHead?.toLowerCase().trim() === (indent?.departmentHead || '').toLowerCase().trim())
                                                                 );
                                                                 const stock = Number(inventoryItem?.current || 0);
                                                                 const indentType = indent?.indentType || '';

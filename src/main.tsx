@@ -292,6 +292,7 @@ const routes: RouteAttributes[] = [
         gateKey: 'storeOutApprovalView',
         name: 'Store Out / Approval',
         icon: <PackageCheck size={20} />,
+        hidden: true,
         element: <StoreOutApproval mode="store-out" />,
         notifications: (data) => {
             const pendingIndents = new Set();

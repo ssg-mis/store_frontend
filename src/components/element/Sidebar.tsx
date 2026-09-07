@@ -72,6 +72,11 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
         if (!user) return [];
 
         return items.filter((item) => {
+            // Hidden routes (e.g. Store Out / Approval when direct execution is enabled)
+            if (item.hidden) {
+                return false;
+            }
+
             // Role-based gate: hide if roleKey doesn't match user's role
             if (item.roleKey && (user as any).role !== item.roleKey) {
                 return false;

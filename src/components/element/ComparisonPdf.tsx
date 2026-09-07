@@ -59,14 +59,14 @@ const styles = StyleSheet.create({
     },
 
     // Columns
-    colSn:       { width: '4%',  borderRight: '1 solid black', padding: 4 },
-    colItem:     { width: '26%', borderRight: '1 solid black', padding: 4 },
-    colQty:      { width: '8%',  borderRight: '1 solid black', padding: 4, textAlign: 'center' },
-    colVendor:   { width: '20%', borderRight: '1 solid black', padding: 4, textAlign: 'center' },
-    
-    headerText:  { fontFamily: 'Helvetica-Bold', fontSize: 7, textAlign: 'center' },
-    cellText:    { fontSize: 7 },
-    boldText:    { fontFamily: 'Helvetica-Bold' },
+    colSn: { width: '4%', borderRight: '1 solid black', padding: 4 },
+    colItem: { width: '26%', borderRight: '1 solid black', padding: 4 },
+    colQty: { width: '8%', borderRight: '1 solid black', padding: 4, textAlign: 'center' },
+    colVendor: { width: '20%', borderRight: '1 solid black', padding: 4, textAlign: 'center' },
+
+    headerText: { fontFamily: 'Helvetica-Bold', fontSize: 7, textAlign: 'center' },
+    cellText: { fontSize: 7 },
+    boldText: { fontFamily: 'Helvetica-Bold' },
 
     // Footer
     footer: {
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     footerSignature: { alignItems: 'center', gap: 2 },
     footerLabel: { fontFamily: 'Helvetica-Bold', borderTop: '1 solid black', paddingTop: 2, width: 80, textAlign: 'center' },
     footerNote: { fontSize: 7, color: '#666666', paddingHorizontal: 10, paddingTop: 4 },
-    
+
     totalRow: {
         flexDirection: 'row',
         backgroundColor: '#f0f0f0',
@@ -132,11 +132,11 @@ export default ({
     preparedBy,
     approvedBy,
 }: ComparisonPdfProps) => {
-    
+
     // Calculate totals per vendor
     const vendorTotals: Record<string, number> = {};
     vendorNames.forEach(v => vendorTotals[v] = 0);
-    
+
     products.forEach(p => {
         p.offers.forEach(o => {
             if (vendorTotals[o.vendorName] !== undefined) {

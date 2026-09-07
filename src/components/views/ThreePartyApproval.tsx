@@ -9,14 +9,14 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '../ui/dialog';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import DataTable from '../element/DataTable';
 import { Button } from '../ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { postToSheet, uploadFile, fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { postToSheet, uploadFile, fetchFromSupabasePaginated, fetchFirms } from '@/lib/fetchers';
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
@@ -30,7 +30,7 @@ import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
-import ComparisonPdf from '../element/ComparisonPdf';
+import POComparisonPdf, { type POComparisonPdfProps, type ComparisonItem, type ComparisonQuote } from '../element/POComparisonPdf';
 
 interface RateApprovalProduct {
     id: number;
@@ -73,9 +73,23 @@ interface GroupedHistoryData {
     vendorTotals: Record<string, number>;
 }
 
+const formatFirmAddress = (firm: any, fallback = '') => {
+    if (!firm) return fallback;
+    const lines = [
+        firm.firm_address || '',
+        [firm.state, firm.pin_code].filter(Boolean).join(' '),
+    ].filter(Boolean);
+    return lines.join('\n') || fallback;
+};
+
 export default () => {
     const { user } = useAuth();
     const { updateIndentSheet, updateRelatedSheets } = useSheets();
+
+    const [firms, setFirms] = useState<any[]>([]);
+    useEffect(() => {
+        fetchFirms().then((res: any) => setFirms(Array.isArray(res) ? res : [])).catch(console.error);
+    }, []);
 
     const [selectedIndent, setSelectedIndent] = useState<GroupedRateApprovalData | null>(null);
     const [selectedHistory, setSelectedHistory] = useState<GroupedHistoryData | null>(null);
@@ -353,6 +367,131 @@ export default () => {
         </div>
     );
 
+    const renderPOComparisonPdf = async (
+        indent: GroupedRateApprovalData | GroupedHistoryData,
+        isHistory = false
+    ) => {
+        try {
+            const firm = firms.find((f: any) => f.firm_name === indent.firm);
+            const firmAddress = formatFirmAddress(firm, '');
+            const companyName = firm?.firm_name || indent.firm || 'Shri Shyam Ethanol and Spirits Pvt Ltd';
+            const companyGstin = firm?.firm_gstin || '';
+            const companyPan = firm?.pan_number || '';
+            const companyPhone = firm?.mobile || '';
+
+            let logoBase64 = '';
+            try {
+                const logoResponse = await fetch('/logo.png');
+                const logoBlob = await logoResponse.blob();
+                logoBase64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(logoBlob);
+                });
+            } catch { /* logo optional */ }
+
+            // Build items
+            const items: ComparisonItem[] = indent.products.map(p => ({
+                internalCode: indent.indentNo,
+                product: p.product,
+                description: null,
+                quantity: Number(p.quantity || 0),
+                unit: p.uom || '',
+                rate: (p as any).approvedRate != null ? Number((p as any).approvedRate) : undefined,
+                amount: (p as any).approvedRate != null ? (Number(p.quantity || 0) * Number((p as any).approvedRate)) : undefined,
+                make: null,
+            }));
+
+            // Build quotes
+            const quotes: ComparisonQuote[] = [];
+            let approvedVendorName = '';
+
+            if (isHistory) {
+                const historyProducts = indent.products as HistoryProduct[];
+                const approvedVendorsSet = new Set(historyProducts.map(p => p.approvedVendor).filter(Boolean));
+                approvedVendorName = Array.from(approvedVendorsSet).join(', ');
+
+                if (indent.vendorTotals && Object.keys(indent.vendorTotals).length > 0) {
+                    Object.entries(indent.vendorTotals).forEach(([vName, total], idx) => {
+                        const isApproved = approvedVendorsSet.has(vName);
+                        const matchProd = historyProducts.find(p => p.approvedVendor === vName);
+                        quotes.push({
+                            slot: idx + 1,
+                            vendorName: vName,
+                            rate: total != null ? Number(total) : (matchProd?.approvedRate ?? null),
+                            paymentTerm: isApproved ? (matchProd?.approvedPaymentTerm || null) : null,
+                            deliveryTime: isApproved ? (matchProd?.approvedActualTime ?? null) : null,
+                        });
+                    });
+                } else if (approvedVendorName) {
+                    Array.from(approvedVendorsSet).forEach((vName, idx) => {
+                        const matchProd = historyProducts.find(p => p.approvedVendor === vName);
+                        quotes.push({
+                            slot: idx + 1,
+                            vendorName: vName,
+                            rate: matchProd?.approvedRate ?? null,
+                            paymentTerm: matchProd?.approvedPaymentTerm || null,
+                            deliveryTime: matchProd?.approvedActualTime ?? null,
+                        });
+                    });
+                }
+            } else {
+                const pendingProducts = indent.products as RateApprovalProduct[];
+                if (pendingProducts.length === 1) {
+                    const p = pendingProducts[0];
+                    (p.vendors || []).forEach((v, idx) => {
+                        if (v[0]) {
+                            quotes.push({
+                                slot: idx + 1,
+                                vendorName: v[0],
+                                rate: v[1] ? parseFloat(v[1]) : null,
+                                paymentTerm: v[2] || null,
+                                deliveryTime: v[3] != null ? Number(v[3]) : null,
+                            });
+                        }
+                    });
+                } else {
+                    const vendorNames = Object.keys(indent.vendorTotals);
+                    vendorNames.forEach((vName, idx) => {
+                        const firstOffer = pendingProducts.flatMap(p => p.vendors || []).find(v => v[0] === vName);
+                        quotes.push({
+                            slot: idx + 1,
+                            vendorName: vName,
+                            rate: indent.vendorTotals[vName] ?? (firstOffer ? parseFloat(firstOffer[1]) : null),
+                            paymentTerm: firstOffer ? firstOffer[2] : null,
+                            deliveryTime: firstOffer && firstOffer[3] != null ? Number(firstOffer[3]) : null,
+                        });
+                    });
+                }
+            }
+
+            const props: POComparisonPdfProps = {
+                companyLogo: logoBase64,
+                companyName,
+                companyAddress: firmAddress,
+                companyGstin,
+                companyPan,
+                companyPhone,
+                poNumber: indent.indentNo,
+                orderDate: indent.date,
+                preparedBy: indent.indenter,
+                approvedVendorName,
+                firm: indent.firm,
+                department: indent.department,
+                items,
+                quotes,
+            };
+
+            const blob = await pdf(<POComparisonPdf {...props} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err: any) {
+            console.error('PDF generation error:', err);
+            toast.error('Failed to generate PDF');
+        }
+    };
+
     // Creating table columns
     const columns: ColumnDef<GroupedRateApprovalData>[] = [
         {
@@ -368,6 +507,8 @@ export default () => {
                                 variant="outline"
                                 onClick={() => {
                                     setSelectedIndent(indent);
+                                    setProductSelections({});
+                                    form.reset();
                                 }}
                             >
                                 Approve
@@ -384,19 +525,21 @@ export default () => {
         {
             header: 'Products',
             accessorKey: 'products',
-            cell: ({ row }) => <span className="font-medium">{row.original.products.length} Items</span>
+            cell: ({ row }: { row: Row<GroupedRateApprovalData> }) => {
+                const count = row.original.products.length;
+                return <span>{count} Items</span>;
+            },
         },
         { accessorKey: 'date', header: 'Date' },
         {
-            accessorKey: 'vendorTotals',
             header: 'Vendor Totals',
-            enableSorting: false,
-            cell: ({ row }) => {
+            accessorKey: 'vendorTotals',
+            cell: ({ row }: { row: Row<GroupedRateApprovalData> }) => {
                 const totals = row.original.vendorTotals;
                 return (
                     <div className="flex flex-col gap-1">
                         {Object.entries(totals).map(([vendor, total], index) => (
-                            <span key={index} className="rounded-full text-[10px] px-2 py-0.5 bg-accent text-accent-foreground border border-accent-foreground whitespace-nowrap">
+                            <span key={index} className="rounded-full text-[10px] px-2 py-0.5 bg-green-100 text-green-800 border border-green-200 whitespace-nowrap">
                                 {vendor}: ₹{total.toLocaleString()}
                             </span>
                         ))}
@@ -410,49 +553,11 @@ export default () => {
             enableSorting: false,
             cell: ({ row }) => {
                 const indent = row.original;
-
-                const handleViewPdf = async () => {
-                    try {
-                        const vendorNames = Object.keys(indent.vendorTotals);
-                        const pdfProducts = indent.products.map(p => ({
-                            name: p.product,
-                            quantity: p.quantity,
-                            uom: p.uom,
-                            offers: p.vendors.map(v => ({
-                                vendorName: v[0],
-                                rate: parseFloat(v[1]),
-                                paymentTerm: v[2],
-                                deliveryTime: v[3],
-                            })).filter(v => v.vendorName)
-                        }));
-
-                        const blob = await pdf(
-                            <ComparisonPdf
-                                companyName="Shri Shyam Oil Extractions Pvt Ltd"
-                                companyAddress="Banari, Janjgir Champa-495668, Chhattisgarh"
-                                companyPhone="+919993023243"
-                                indentNo={indent.indentNo}
-                                department={indent.department}
-                                indenter={indent.indenter}
-                                date={indent.date}
-                                products={pdfProducts}
-                                vendorNames={vendorNames}
-                            />
-                        ).toBlob();
-
-                        const url = URL.createObjectURL(blob);
-                        window.open(url, '_blank');
-                    } catch (err: any) {
-                        console.error('PDF generation error:', err);
-                        toast.error('Failed to generate PDF');
-                    }
-                };
-
                 return (
                     <Button
                         size="sm"
-                        className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-700 text-white"
-                        onClick={handleViewPdf}
+                        className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                        onClick={() => renderPOComparisonPdf(indent, false)}
                     >
                         <FileDown className="h-3 w-3" />
                         View PDF
@@ -490,53 +595,13 @@ export default () => {
             enableSorting: false,
             cell: ({ row }) => {
                 const indent = row.original;
-
-                const handleView = async () => {
-                    try {
-                        const vendorNames = Object.keys(indent.vendorTotals);
-                        const pdfProducts = indent.products.map(p => ({
-                            name: p.product,
-                            quantity: p.quantity,
-                            uom: p.uom,
-                            offers: [{
-                                vendorName: p.approvedVendor,
-                                rate: p.approvedRate,
-                                paymentTerm: p.approvedPaymentTerm || '',
-                                deliveryTime: p.approvedActualTime,
-                            }]
-                        }));
-
-                        const blob = await pdf(
-                            <ComparisonPdf
-                                companyName="Shri Shyam Oil Extractions Pvt Ltd"
-                                companyAddress="Banari, Janjgir Champa-495668, Chhattisgarh"
-                                companyPhone="+919993023243"
-                                indentNo={indent.indentNo}
-                                department={indent.department}
-                                indenter={indent.indenter}
-                                date={indent.date}
-                                products={pdfProducts}
-                                vendorNames={vendorNames}
-                                recommendedVendor={vendorNames[0]}
-                            />
-                        ).toBlob();
-
-                        const url = URL.createObjectURL(blob);
-                        window.open(url, '_blank');
-                        setTimeout(() => URL.revokeObjectURL(url), 1000);
-                    } catch (err: any) {
-                        console.error('PDF generation error:', err);
-                        toast.error('Failed to generate PDF');
-                    }
-                };
-
                 return (
                     <Button
                         size="sm"
-                        className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-700 text-white"
-                        onClick={handleView}
+                        className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                        onClick={() => renderPOComparisonPdf(indent, true)}
                     >
-                        <Eye className="h-3 w-3" />
+                        <FileDown className="h-3 w-3" />
                         View PDF
                     </Button>
                 );
@@ -546,68 +611,123 @@ export default () => {
 
     const scrollRef = useRef<HTMLDivElement>(null);
 
+    // Track vendor selection per product: { [productId]: vendorName }
+    const [productSelections, setProductSelections] = useState<Record<number, string>>({});
+
     // Creating approval form
     const schema = z.object({
-        vendorName: z.string(),
         remarks: z.string().optional(),
     });
 
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
-            vendorName: '',
             remarks: '',
         },
     });
 
-    const watchedVendorName = form.watch('vendorName');
+    // Compute vendor assignment summary
+    const selectedVendorsSummary = useMemo(() => {
+        if (!selectedIndent) return {};
+        const summary: Record<string, {
+            products: { id: number; name: string; quantity: number; uom: string; rate: number; paymentTerm: string; deliveryTime?: number; isL1: boolean }[];
+            totalAmount: number;
+            deliveryTime?: number;
+        }> = {};
+
+        selectedIndent.products.forEach(p => {
+            const chosenVendor = productSelections[p.id];
+            if (!chosenVendor) return;
+
+            const offer = p.vendors.find(v => v[0] === chosenVendor);
+            if (!offer) return;
+
+            if (!summary[chosenVendor]) {
+                summary[chosenVendor] = {
+                    products: [],
+                    totalAmount: 0,
+                    deliveryTime: offer[3] != null ? Number(offer[3]) : undefined,
+                };
+            }
+
+            const rate = parseFloat(offer[1]) || 0;
+            const validRates = p.vendors.map(v => parseFloat(v[1])).filter(r => !isNaN(r) && r > 0);
+            const minRate = validRates.length > 0 ? Math.min(...validRates) : null;
+            const isL1 = minRate !== null && rate === minRate;
+
+            summary[chosenVendor].products.push({
+                id: p.id,
+                name: p.product,
+                quantity: p.quantity,
+                uom: p.uom,
+                rate,
+                paymentTerm: offer[2] || '',
+                deliveryTime: offer[3] != null ? Number(offer[3]) : undefined,
+                isL1,
+            });
+            summary[chosenVendor].totalAmount += rate * (p.quantity || 1);
+        });
+
+        return summary;
+    }, [productSelections, selectedIndent]);
+
+    const activeVendorNames = useMemo(() => Object.keys(selectedVendorsSummary), [selectedVendorsSummary]);
+
+    // Check if any product has a non-L1 vendor selected
+    const isAnyNonL1 = useMemo(() => {
+        if (!selectedIndent) return false;
+        return selectedIndent.products.some(p => {
+            const chosenVendor = productSelections[p.id];
+            if (!chosenVendor) return false;
+            const offer = p.vendors.find(v => v[0] === chosenVendor);
+            if (!offer) return false;
+            const rate = parseFloat(offer[1]);
+            const validRates = p.vendors.map(v => parseFloat(v[1])).filter(r => !isNaN(r) && r > 0);
+            const minRate = validRates.length > 0 ? Math.min(...validRates) : null;
+            return minRate !== null && rate > minRate;
+        });
+    }, [selectedIndent, productSelections]);
 
     useEffect(() => {
-        if (watchedVendorName && selectedIndent) {
-            const total = selectedIndent.vendorTotals[watchedVendorName];
-            const minTotal = Math.min(...Object.values(selectedIndent.vendorTotals));
-            const isLowest = total === minTotal;
-
-            if (!isLowest) {
-                // Smooth scroll to bottom to reveal remarks
-                setTimeout(() => {
-                    if (scrollRef.current) {
-                        scrollRef.current.scrollTo({
-                            top: scrollRef.current.scrollHeight,
-                            behavior: 'smooth'
-                        });
-                    }
-                }, 100);
-            }
+        if (isAnyNonL1) {
+            setTimeout(() => {
+                if (scrollRef.current) {
+                    scrollRef.current.scrollTo({
+                        top: scrollRef.current.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }
+            }, 100);
         }
-    }, [watchedVendorName, selectedIndent]);
+    }, [isAnyNonL1]);
 
     async function onSubmit(values: z.infer<typeof schema>) {
         try {
             if (!selectedIndent) return;
 
-            const selectedVendorName = values.vendorName;
-            const selectedTotal = selectedIndent.vendorTotals[selectedVendorName];
-            const allTotals = Object.values(selectedIndent.vendorTotals);
-            const minTotal = Math.min(...allTotals);
-            const isLowest = selectedTotal === minTotal;
+            const unassigned = selectedIndent.products.filter(p => !productSelections[p.id]);
+            if (unassigned.length > 0) {
+                toast.error(`Please select a vendor for all products: ${unassigned.map(p => p.product).join(', ')}`);
+                return;
+            }
 
-            if (!isLowest && !values.remarks?.trim()) {
+            if (isAnyNonL1 && !values.remarks?.trim()) {
                 form.setError('remarks', { message: 'Remarks are required when selecting a higher priced vendor' });
                 return;
             }
 
             // Prepare multiple approval records
             const approvals = selectedIndent.products.map(product => {
-                const vendorOffer = product.vendors.find(v => v[0] === selectedVendorName);
+                const chosenVendor = productSelections[product.id];
+                const vendorOffer = product.vendors.find(v => v[0] === chosenVendor);
                 return {
                     indent_number: selectedIndent.indentNo,
                     indent_id: product.indentId,
-                    approvedVendorName: selectedVendorName,
-                    approvedRate: vendorOffer ? vendorOffer[1] : 0,
+                    approvedVendorName: chosenVendor,
+                    approvedRate: vendorOffer ? parseFloat(vendorOffer[1]) : 0,
                     approvedPaymentTerm: vendorOffer ? vendorOffer[2] : '',
                     approvedActualTime: vendorOffer?.[3] ?? null,
-                    remarks: !isLowest ? values.remarks : undefined,
+                    remarks: isAnyNonL1 ? values.remarks : undefined,
                 };
             });
 
@@ -616,10 +736,12 @@ export default () => {
 
             if (!result.success) throw new Error('API update failed');
 
-            toast.success(`Approved vendor ${selectedVendorName} for ${selectedIndent.indentNo}`);
+            const distinctVendors = Array.from(new Set(Object.values(productSelections)));
+            toast.success(`Approved vendor(s) ${distinctVendors.join(', ')} for ${selectedIndent.indentNo}`);
             updateIndentSheet();
             updateRelatedSheets();
             setOpenDialog(false);
+            setProductSelections({});
             form.reset();
             fetchData(); // Refresh all data
         } catch (error: any) {
@@ -640,6 +762,7 @@ export default () => {
                 if (!open) {
                     setSelectedIndent(null);
                     setSelectedHistory(null);
+                    setProductSelections({});
                     form.reset();
                 }
             }}>
@@ -753,29 +876,77 @@ export default () => {
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {selectedIndent.products.map((p, idx) => (
-                                                        <tr key={idx} className="border-b hover:bg-muted/20">
-                                                            <td className="px-4 py-2 border-r">
-                                                                <div className="font-medium">{p.product}</div>
-                                                                <div className="text-[10px] text-muted-foreground">{p.quantity} {p.uom}</div>
-                                                            </td>
-                                                            {Object.keys(selectedIndent.vendorTotals).map(vendorName => {
-                                                                const offer = p.vendors.find(v => v[0] === vendorName);
-                                                                return (
-                                                                    <td key={vendorName} className="px-4 py-2 border-r text-center">
-                                                                        {offer ? (
-                                                                            <div>
-                                                                                <div className="font-semibold">₹{parseFloat(offer[1]).toLocaleString()}</div>
-                                                                                <div className="text-[9px] text-muted-foreground truncate" title={offer[2]}>{offer[2]}</div>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <span className="text-muted-foreground">-</span>
-                                                                        )}
-                                                                    </td>
-                                                                );
-                                                            })}
-                                                        </tr>
-                                                    ))}
+                                                    {selectedIndent.products.map((p, idx) => {
+                                                        const validRates = p.vendors
+                                                            .map(v => parseFloat(v[1]))
+                                                            .filter(r => !isNaN(r) && r > 0);
+                                                        const minRate = validRates.length > 0 ? Math.min(...validRates) : null;
+
+                                                        return (
+                                                            <tr key={p.id || idx} className="border-b hover:bg-muted/10">
+                                                                <td className="px-4 py-2.5 border-r">
+                                                                    <div className="font-medium text-xs">{p.product}</div>
+                                                                    <div className="text-[10px] text-muted-foreground">{p.quantity} {p.uom}</div>
+                                                                </td>
+                                                                {Object.keys(selectedIndent.vendorTotals).map(vendorName => {
+                                                                    const offer = p.vendors.find(v => v[0] === vendorName);
+                                                                    const isSelected = productSelections[p.id] === vendorName;
+                                                                    const offerRate = offer ? parseFloat(offer[1]) : null;
+                                                                    const isItemL1 = offerRate !== null && minRate !== null && offerRate === minRate;
+
+                                                                    return (
+                                                                        <td
+                                                                            key={vendorName}
+                                                                            onClick={() => {
+                                                                                if (offer) {
+                                                                                    setProductSelections(prev => ({
+                                                                                        ...prev,
+                                                                                        [p.id]: vendorName,
+                                                                                    }));
+                                                                                }
+                                                                            }}
+                                                                            className={`px-3 py-2 border-r transition-all ${
+                                                                                offer ? 'cursor-pointer hover:bg-muted/30 select-none' : 'text-center'
+                                                                            } ${
+                                                                                isSelected ? 'bg-green-50/80 ring-2 ring-inset ring-green-600' : ''
+                                                                            }`}
+                                                                        >
+                                                                            {offer ? (
+                                                                                <div className="flex items-center gap-2.5">
+                                                                                    <div
+                                                                                        className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                                                                                            isSelected
+                                                                                                ? 'border-green-600 bg-green-600 shadow-xs'
+                                                                                                : 'border-muted-foreground/40 bg-background hover:border-green-600'
+                                                                                        }`}
+                                                                                    >
+                                                                                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                                                                    </div>
+                                                                                    <div className="flex-1 min-w-0 text-left">
+                                                                                        <div className="flex items-center gap-1.5">
+                                                                                            <span className={`text-xs ${isSelected ? 'font-bold text-green-900' : 'font-semibold'}`}>
+                                                                                                ₹{offerRate?.toLocaleString()}
+                                                                                            </span>
+                                                                                            {isItemL1 && (
+                                                                                                <span className="text-[8px] bg-green-100 text-green-800 font-bold px-1 py-0.5 rounded leading-none">
+                                                                                                    L1
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        <div className="text-[9px] text-muted-foreground truncate max-w-[130px]" title={offer[2]}>
+                                                                                            {offer[2] || 'No terms'}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <span className="text-muted-foreground">-</span>
+                                                                            )}
+                                                                        </td>
+                                                                    );
+                                                                })}
+                                                            </tr>
+                                                        );
+                                                    })}
                                                 </tbody>
                                                 <tfoot className="bg-muted/50 font-bold">
                                                     <tr>
@@ -785,7 +956,7 @@ export default () => {
                                                             return (
                                                                 <td key={vendor} className={`px-4 py-3 border-r text-center ${isMin ? 'text-green-600 bg-green-50' : ''}`}>
                                                                     <div className="text-sm">₹{total.toLocaleString()}</div>
-                                                                    {isMin && <div className="text-[9px] uppercase tracking-tighter">L1 Lowest</div>}
+                                                                    {isMin && <div className="text-[9px] uppercase tracking-tighter">L1 Lowest (Total)</div>}
                                                                 </td>
                                                             );
                                                         })}
@@ -795,109 +966,156 @@ export default () => {
                                         </div>
                                     </div>
 
-                                    <div className="grid gap-3">
-                                        <FormField
-                                            control={form.control}
-                                            name="vendorName"
-                                            render={({ field }) => {
-                                                const minTotal = Math.min(...Object.values(selectedIndent.vendorTotals));
-                                                
-                                                return (
-                                                    <FormItem>
-                                                        <FormLabel className="text-base font-bold">Select Approved Vendor (Final L1 Decision)</FormLabel>
-                                                        <FormControl>
-                                                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-3 gap-2">
-                                                                {Object.entries(selectedIndent.vendorTotals).map(
-                                                                    ([vendorName, total]) => {
-                                                                        const isLowest = total === minTotal;
-                                                                        const deliveryTime = selectedIndent.products[0]?.vendors.find(v => v[0] === vendorName)?.[3];
+                                    {/* Approved Vendors Dynamic Selection Summary */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                                                    Select Approved Vendor(s)
+                                                </h4>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {Object.keys(productSelections).length} of {selectedIndent.products.length} product(s) selected
+                                                </p>
+                                            </div>
+                                            {activeVendorNames.length > 0 && (
+                                                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-800 border border-green-200">
+                                                    {activeVendorNames.length} Vendor{activeVendorNames.length > 1 ? 's' : ''} Selected
+                                                </span>
+                                            )}
+                                        </div>
 
-                                                                        return (
-                                                                            <FormItem key={vendorName}>
-                                                                                <FormLabel className={`flex flex-col items-center gap-2 border hover:bg-accent p-3 rounded-lg cursor-pointer transition-all ${isLowest ? 'border-green-500 bg-green-50/30 ring-1 ring-green-500' : ''} ${field.value === vendorName ? 'border-primary ring-2 ring-primary bg-primary/5' : ''}`}>
-                                                                                    <FormControl>
-                                                                                        <RadioGroupItem
-                                                                                            value={vendorName}
-                                                                                            className="sr-only"
-                                                                                        />
-                                                                                    </FormControl>
-                                                                                    <div className="text-center w-full">
-                                                                                        <p className="font-bold text-xs break-words leading-tight w-full text-center">{vendorName}</p>
-                                                                                        <p className={`text-base font-black mt-1 ${isLowest ? 'text-green-700' : 'text-primary'}`}>
-                                                                                            ₹{total.toLocaleString()}
-                                                                                        </p>
-                                                                                        {deliveryTime != null && (
-                                                                                            <p className="text-[10px] text-muted-foreground mt-1">
-                                                                                                {deliveryTime} day{deliveryTime !== 1 ? 's' : ''} delivery
-                                                                                            </p>
-                                                                                        )}
-                                                                                        {isLowest && (
-                                                                                            <span className="text-[9px] bg-green-600 text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-widest mt-2 block">
-                                                                                                L1 Decision
-                                                                                            </span>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </FormLabel>
-                                                                            </FormItem>
-                                                                        );
-                                                                    }
+                                        {activeVendorNames.length === 0 ? (
+                                            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 text-center text-muted-foreground bg-muted/10">
+                                                <p className="text-xs font-semibold text-foreground">No vendor selected yet</p>
+                                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                                    Click the selection circle in the price matrix above to assign an approved vendor for each product.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className={`grid gap-2 ${
+                                                activeVendorNames.length === 1
+                                                    ? 'grid-cols-1 sm:max-w-[240px]'
+                                                    : activeVendorNames.length === 2
+                                                    ? 'grid-cols-2'
+                                                    : 'grid-cols-3'
+                                            }`}>
+                                                {Object.entries(selectedVendorsSummary).map(([vendorName, info]) => (
+                                                    <div
+                                                        key={vendorName}
+                                                        className="rounded-lg border border-border/80 bg-card p-2.5 flex flex-col justify-between shadow-2xs hover:border-green-600/40 transition-all"
+                                                    >
+                                                        <div>
+                                                            <div className="font-bold text-[11px] uppercase tracking-tight text-foreground truncate" title={vendorName}>
+                                                                {vendorName}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground">
+                                                                {info.deliveryTime != null && (
+                                                                    <span>{info.deliveryTime}d delivery</span>
                                                                 )}
-                                                            </RadioGroup>
-                                                        </FormControl>
-                                                    </FormItem>
-                                                );
-                                            }}
-                                        />
+                                                                <span>• {info.products.length} item{info.products.length > 1 ? 's' : ''}</span>
+                                                            </div>
+
+                                                            {/* Compact Price Box */}
+                                                            <div className="my-2 py-1 px-2 rounded bg-green-50/70 border border-green-200/50 text-center">
+                                                                <span className="text-sm font-black text-green-700">
+                                                                    ₹{info.totalAmount.toLocaleString()}
+                                                                </span>
+                                                            </div>
+
+                                                            {/* Compact Assigned Items */}
+                                                            <div className="space-y-1 max-h-28 overflow-y-auto pr-0.5">
+                                                                {info.products.map(item => (
+                                                                    <div
+                                                                        key={item.id}
+                                                                        className="text-[10px] py-1 px-1.5 rounded bg-muted/40 flex items-center justify-between gap-1"
+                                                                    >
+                                                                        <div className="min-w-0 flex-1 truncate">
+                                                                            <span className="font-medium text-foreground block truncate" title={item.name}>
+                                                                                {item.name}
+                                                                            </span>
+                                                                            <span className="text-[9px] text-muted-foreground">
+                                                                                {item.quantity} {item.uom} @ ₹{item.rate}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="text-right shrink-0">
+                                                                            <span className="font-bold text-[10px] block">
+                                                                                ₹{(item.rate * (item.quantity || 1)).toLocaleString()}
+                                                                            </span>
+                                                                            {item.isL1 ? (
+                                                                                <span className="text-[8px] font-bold text-green-600 bg-green-100/80 px-1 py-0.2 rounded">
+                                                                                    L1
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-[8px] font-bold text-amber-600 bg-amber-100/80 px-1 py-0.2 rounded">
+                                                                                    Above L1
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
-                                    {(() => {
-                                        const vendorName = form.watch('vendorName');
-                                        if (!vendorName) return null;
-                                        const total = selectedIndent.vendorTotals[vendorName];
-                                        const minTotal = Math.min(...Object.values(selectedIndent.vendorTotals));
-                                        const isLowest = total === minTotal;
-                                        
-                                        if (isLowest) return null;
-                                        
-                                        return (
-                                            <FormField
-                                                control={form.control}
-                                                name="remarks"
-                                                render={({ field, fieldState }) => (
-                                                    <FormItem className="animate-in slide-in-from-top-2 duration-300">
-                                                        <FormLabel className="text-destructive font-bold flex items-center gap-2">
-                                                            Remarks for selecting higher priced vendor <span className="text-destructive">*</span>
-                                                        </FormLabel>
-                                                        <FormControl>
-                                                            <Textarea
-                                                                placeholder="Why are you choosing this vendor instead of L1? (e.g. Quality, Delivery Time, Payment Terms...)"
-                                                                className="resize-none border-destructive/50 focus-visible:ring-destructive"
-                                                                rows={3}
-                                                                autoFocus
-                                                                {...field}
-                                                            />
-                                                        </FormControl>
-                                                        {fieldState.error && (
-                                                            <p className="text-xs text-destructive font-medium">{fieldState.error.message}</p>
-                                                        )}
-                                                    </FormItem>
-                                                )}
-                                            />
-                                        );
-                                    })()}
+                                    {isAnyNonL1 && (
+                                        <FormField
+                                            control={form.control}
+                                            name="remarks"
+                                            render={({ field, fieldState }) => (
+                                                <FormItem className="animate-in slide-in-from-top-2 duration-300">
+                                                    <FormLabel className="text-destructive font-bold flex items-center gap-2">
+                                                        Remarks for selecting higher priced vendor <span className="text-destructive">*</span>
+                                                    </FormLabel>
+                                                    <FormControl>
+                                                        <Textarea
+                                                            placeholder="Why are you choosing higher-priced vendor(s) instead of L1? (e.g. Quality, Delivery Time, Payment Terms...)"
+                                                            className="resize-none border-destructive/50 focus-visible:ring-destructive"
+                                                            rows={3}
+                                                            autoFocus
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    {fieldState.error && (
+                                                        <p className="text-xs text-destructive font-medium">{fieldState.error.message}</p>
+                                                    )}
+                                                </FormItem>
+                                            )}
+                                        />
+                                    )}
                                 </div>
 
-                                <DialogFooter className="p-6 pt-2 border-t bg-background">
-                                    <DialogClose asChild>
-                                        <Button variant="outline">Cancel</Button>
-                                    </DialogClose>
-                                    <Button type="submit" disabled={form.formState.isSubmitting} className="min-w-[120px]">
-                                        {form.formState.isSubmitting ? (
-                                            <Loader size={18} color="white" />
+                                <DialogFooter className="p-6 pt-2 border-t bg-background flex items-center justify-between">
+                                    <div className="text-xs text-muted-foreground">
+                                        {Object.keys(productSelections).length < selectedIndent.products.length ? (
+                                            <span className="text-amber-600 font-medium">
+                                                Select vendor for all {selectedIndent.products.length} products to submit ({Object.keys(productSelections).length}/{selectedIndent.products.length} selected)
+                                            </span>
                                         ) : (
-                                            "Submit Approval"
+                                            <span className="text-green-600 font-medium">
+                                                All {selectedIndent.products.length} products assigned
+                                            </span>
                                         )}
-                                    </Button>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <DialogClose asChild>
+                                            <Button variant="outline">Cancel</Button>
+                                        </DialogClose>
+                                        <Button
+                                            type="submit"
+                                            disabled={form.formState.isSubmitting || Object.keys(productSelections).length !== selectedIndent.products.length}
+                                            className="min-w-[120px]"
+                                        >
+                                            {form.formState.isSubmitting ? (
+                                                <Loader size={18} color="white" />
+                                            ) : (
+                                                "Submit Approval"
+                                            )}
+                                        </Button>
+                                    </div>
                                 </DialogFooter>
                             </form>
                         </Form>
