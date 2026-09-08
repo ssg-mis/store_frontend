@@ -587,8 +587,15 @@ export default () => {
 
             if (!result.success) throw new Error('API insertion failed');
 
-            toast.success('Indent created successfully');
+            if (data.indentType === 'Store Out') {
+                toast.success('Store Out executed successfully! Stock deducted.');
+            } else if (data.indentType === 'Store Out Return') {
+                toast.success('Store Out Return executed successfully! Stock restored.');
+            } else {
+                toast.success('Indent created successfully');
+            }
             updateIndentSheet(); 
+            updateInventorySheet(); 
 
             setProductGroupFilters([null]);
             form.reset({
@@ -1188,14 +1195,14 @@ export default () => {
                                                 render={({ field }) => {
                                                     const stock = getStock(field.value, departmentHead);
                                                     return (
-                                                        <FormItem>
+                                                        <FormItem className="min-w-0">
                                                             <FormLabel>
                                                                 Product Name
                                                                 <span className="text-destructive">
                                                                     *
                                                                 </span>
                                                             </FormLabel>
-                                                            <div className="relative">
+                                                            <div className="relative min-w-0">
                                                                 <Select
                                                                     onValueChange={(value) => {
                                                                         field.onChange(value);
@@ -1248,7 +1255,7 @@ export default () => {
                                                                     value={field.value}
                                                                 >
                                                                     <FormControl>
-                                                                        <SelectTrigger className="w-full">
+                                                                        <SelectTrigger className="w-full min-w-0" title={field.value || ''}>
                                                                             <SelectValue placeholder="Select product" />
                                                                         </SelectTrigger>
                                                                     </FormControl>
@@ -1326,7 +1333,7 @@ export default () => {
                                                     });
 
                                                     return (
-                                                        <FormItem>
+                                                        <FormItem className="min-w-0">
                                                             <FormLabel>
                                                                 UOM
                                                                 <span className="text-destructive">
@@ -1342,7 +1349,7 @@ export default () => {
                                                                 value={field.value}
                                                             >
                                                                 <FormControl>
-                                                                    <SelectTrigger className="w-full">
+                                                                    <SelectTrigger className="w-full min-w-0">
                                                                         <SelectValue placeholder="Select UOM" />
                                                                     </SelectTrigger>
                                                                 </FormControl>

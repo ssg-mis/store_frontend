@@ -17,5 +17,6 @@ export interface RouteAttributes {
     icon: JSX.Element;
     gateKey?: keyof UserPermissions;
     roleKey?: string;
+    hidden?: boolean;
     notifications: (data: NotificationsData) => number
 }

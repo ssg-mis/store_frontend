@@ -7,6 +7,8 @@ import { fetchPOApprovals, approvePO, rejectPO, fetchVendors, fetchFirms, upload
 import { useSheets } from '@/context/SheetsContext';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
+import POComparisonPdf, { type POComparisonPdfProps } from '../element/POComparisonPdf';
+import IndentHistoryPdf, { type IndentHistoryPdfProps } from '../element/IndentHistoryPdf';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -107,6 +109,8 @@ export default function ApprovalPO() {
     const [vendors, setVendors] = useState<any[]>([]);
     const [firms, setFirms] = useState<any[]>([]);
     const [generatingCopy, setGeneratingCopy] = useState(false);
+    const [generatingComparison, setGeneratingComparison] = useState(false);
+    const [generatingIndentHistoryPdf, setGeneratingIndentHistoryPdf] = useState(false);
 
     const [tab, setTab] = useState<'pending' | 'rejected'>('pending');
     const [pendingRows, setPendingRows] = useState<PORow[]>([]);
@@ -150,8 +154,8 @@ export default function ApprovalPO() {
     useEffect(() => { loadData(); }, [loadData]);
 
     useEffect(() => {
-        fetchVendors().then((v) => setVendors(Array.isArray(v) ? v : [])).catch(() => {});
-        fetchFirms().then((f) => setFirms(Array.isArray(f) ? f : [])).catch(() => {});
+        fetchVendors().then((v) => setVendors(Array.isArray(v) ? v : [])).catch(() => { });
+        fetchFirms().then((f) => setFirms(Array.isArray(f) ? f : [])).catch(() => { });
     }, []);
 
     useEffect(() => {
@@ -257,6 +261,168 @@ export default function ApprovalPO() {
         }
     }
 
+    async function handleViewComparisonPdf(group: POGroup) {
+        setGeneratingComparison(true);
+        try {
+            const first: any = group.items[0] || {};
+            const firm = firms.find((f: any) => f.firm_name === group.firm);
+            const firmAddress = formatFirmAddress(firm, details?.companyAddress || '');
+            const companyName = firm?.firm_name || group.firm || details?.companyName || '';
+
+            let logoBase64 = '';
+            try {
+                const logoResponse = await fetch('/logo.png');
+                const logoBlob = await logoResponse.blob();
+                logoBase64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(logoBlob);
+                });
+            } catch { /* logo is optional */ }
+
+            const quotes: VendorQuote[] = first?.vendorQuotes || [];
+            const approvedVendor = first?.approvedVendorName || group.partyName || '';
+
+            const props: POComparisonPdfProps = {
+                companyLogo: logoBase64,
+                companyName,
+                companyAddress: firmAddress,
+                companyGstin: firm?.firm_gstin || details?.companyGstin || '',
+                companyPan: firm?.pan_number || details?.companyPan || '',
+                companyPhone: firm?.mobile || details?.companyPhone || '',
+                poNumber: group.poNumber,
+                orderDate: group.createdAt ? formatDate(new Date(group.createdAt)) : '',
+                preparedBy: group.preparedBy || '',
+                approvedVendorName: approvedVendor,
+                firm: group.firm,
+                items: group.items.map((it: any) => ({
+                    internalCode: it.internalCode || '',
+                    product: it.product || '',
+                    description: it.description || '',
+                    quantity: Number(it.quantity || 0),
+                    unit: it.unit || '',
+                    rate: Number(it.rate || 0),
+                    amount: Number(it.amount || 0),
+                    make: it.make || '',
+                })),
+                quotes: quotes.map(q => ({
+                    slot: q.slot,
+                    vendorName: q.vendorName,
+                    rate: q.rate != null ? Number(q.rate) : null,
+                    paymentTerm: q.paymentTerm,
+                    deliveryTime: q.deliveryTime != null ? Number(q.deliveryTime) : null,
+                    comparisonSheet: q.comparisonSheet,
+                })),
+            };
+
+            const blob = await pdf(<POComparisonPdf {...props} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err: any) {
+            console.error('Error generating Comparison PDF:', err);
+            toast.error('Failed to generate Comparison PDF');
+        } finally {
+            setGeneratingComparison(false);
+        }
+    }
+
+    async function handleDownloadIndentHistoryPdf() {
+        if (!historyIndentNumber || historyIndentData.length === 0) return;
+        setGeneratingIndentHistoryPdf(true);
+        try {
+            const firstIndent = historyIndentData[0] || {};
+            const firmName = firstIndent.firm || viewGroup?.firm || '';
+            const firm = firms.find((f: any) => f.firm_name === firmName);
+            const firmAddress = formatFirmAddress(firm, details?.companyAddress || '');
+            const companyName = firm?.firm_name || firmName || details?.companyName || '';
+
+            let logoBase64 = '';
+            try {
+                const logoResponse = await fetch('/logo.png');
+                const logoBlob = await logoResponse.blob();
+                logoBase64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(logoBlob);
+                });
+            } catch { /* logo is optional */ }
+
+            const rowsData = historyIndentData.map((row) => {
+                const approved = row.approvedIndents?.[0];
+                const threeParty = row.threePartyApproval?.[0];
+                const quotes = row.vendorRateUpdates?.[0];
+                const poList = row.poMasters || [];
+                const grnList = row.received || [];
+                const storeOutList = row.storeOutApproval || [];
+
+                const rateQuotes: string[] = [];
+                if (quotes?.vendorName1) rateQuotes.push(`${quotes.vendorName1}: Rs. ${quotes.rate1}`);
+                if (quotes?.vendorName2) rateQuotes.push(`${quotes.vendorName2}: Rs. ${quotes.rate2}`);
+                if (quotes?.vendorName3) rateQuotes.push(`${quotes.vendorName3}: Rs. ${quotes.rate3}`);
+                const quotesText = rateQuotes.join(', ');
+
+                return {
+                    id: row.id,
+                    productName: row.productName,
+                    indenterName: row.indenterName,
+                    department: row.department,
+                    areaOfUse: row.areaOfUse,
+                    quantity: row.quantity,
+                    uom: row.uom,
+                    createdAt: row.createdAt ? formatDate(new Date(row.createdAt)) : '',
+                    approvedQuantity: approved?.approvedQuantity,
+                    plannedDate: approved?.planned ? formatDate(new Date(approved.planned)) : null,
+                    quotesText: quotesText || null,
+                    approvedVendorName: threeParty?.approvedVendorName,
+                    approvedRate: threeParty?.approvedRate,
+                    approvedDate: threeParty?.approvedDate ? formatDate(new Date(threeParty.approvedDate)) : null,
+                    poList: poList.map((po: any) => ({
+                        poNumber: po.poNumber,
+                        quantity: po.quantity,
+                        unit: po.unit,
+                        createdAt: po.createdAt ? formatDate(new Date(po.createdAt)) : '',
+                    })),
+                    grnList: grnList.map((grn: any) => ({
+                        grnNumber: grn.grnNumber,
+                        receivedQuantity: grn.receivedQuantity,
+                        createdAt: grn.createdAt ? formatDate(new Date(grn.createdAt)) : '',
+                    })),
+                    storeOutList: storeOutList.map((so: any) => ({
+                        issue_status: so.issue_status,
+                        issued_quantity: so.issued_quantity,
+                        createdAt: so.createdAt ? formatDate(new Date(so.createdAt)) : '',
+                    })),
+                };
+            });
+
+            const props: IndentHistoryPdfProps = {
+                companyLogo: logoBase64,
+                companyName,
+                companyAddress: firmAddress,
+                companyGstin: firm?.firm_gstin || details?.companyGstin || '',
+                companyPan: firm?.pan_number || details?.companyPan || '',
+                companyPhone: firm?.mobile || details?.companyPhone || '',
+                indentNumber: historyIndentNumber,
+                requestedDate: firstIndent.createdAt ? formatDate(new Date(firstIndent.createdAt)) : '',
+                firm: firmName,
+                department: firstIndent.department || '',
+                indenterName: firstIndent.indenterName || '',
+                rows: rowsData,
+            };
+
+            const blob = await pdf(<IndentHistoryPdf {...props} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (err: any) {
+            console.error('Error generating Indent History PDF:', err);
+            toast.error('Failed to generate Indent History PDF');
+        } finally {
+            setGeneratingIndentHistoryPdf(false);
+        }
+    }
+
     const filterRows = (rows: PORow[]) => {
         if (!search.trim()) return rows;
         const q = search.trim().toLowerCase();
@@ -264,7 +430,8 @@ export default function ApprovalPO() {
             (r.poNumber || '').toLowerCase().includes(q) ||
             (r.partyName || '').toLowerCase().includes(q) ||
             (r.firm || '').toLowerCase().includes(q) ||
-            (r.product || '').toLowerCase().includes(q)
+            (r.product || '').toLowerCase().includes(q) ||
+            (r.internalCode || '').toLowerCase().includes(q)
         );
     };
 
@@ -425,102 +592,617 @@ export default function ApprovalPO() {
 
     return (
         <>
-        <div className="w-full max-w-full pb-10 overflow-x-hidden">
-            <Heading heading="Approval of PO" subtext="Approve or reject newly created purchase orders">
-                <ClipboardCheck size={50} className="text-primary" />
-            </Heading>
+            <div className="w-full max-w-full pb-10 overflow-x-hidden">
+                <Heading heading="Approval of PO" subtext="Approve or reject newly created purchase orders">
+                    <ClipboardCheck size={50} className="text-primary" />
+                </Heading>
 
-            <Tabs value={tab} onValueChange={(v) => setTab(v as 'pending' | 'rejected')} className="mt-4 gap-3">
-                <TabsList className="h-10">
-                    <TabsTrigger value="pending" className="flex-none px-4">
-                        Pending Approval
-                        <span className="ml-1.5 rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-xs font-semibold">{pendingCount}</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="rejected" className="flex-none px-4">
-                        Rejected
-                        <span className="ml-1.5 rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-xs font-semibold">{rejectedCount}</span>
-                    </TabsTrigger>
-                </TabsList>
+                <Tabs value={tab} onValueChange={(v) => setTab(v as 'pending' | 'rejected')} className="mt-4 gap-3">
+                    <TabsList className="h-10">
+                        <TabsTrigger value="pending" className="flex-none px-4">
+                            Pending Approval
+                            <span className="ml-1.5 rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-xs font-semibold">{pendingCount}</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="rejected" className="flex-none px-4">
+                            Rejected
+                            <span className="ml-1.5 rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-xs font-semibold">{rejectedCount}</span>
+                        </TabsTrigger>
+                    </TabsList>
 
-                <div className="flex items-center justify-end">
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                        <Input
-                            placeholder="Search PO, vendor, product..."
-                            className="pl-8 h-9 text-sm w-[260px]"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-                    </div>
-                </div>
-
-                <TabsContent value={tab} className="mt-0">
-                    {loading ? (
-                        <div className="space-y-2">
-                            {[...Array(5)].map((_, i) => (
-                                <div key={i} className="h-10 bg-muted animate-pulse rounded" />
-                            ))}
+                    <div className="flex items-center justify-end">
+                        <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                            <Input
+                                placeholder="Search PO, vendor, product..."
+                                className="pl-8 h-9 text-sm w-[260px]"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
                         </div>
-                    ) : groups.length === 0 ? (
-                        <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-                            {tab === 'pending' ? 'No POs pending approval' : 'No rejected POs'}
+                    </div>
+
+                    <TabsContent value={tab} className="mt-0">
+                        {loading ? (
+                            <div className="space-y-2">
+                                {[...Array(5)].map((_, i) => (
+                                    <div key={i} className="h-10 bg-muted animate-pulse rounded" />
+                                ))}
+                            </div>
+                        ) : groups.length === 0 ? (
+                            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+                                {tab === 'pending' ? 'No POs pending approval' : 'No rejected POs'}
+                            </div>
+                        ) : (
+                            <div className="rounded-md border overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-16 text-center">Actions</TableHead>
+                                            <TableHead>PO Number</TableHead>
+                                            <TableHead>Vendor</TableHead>
+                                            <TableHead>Firm</TableHead>
+                                            <TableHead>Date</TableHead>
+                                            <TableHead>Prepared By</TableHead>
+                                            <TableHead>Total Amount</TableHead>
+                                            <TableHead>Items</TableHead>
+                                            <TableHead>Make</TableHead>
+                                            {tab === 'rejected' && <TableHead>Rejection Reason</TableHead>}
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {groups.map(group => {
+                                            return (
+                                                <TableRow
+                                                    key={group.poNumber}
+                                                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                                    onClick={() => {
+                                                        setViewFromHistory(false);
+                                                        setViewGroup(group);
+                                                    }}
+                                                >
+                                                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                        <Button variant="outline" size="sm" className="h-7 text-xs px-2.5"
+                                                            onClick={() => { setViewFromHistory(false); setViewGroup(group); }}>
+                                                            View
+                                                        </Button>
+                                                    </TableCell>
+                                                    <TableCell className="font-medium text-xs sm:text-sm text-primary whitespace-nowrap">{group.poNumber}</TableCell>
+                                                    <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
+                                                    <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
+                                                    <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.createdAt ? formatDate(new Date(group.createdAt)) : '—'}</TableCell>
+                                                    <TableCell className="text-xs sm:text-sm">{group.preparedBy}</TableCell>
+                                                    <TableCell className="text-xs sm:text-sm whitespace-nowrap">&#8377;{Number(group.totalPOAmount || 0).toLocaleString()}</TableCell>
+                                                    <TableCell>
+                                                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                                                            {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="text-xs sm:text-sm text-muted-foreground">
+                                                        {(() => {
+                                                            const makes = [...new Set(group.items.map(i => i.make).filter(Boolean))];
+                                                            return makes.length ? makes.join(', ') : '—';
+                                                        })()}
+                                                    </TableCell>
+                                                    {tab === 'rejected' && (
+                                                        <TableCell className="text-xs text-destructive max-w-[220px] break-words whitespace-normal">
+                                                            {group.rejectionReason || '—'}
+                                                        </TableCell>
+                                                    )}
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        )}
+                    </TabsContent>
+                </Tabs>
+            </div>
+
+            {/* ── View dialog ── */}
+            <Dialog open={!!viewGroup} onOpenChange={(open) => {
+                if (!open) {
+                    setViewGroup(null);
+                    setViewFromHistory(false);
+                    setIsRejectingInline(false);
+                    setRejectReason('');
+                    setRejectError(false);
+                }
+            }}>
+                <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>PO Details — {viewGroup?.poNumber}</DialogTitle>
+                    </DialogHeader>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 bg-muted/30 rounded-lg px-4 py-3 border">
+                        {[
+                            { label: 'Vendor', value: viewGroup?.partyName },
+                            { label: 'Firm', value: viewGroup?.firm },
+                            { label: 'Prepared By', value: viewGroup?.preparedBy },
+                            { label: 'Date', value: viewGroup?.createdAt ? formatDate(new Date(viewGroup.createdAt)) : null },
+                            { label: 'Total Amount', value: viewGroup ? `₹${Number(viewGroup.totalPOAmount || 0).toLocaleString()}` : null },
+                            { label: 'Rejection Reason', value: viewGroup?.rejectionReason },
+                        ].map(({ label, value }) =>
+                            value ? (
+                                <div key={label} className="flex flex-col">
+                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+                                    <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
+                                </div>
+                            ) : null
+                        )}
+                        <div className="flex flex-col">
+                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">PO Copy</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                                <button
+                                    type="button"
+                                    disabled={generatingCopy || !viewGroup}
+                                    onClick={() => viewGroup && handleViewPOCopy(viewGroup)}
+                                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <FileText className="h-3 w-3" />
+                                    {generatingCopy ? 'Generating...' : 'View PDF'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── Vendor Rate Comparison Panel (Multi-Party) ── */}
+                    {(() => {
+                        // Deduplicate quotes across all PO line items (they share the same indent)
+                        const firstItem: any = viewGroup?.items?.[0];
+                        const quotes: VendorQuote[] = firstItem?.vendorQuotes || [];
+                        const approvedVendor = firstItem?.approvedVendorName || viewGroup?.partyName || '';
+
+                        if (quotes.length < 2) return null;  // Only show for multi-party
+
+                        const lowestRate = Math.min(...quotes.map(q => Number(q.rate || 0)).filter(r => r > 0));
+
+                        return (
+                            <div className="rounded-md border overflow-hidden">
+                                <div className="bg-muted/40 px-4 py-2 border-b flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vendor Rate Comparison</span>
+                                        <span className="text-[10px] text-muted-foreground">({quotes.length} vendors quoted)</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        disabled={generatingComparison || !viewGroup}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (viewGroup) handleViewComparisonPdf(viewGroup);
+                                        }}
+                                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Open and download Vendor Rate Comparison PDF"
+                                    >
+                                        <FileText className="h-3.5 w-3.5" />
+                                        {generatingComparison ? 'Generating Comparison...' : 'Comparison PDF'}
+                                    </button>
+                                </div>
+                                <div className="grid gap-0 divide-y">
+                                    {quotes.map((q) => {
+                                        const isApproved = (q.vendorName || '').trim().toLowerCase() === approvedVendor.trim().toLowerCase();
+                                        const isLowest = Number(q.rate || 0) === lowestRate && lowestRate > 0;
+                                        return (
+                                            <div
+                                                key={q.slot}
+                                                className={`flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2.5 text-xs transition-colors ${isApproved
+                                                        ? 'bg-green-50 dark:bg-green-950/30 border-l-4 border-l-green-500'
+                                                        : 'border-l-4 border-l-transparent'
+                                                    }`}
+                                            >
+                                                {/* Slot badge */}
+                                                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground shrink-0">
+                                                    {q.slot}
+                                                </span>
+
+                                                {/* Vendor name */}
+                                                <span className={`font-semibold min-w-[140px] ${isApproved ? 'text-green-700 dark:text-green-400' : 'text-foreground'
+                                                    }`}>
+                                                    {q.vendorName || '—'}
+                                                    {isApproved && (
+                                                        <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-1.5 py-0.5 text-[10px] font-semibold">
+                                                            ✓ Selected
+                                                        </span>
+                                                    )}
+                                                </span>
+
+                                                {/* Rate */}
+                                                <span className={`font-mono font-semibold ${isLowest ? 'text-green-600 dark:text-green-400' : 'text-foreground'
+                                                    }`}>
+                                                    ₹{Number(q.rate || 0).toLocaleString()}
+                                                    {isLowest && !isApproved && (
+                                                        <span className="ml-1 text-[10px] text-green-500">↓ Lowest</span>
+                                                    )}
+                                                </span>
+
+                                                {/* Payment term */}
+                                                <span className="text-muted-foreground">
+                                                    {q.paymentTerm || '—'}
+                                                </span>
+
+                                                {/* Delivery */}
+                                                <span className="text-muted-foreground">
+                                                    {q.deliveryTime != null ? `${q.deliveryTime} day${q.deliveryTime === 1 ? '' : 's'}` : '—'}
+                                                </span>
+
+                                                {/* Comparison sheet link */}
+                                                {q.comparisonSheet && (
+                                                    <a
+                                                        href={q.comparisonSheet}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-600 hover:underline flex items-center gap-0.5"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <FileText className="h-3 w-3" /> Quote
+                                                    </a>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    <div className="overflow-x-auto rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-muted/20">
+                                    <TableHead className="text-xs">#</TableHead>
+                                    <TableHead className="text-xs">Indent</TableHead>
+                                    <TableHead className="text-xs">Product</TableHead>
+                                    <TableHead className="text-xs">Qty</TableHead>
+                                    <TableHead className="text-xs">Unit</TableHead>
+                                    <TableHead className="text-xs">Rate</TableHead>
+                                    <TableHead className="text-xs">Discount</TableHead>
+                                    <TableHead className="text-xs">GST</TableHead>
+                                    <TableHead className="text-xs">Amount (excl. GST)</TableHead>
+                                    <TableHead className="text-xs">Amount</TableHead>
+                                    <TableHead className="text-xs">Make</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {viewGroup?.items.map((item, idx) => {
+                                    const rate = Number(item.rate || 0);
+                                    const qty = Number(item.quantity || 0);
+                                    const discount = Number(item.discountPercent || 0);
+                                    const exclGst = (rate * qty) * (1 - discount / 100);
+
+                                    return (
+                                        <TableRow key={item.id}>
+                                            <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                            <TableCell className="text-xs">
+                                                {item.internalCode ? (
+                                                    <button
+                                                        type="button"
+                                                        className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
+                                                        onClick={(e) => { e.stopPropagation(); setHistoryIndentNumber(item.internalCode); setHistoryIndentData([]); }}
+                                                    >
+                                                        {item.internalCode}
+                                                        <History className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                                    </button>
+                                                ) : '—'}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                <button
+                                                    type="button"
+                                                    className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
+                                                    onClick={(e) => { e.stopPropagation(); setHistoryProduct(item.product); setHistoryData([]); }}
+                                                >
+                                                    {item.product}
+                                                    <History className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                                </button>
+                                            </TableCell>
+                                            <TableCell className="text-xs">{item.quantity}</TableCell>
+                                            <TableCell className="text-xs">{item.unit}</TableCell>
+                                            <TableCell className="text-xs">&#8377;{Number(item.rate || 0).toLocaleString()}</TableCell>
+                                            <TableCell className="text-xs">
+                                                {item.discountPercent ? `${item.discountPercent}%` : '—'}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {item.gstPercent !== undefined && item.gstPercent !== null ? `${item.gstPercent}%` : '—'}
+                                            </TableCell>
+                                            <TableCell className="text-xs">&#8377;{Number(exclGst.toFixed(2)).toLocaleString()}</TableCell>
+                                            <TableCell className="text-xs font-semibold">&#8377;{Number(item.amount || 0).toLocaleString()}</TableCell>
+                                            <TableCell className="text-xs text-muted-foreground">{item.make || '—'}</TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </div>
+
+                    {/* Rejection remarks form inline */}
+                    {isRejectingInline && (
+                        <div className="space-y-2 py-3 border-t mt-4 animate-in slide-in-from-bottom-2 duration-200">
+                            <label className="text-xs font-semibold text-red-600 flex items-center gap-1">
+                                Reason for rejection <span className="text-red-500">*</span>
+                            </label>
+                            <Textarea
+                                value={rejectReason}
+                                onChange={(e) => {
+                                    setRejectReason(e.target.value);
+                                    if (e.target.value.trim()) setRejectError(false);
+                                }}
+                                placeholder="Explain why this PO is being rejected..."
+                                rows={3}
+                                className={`resize-none text-sm ${rejectError ? 'border-red-500 focus-visible:ring-red-500/20' : ''}`}
+                            />
+                            {rejectError && (
+                                <p className="text-xs text-red-500">Rejection reason is required.</p>
+                            )}
+                        </div>
+                    )}
+
+                    <DialogFooter className="gap-2 mt-4">
+                        {viewGroup && (
+                            viewFromHistory ? null :
+                                isRejectingInline ? (
+                                    <>
+                                        <Button variant="outline" size="sm" onClick={() => {
+                                            setIsRejectingInline(false);
+                                            setRejectReason('');
+                                            setRejectError(false);
+                                        }}>
+                                            Cancel
+                                        </Button>
+                                        <Button variant="destructive" size="sm" disabled={submitting} onClick={() => handleRejectSubmitInline(viewGroup)}>
+                                            {submitting ? 'Rejecting...' : 'Confirm Reject'}
+                                        </Button>
+                                    </>
+                                ) : tab === 'pending' ? (
+                                    <>
+                                        <Button size="sm" className="bg-green-600 hover:bg-green-700 flex items-center gap-1.5"
+                                            disabled={submitting || isViewOnly}
+                                            onClick={() => {
+                                                handleApprove(viewGroup);
+                                                setViewGroup(null);
+                                            }}>
+                                            <Check className="h-3.5 w-3.5" /> Approve
+                                        </Button>
+                                        <Button variant="destructive" size="sm" className="flex items-center gap-1.5"
+                                            disabled={submitting || isViewOnly}
+                                            onClick={() => {
+                                                setIsRejectingInline(true);
+                                            }}>
+                                            <X className="h-3.5 w-3.5" /> Reject
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <Button size="sm" className="flex items-center gap-1.5"
+                                        disabled={isViewOnly}
+                                        onClick={() => {
+                                            handleRevise(viewGroup);
+                                            setViewGroup(null);
+                                        }}>
+                                        <RotateCcw className="h-3.5 w-3.5" /> Revise
+                                    </Button>
+                                )
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* ── Purchase history dialog ── */}
+            <Dialog open={!!historyProduct} onOpenChange={(open) => { if (!open) { setHistoryProduct(null); setHistoryData([]); } }}>
+                <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <History className="h-4 w-4" />
+                            Purchase History — {historyProduct}
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    {historyLoading ? (
+                        <div className="space-y-2 py-4">
+                            {[...Array(4)].map((_, i) => <div key={i} className="h-9 bg-muted animate-pulse rounded" />)}
+                        </div>
+                    ) : historyData.length === 0 ? (
+                        <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+                            No purchase history found for this item
                         </div>
                     ) : (
-                        <div className="rounded-md border overflow-x-auto">
+                        <div className="overflow-x-auto rounded-md border">
                             <Table>
                                 <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-16 text-center">Actions</TableHead>
-                                        <TableHead>PO Number</TableHead>
-                                        <TableHead>Vendor</TableHead>
-                                        <TableHead>Firm</TableHead>
-                                        <TableHead>Date</TableHead>
-                                        <TableHead>Prepared By</TableHead>
-                                        <TableHead>Total Amount</TableHead>
-                                        <TableHead>Items</TableHead>
-                                        <TableHead>Make</TableHead>
-                                        {tab === 'rejected' && <TableHead>Rejection Reason</TableHead>}
+                                    <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">#</TableHead>
+                                        <TableHead className="text-xs">PO Number</TableHead>
+                                        <TableHead className="text-xs">Date</TableHead>
+                                        <TableHead className="text-xs">Vendor / Party</TableHead>
+                                        <TableHead className="text-xs">Qty</TableHead>
+                                        <TableHead className="text-xs">Unit</TableHead>
+                                        <TableHead className="text-xs">Rate</TableHead>
+                                        <TableHead className="text-xs">Amount</TableHead>
+                                        <TableHead className="text-xs">Received</TableHead>
+                                        <TableHead className="text-xs">GRN</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {groups.map(group => {
-                                        return (
-                                            <TableRow 
-                                                key={group.poNumber}
-                                                className="cursor-pointer hover:bg-muted/50 transition-colors"
-                                                onClick={() => {
-                                                    setViewFromHistory(false);
-                                                    setViewGroup(group);
-                                                }}
-                                            >
-                                                <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
-                                                    <Button variant="outline" size="sm" className="h-7 text-xs px-2.5"
-                                                        onClick={() => { setViewFromHistory(false); setViewGroup(group); }}>
-                                                        View
-                                                    </Button>
-                                                </TableCell>
-                                                <TableCell className="font-medium text-xs sm:text-sm text-primary whitespace-nowrap">{group.poNumber}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.createdAt ? formatDate(new Date(group.createdAt)) : '—'}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.preparedBy}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm whitespace-nowrap">&#8377;{Number(group.totalPOAmount || 0).toLocaleString()}</TableCell>
-                                                <TableCell>
-                                                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                                                        {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
-                                                    </span>
-                                                </TableCell>
-                                                <TableCell className="text-xs sm:text-sm text-muted-foreground">
-                                                    {(() => {
-                                                        const makes = [...new Set(group.items.map(i => i.make).filter(Boolean))];
-                                                        return makes.length ? makes.join(', ') : '—';
-                                                    })()}
-                                                </TableCell>
-                                                {tab === 'rejected' && (
-                                                    <TableCell className="text-xs text-destructive max-w-[220px] break-words whitespace-normal">
-                                                        {group.rejectionReason || '—'}
-                                                    </TableCell>
+                                    {historyData.map((row, idx) => (
+                                        <TableRow key={row.poNumber + idx}>
+                                            <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                            <TableCell className="text-xs font-medium whitespace-nowrap">
+                                                <button
+                                                    type="button"
+                                                    disabled={historyPOLoading === row.poNumber}
+                                                    className="text-primary hover:underline flex items-center gap-1 text-left disabled:opacity-50"
+                                                    onClick={() => handleViewHistoricalPO(row.poNumber)}
+                                                >
+                                                    {row.poNumber}
+                                                </button>
+                                            </TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">{row.poDate ? formatDate(new Date(row.poDate)) : '—'}</TableCell>
+                                            <TableCell className="text-xs">{row.vendor}</TableCell>
+                                            <TableCell className="text-xs">{row.quantity}</TableCell>
+                                            <TableCell className="text-xs">{row.unit}</TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.rate || 0).toLocaleString()}</TableCell>
+                                            <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.amount || 0).toLocaleString()}</TableCell>
+                                            <TableCell className="text-xs">
+                                                {row.receivedQuantity != null ? (
+                                                    <span>{row.receivedQuantity} {row.unit}</span>
+                                                ) : <span className="text-muted-foreground">—</span>}
+                                            </TableCell>
+                                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                                {row.grnNumber || '—'}
+                                                {row.receivedDate && (
+                                                    <div className="text-[10px]">{formatDate(new Date(row.receivedDate))}</div>
                                                 )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* ── Indent history dialog ── */}
+            <Dialog open={!!historyIndentNumber} onOpenChange={(open) => { if (!open) { setHistoryIndentNumber(null); setHistoryIndentData([]); } }}>
+                <DialogContent className="max-w-[95vw] sm:max-w-6xl max-h-[85vh] overflow-y-auto">
+                    <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pr-6">
+                        <DialogTitle className="flex items-center gap-2">
+                            <History className="h-4 w-4" />
+                            Indent History — {historyIndentNumber}
+                            {historyIndentData[0]?.createdAt && (
+                                <span className="text-xs font-normal text-muted-foreground ml-2">
+                                    (Requested: {formatDate(new Date(historyIndentData[0].createdAt))})
+                                </span>
+                            )}
+                        </DialogTitle>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={generatingIndentHistoryPdf || historyIndentData.length === 0}
+                            onClick={handleDownloadIndentHistoryPdf}
+                            className="h-8 text-xs gap-1.5 font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200 cursor-pointer"
+                            title="Download Indent History PDF"
+                        >
+                            <FileText className="h-3.5 w-3.5" />
+                            {generatingIndentHistoryPdf ? 'Generating PDF...' : 'Download PDF'}
+                        </Button>
+                    </DialogHeader>
+
+                    {historyIndentLoading ? (
+                        <div className="space-y-2 py-4">
+                            {[...Array(4)].map((_, i) => <div key={i} className="h-9 bg-muted animate-pulse rounded" />)}
+                        </div>
+                    ) : historyIndentData.length === 0 ? (
+                        <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+                            No indent details found
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-muted/20">
+                                        <TableHead className="text-xs">#</TableHead>
+                                        <TableHead className="text-xs">Product Name</TableHead>
+                                        <TableHead className="text-xs">Indenter</TableHead>
+                                        <TableHead className="text-xs">Area of Use</TableHead>
+                                        <TableHead className="text-xs">Indented Qty</TableHead>
+                                        <TableHead className="text-xs">Approved Qty</TableHead>
+                                        <TableHead className="text-xs">Rate Comparison</TableHead>
+                                        <TableHead className="text-xs">PO Status</TableHead>
+                                        <TableHead className="text-xs">GRN Status</TableHead>
+                                        <TableHead className="text-xs">Issue Status</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {historyIndentData.map((row, idx) => {
+                                        const approved = row.approvedIndents?.[0];
+                                        const threeParty = row.threePartyApproval?.[0];
+                                        const quotes = row.vendorRateUpdates?.[0];
+                                        const poList = row.poMasters || [];
+                                        const grnList = row.received || [];
+                                        const storeOutList = row.storeOutApproval || [];
+
+                                        // Quoted rates text
+                                        const rateQuotes = [];
+                                        if (quotes?.vendorName1) rateQuotes.push(`${quotes.vendorName1}: ₹${quotes.rate1}`);
+                                        if (quotes?.vendorName2) rateQuotes.push(`${quotes.vendorName2}: ₹${quotes.rate2}`);
+                                        if (quotes?.vendorName3) rateQuotes.push(`${quotes.vendorName3}: ₹${quotes.rate3}`);
+                                        const quotesText = rateQuotes.join(', ') || '—';
+
+                                        return (
+                                            <TableRow key={row.id}>
+                                                <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                                <TableCell className="text-xs font-medium whitespace-nowrap">{row.productName}</TableCell>
+                                                <TableCell className="text-xs whitespace-nowrap">
+                                                    <div>{row.indenterName || '—'}</div>
+                                                    {row.department && (
+                                                        <div className="text-[10px] text-muted-foreground">{row.department}</div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-xs whitespace-nowrap">{row.areaOfUse || '—'}</TableCell>
+                                                <TableCell className="text-xs whitespace-nowrap">
+                                                    <div>{row.quantity} {row.uom}</div>
+                                                    <div className="text-[10px] text-muted-foreground">{row.createdAt ? formatDate(new Date(row.createdAt)) : '—'}</div>
+                                                </TableCell>
+                                                <TableCell className="text-xs whitespace-nowrap">
+                                                    {approved ? (
+                                                        <>
+                                                            <div>{approved.approvedQuantity} {row.uom}</div>
+                                                            {approved.planned && (
+                                                                <div className="text-[10px] text-muted-foreground">Planned: {formatDate(new Date(approved.planned))}</div>
+                                                            )}
+                                                        </>
+                                                    ) : <span className="text-muted-foreground">Pending</span>}
+                                                </TableCell>
+                                                <TableCell className="text-xs">
+                                                    <div className="text-[10px] text-muted-foreground whitespace-pre-wrap">{quotesText}</div>
+                                                    {threeParty && (
+                                                        <div className="font-medium text-emerald-600 mt-0.5 text-[11px]">
+                                                            Selected: {threeParty.approvedVendorName} (₹{threeParty.approvedRate})
+                                                            {threeParty.approvedDate && (
+                                                                <div className="text-[10px] text-muted-foreground font-normal">
+                                                                    {formatDate(new Date(threeParty.approvedDate))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-xs">
+                                                    {poList.length > 0 ? (
+                                                        <div className="space-y-1">
+                                                            {poList.map((po: any, pIdx: number) => (
+                                                                <div key={pIdx} className="whitespace-nowrap">
+                                                                    <div className="font-medium">{po.poNumber} <span className="text-muted-foreground font-normal ml-0.5">({po.quantity} {po.unit})</span></div>
+                                                                    <div className="text-[10px] text-muted-foreground">{po.createdAt ? formatDate(new Date(po.createdAt)) : ''}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : <span className="text-muted-foreground">—</span>}
+                                                </TableCell>
+                                                <TableCell className="text-xs">
+                                                    {grnList.length > 0 ? (
+                                                        <div className="space-y-1">
+                                                            {grnList.map((grn: any, gIdx: number) => (
+                                                                <div key={gIdx} className="whitespace-nowrap">
+                                                                    <div className="font-medium">{grn.grnNumber || 'GRN'} <span className="text-muted-foreground font-normal ml-0.5">({grn.receivedQuantity} {row.uom})</span></div>
+                                                                    <div className="text-[10px] text-muted-foreground">
+                                                                        {grn.createdAt ? formatDate(new Date(grn.createdAt)) : ''}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : <span className="text-muted-foreground">—</span>}
+                                                </TableCell>
+                                                <TableCell className="text-xs">
+                                                    {storeOutList.length > 0 ? (
+                                                        <div className="space-y-1">
+                                                            {storeOutList.map((so: any, sIdx: number) => (
+                                                                <div key={sIdx} className="whitespace-nowrap">
+                                                                    <div className="font-medium">{so.issue_status || 'Issued'} <span className="text-muted-foreground font-normal ml-0.5">({so.issued_quantity || 0} {row.uom})</span></div>
+                                                                    <div className="text-[10px] text-muted-foreground">
+                                                                        {so.createdAt ? formatDate(new Date(so.createdAt)) : ''}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : <span className="text-muted-foreground">—</span>}
+                                                </TableCell>
                                             </TableRow>
                                         );
                                     })}
@@ -528,500 +1210,8 @@ export default function ApprovalPO() {
                             </Table>
                         </div>
                     )}
-                </TabsContent>
-            </Tabs>
-        </div>
-
-        {/* ── View dialog ── */}
-        <Dialog open={!!viewGroup} onOpenChange={(open) => {
-            if (!open) {
-                setViewGroup(null);
-                setViewFromHistory(false);
-                setIsRejectingInline(false);
-                setRejectReason('');
-                setRejectError(false);
-            }
-        }}>
-            <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle>PO Details — {viewGroup?.poNumber}</DialogTitle>
-                </DialogHeader>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 bg-muted/30 rounded-lg px-4 py-3 border">
-                    {[
-                        { label: 'Vendor', value: viewGroup?.partyName },
-                        { label: 'Firm', value: viewGroup?.firm },
-                        { label: 'Prepared By', value: viewGroup?.preparedBy },
-                        { label: 'Date', value: viewGroup?.createdAt ? formatDate(new Date(viewGroup.createdAt)) : null },
-                        { label: 'Total Amount', value: viewGroup ? `₹${Number(viewGroup.totalPOAmount || 0).toLocaleString()}` : null },
-                        { label: 'Rejection Reason', value: viewGroup?.rejectionReason },
-                    ].map(({ label, value }) =>
-                        value ? (
-                            <div key={label} className="flex flex-col">
-                                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
-                                <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
-                            </div>
-                        ) : null
-                    )}
-                    <div className="flex flex-col">
-                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">PO Copy</span>
-                        <div className="flex items-center gap-2 mt-0.5">
-                            <button
-                                type="button"
-                                disabled={generatingCopy || !viewGroup}
-                                onClick={() => viewGroup && handleViewPOCopy(viewGroup)}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                <FileText className="h-3 w-3" />
-                                {generatingCopy ? 'Generating...' : 'View PDF'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* ── Vendor Rate Comparison Panel (Multi-Party) ── */}
-                {(() => {
-                    // Deduplicate quotes across all PO line items (they share the same indent)
-                    const firstItem: any = viewGroup?.items?.[0];
-                    const quotes: VendorQuote[] = firstItem?.vendorQuotes || [];
-                    const approvedVendor = firstItem?.approvedVendorName || viewGroup?.partyName || '';
-
-                    if (quotes.length < 2) return null;  // Only show for multi-party
-
-                    const lowestRate = Math.min(...quotes.map(q => Number(q.rate || 0)).filter(r => r > 0));
-
-                    return (
-                        <div className="rounded-md border overflow-hidden">
-                            <div className="bg-muted/40 px-4 py-2 border-b flex items-center gap-2">
-                                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vendor Rate Comparison</span>
-                                <span className="ml-auto text-[10px] text-muted-foreground">{quotes.length} vendors quoted</span>
-                            </div>
-                            <div className="grid gap-0 divide-y">
-                                {quotes.map((q) => {
-                                    const isApproved = (q.vendorName || '').trim().toLowerCase() === approvedVendor.trim().toLowerCase();
-                                    const isLowest = Number(q.rate || 0) === lowestRate && lowestRate > 0;
-                                    return (
-                                        <div
-                                            key={q.slot}
-                                            className={`flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2.5 text-xs transition-colors ${
-                                                isApproved
-                                                    ? 'bg-green-50 dark:bg-green-950/30 border-l-4 border-l-green-500'
-                                                    : 'border-l-4 border-l-transparent'
-                                            }`}
-                                        >
-                                            {/* Slot badge */}
-                                            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground shrink-0">
-                                                {q.slot}
-                                            </span>
-
-                                            {/* Vendor name */}
-                                            <span className={`font-semibold min-w-[140px] ${
-                                                isApproved ? 'text-green-700 dark:text-green-400' : 'text-foreground'
-                                            }`}>
-                                                {q.vendorName || '—'}
-                                                {isApproved && (
-                                                    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-1.5 py-0.5 text-[10px] font-semibold">
-                                                        ✓ Selected
-                                                    </span>
-                                                )}
-                                            </span>
-
-                                            {/* Rate */}
-                                            <span className={`font-mono font-semibold ${
-                                                isLowest ? 'text-green-600 dark:text-green-400' : 'text-foreground'
-                                            }`}>
-                                                ₹{Number(q.rate || 0).toLocaleString()}
-                                                {isLowest && !isApproved && (
-                                                    <span className="ml-1 text-[10px] text-green-500">↓ Lowest</span>
-                                                )}
-                                            </span>
-
-                                            {/* Payment term */}
-                                            <span className="text-muted-foreground">
-                                                {q.paymentTerm || '—'}
-                                            </span>
-
-                                            {/* Delivery */}
-                                            <span className="text-muted-foreground">
-                                                {q.deliveryTime != null ? `${q.deliveryTime} day${q.deliveryTime === 1 ? '' : 's'}` : '—'}
-                                            </span>
-
-                                            {/* Comparison sheet link */}
-                                            {q.comparisonSheet && (
-                                                <a
-                                                    href={q.comparisonSheet}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-blue-600 hover:underline flex items-center gap-0.5"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <FileText className="h-3 w-3" /> Quote
-                                                </a>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    );
-                })()}
-
-                <div className="overflow-x-auto rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow className="bg-muted/20">
-                                <TableHead className="text-xs">#</TableHead>
-                                <TableHead className="text-xs">Indent</TableHead>
-                                <TableHead className="text-xs">Product</TableHead>
-                                <TableHead className="text-xs">Qty</TableHead>
-                                <TableHead className="text-xs">Unit</TableHead>
-                                <TableHead className="text-xs">Rate</TableHead>
-                                <TableHead className="text-xs">Discount</TableHead>
-                                <TableHead className="text-xs">GST</TableHead>
-                                <TableHead className="text-xs">Amount (excl. GST)</TableHead>
-                                <TableHead className="text-xs">Amount</TableHead>
-                                <TableHead className="text-xs">Make</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {viewGroup?.items.map((item, idx) => {
-                                const rate = Number(item.rate || 0);
-                                const qty = Number(item.quantity || 0);
-                                const discount = Number(item.discountPercent || 0);
-                                const exclGst = (rate * qty) * (1 - discount / 100);
-
-                                return (
-                                    <TableRow key={item.id}>
-                                        <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                                        <TableCell className="text-xs">
-                                            {item.internalCode ? (
-                                                <button
-                                                    type="button"
-                                                    className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
-                                                    onClick={(e) => { e.stopPropagation(); setHistoryIndentNumber(item.internalCode); setHistoryIndentData([]); }}
-                                                >
-                                                    {item.internalCode}
-                                                    <History className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                                </button>
-                                            ) : '—'}
-                                        </TableCell>
-                                        <TableCell className="text-xs">
-                                            <button
-                                                type="button"
-                                                className="font-medium text-primary hover:underline flex items-center gap-1 text-left"
-                                                onClick={(e) => { e.stopPropagation(); setHistoryProduct(item.product); setHistoryData([]); }}
-                                            >
-                                                {item.product}
-                                                <History className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                            </button>
-                                        </TableCell>
-                                        <TableCell className="text-xs">{item.quantity}</TableCell>
-                                        <TableCell className="text-xs">{item.unit}</TableCell>
-                                        <TableCell className="text-xs">&#8377;{Number(item.rate || 0).toLocaleString()}</TableCell>
-                                        <TableCell className="text-xs">
-                                            {item.discountPercent ? `${item.discountPercent}%` : '—'}
-                                        </TableCell>
-                                        <TableCell className="text-xs">
-                                            {item.gstPercent !== undefined && item.gstPercent !== null ? `${item.gstPercent}%` : '—'}
-                                        </TableCell>
-                                        <TableCell className="text-xs">&#8377;{Number(exclGst.toFixed(2)).toLocaleString()}</TableCell>
-                                        <TableCell className="text-xs font-semibold">&#8377;{Number(item.amount || 0).toLocaleString()}</TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{item.make || '—'}</TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                </div>
-
-                {/* Rejection remarks form inline */}
-                {isRejectingInline && (
-                    <div className="space-y-2 py-3 border-t mt-4 animate-in slide-in-from-bottom-2 duration-200">
-                        <label className="text-xs font-semibold text-red-600 flex items-center gap-1">
-                            Reason for rejection <span className="text-red-500">*</span>
-                        </label>
-                        <Textarea
-                            value={rejectReason}
-                            onChange={(e) => {
-                                setRejectReason(e.target.value);
-                                if (e.target.value.trim()) setRejectError(false);
-                            }}
-                            placeholder="Explain why this PO is being rejected..."
-                            rows={3}
-                            className={`resize-none text-sm ${rejectError ? 'border-red-500 focus-visible:ring-red-500/20' : ''}`}
-                        />
-                        {rejectError && (
-                            <p className="text-xs text-red-500">Rejection reason is required.</p>
-                        )}
-                    </div>
-                )}
-
-                <DialogFooter className="gap-2 mt-4">
-                    {viewGroup && (
-                        viewFromHistory ? null :
-                        isRejectingInline ? (
-                            <>
-                                <Button variant="outline" size="sm" onClick={() => {
-                                    setIsRejectingInline(false);
-                                    setRejectReason('');
-                                    setRejectError(false);
-                                }}>
-                                    Cancel
-                                </Button>
-                                <Button variant="destructive" size="sm" disabled={submitting} onClick={() => handleRejectSubmitInline(viewGroup)}>
-                                    {submitting ? 'Rejecting...' : 'Confirm Reject'}
-                                </Button>
-                            </>
-                        ) : tab === 'pending' ? (
-                            <>
-                                <Button size="sm" className="bg-green-600 hover:bg-green-700 flex items-center gap-1.5"
-                                    disabled={submitting || isViewOnly}
-                                    onClick={() => {
-                                        handleApprove(viewGroup);
-                                        setViewGroup(null);
-                                    }}>
-                                    <Check className="h-3.5 w-3.5" /> Approve
-                                </Button>
-                                <Button variant="destructive" size="sm" className="flex items-center gap-1.5"
-                                    disabled={submitting || isViewOnly}
-                                    onClick={() => {
-                                        setIsRejectingInline(true);
-                                    }}>
-                                    <X className="h-3.5 w-3.5" /> Reject
-                                </Button>
-                            </>
-                        ) : (
-                            <Button size="sm" className="flex items-center gap-1.5"
-                                disabled={isViewOnly}
-                                onClick={() => {
-                                    handleRevise(viewGroup);
-                                    setViewGroup(null);
-                                }}>
-                                <RotateCcw className="h-3.5 w-3.5" /> Revise
-                            </Button>
-                        )
-                    )}
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-        {/* ── Purchase history dialog ── */}
-        <Dialog open={!!historyProduct} onOpenChange={(open) => { if (!open) { setHistoryProduct(null); setHistoryData([]); } }}>
-            <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <History className="h-4 w-4" />
-                        Purchase History — {historyProduct}
-                    </DialogTitle>
-                </DialogHeader>
-
-                {historyLoading ? (
-                    <div className="space-y-2 py-4">
-                        {[...Array(4)].map((_, i) => <div key={i} className="h-9 bg-muted animate-pulse rounded" />)}
-                    </div>
-                ) : historyData.length === 0 ? (
-                    <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-                        No purchase history found for this item
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto rounded-md border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow className="bg-muted/20">
-                                    <TableHead className="text-xs">#</TableHead>
-                                    <TableHead className="text-xs">PO Number</TableHead>
-                                    <TableHead className="text-xs">Date</TableHead>
-                                    <TableHead className="text-xs">Vendor / Party</TableHead>
-                                    <TableHead className="text-xs">Qty</TableHead>
-                                    <TableHead className="text-xs">Unit</TableHead>
-                                    <TableHead className="text-xs">Rate</TableHead>
-                                    <TableHead className="text-xs">Amount</TableHead>
-                                    <TableHead className="text-xs">Received</TableHead>
-                                    <TableHead className="text-xs">GRN</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {historyData.map((row, idx) => (
-                                    <TableRow key={row.poNumber + idx}>
-                                        <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                                        <TableCell className="text-xs font-medium whitespace-nowrap">
-                                            <button
-                                                type="button"
-                                                disabled={historyPOLoading === row.poNumber}
-                                                className="text-primary hover:underline flex items-center gap-1 text-left disabled:opacity-50"
-                                                onClick={() => handleViewHistoricalPO(row.poNumber)}
-                                            >
-                                                {row.poNumber}
-                                            </button>
-                                        </TableCell>
-                                        <TableCell className="text-xs whitespace-nowrap">{row.poDate ? formatDate(new Date(row.poDate)) : '—'}</TableCell>
-                                        <TableCell className="text-xs">{row.vendor}</TableCell>
-                                        <TableCell className="text-xs">{row.quantity}</TableCell>
-                                        <TableCell className="text-xs">{row.unit}</TableCell>
-                                        <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.rate || 0).toLocaleString()}</TableCell>
-                                        <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.amount || 0).toLocaleString()}</TableCell>
-                                        <TableCell className="text-xs">
-                                            {row.receivedQuantity != null ? (
-                                                <span>{row.receivedQuantity} {row.unit}</span>
-                                            ) : <span className="text-muted-foreground">—</span>}
-                                        </TableCell>
-                                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                                            {row.grnNumber || '—'}
-                                            {row.receivedDate && (
-                                                <div className="text-[10px]">{formatDate(new Date(row.receivedDate))}</div>
-                                            )}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </div>
-                )}
-            </DialogContent>
-        </Dialog>
-
-        {/* ── Indent history dialog ── */}
-        <Dialog open={!!historyIndentNumber} onOpenChange={(open) => { if (!open) { setHistoryIndentNumber(null); setHistoryIndentData([]); } }}>
-            <DialogContent className="max-w-[95vw] sm:max-w-6xl max-h-[85vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <History className="h-4 w-4" />
-                        Indent History — {historyIndentNumber}
-                        {historyIndentData[0]?.createdAt && (
-                            <span className="text-xs font-normal text-muted-foreground ml-2">
-                                (Requested: {formatDate(new Date(historyIndentData[0].createdAt))})
-                            </span>
-                        )}
-                    </DialogTitle>
-                </DialogHeader>
-
-                {historyIndentLoading ? (
-                    <div className="space-y-2 py-4">
-                        {[...Array(4)].map((_, i) => <div key={i} className="h-9 bg-muted animate-pulse rounded" />)}
-                    </div>
-                ) : historyIndentData.length === 0 ? (
-                    <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-                        No indent details found
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto rounded-md border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow className="bg-muted/20">
-                                    <TableHead className="text-xs">#</TableHead>
-                                    <TableHead className="text-xs">Product Name</TableHead>
-                                    <TableHead className="text-xs">Indenter</TableHead>
-                                    <TableHead className="text-xs">Area of Use</TableHead>
-                                    <TableHead className="text-xs">Indented Qty</TableHead>
-                                    <TableHead className="text-xs">Approved Qty</TableHead>
-                                    <TableHead className="text-xs">Rate Comparison</TableHead>
-                                    <TableHead className="text-xs">PO Status</TableHead>
-                                    <TableHead className="text-xs">GRN Status</TableHead>
-                                    <TableHead className="text-xs">Issue Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {historyIndentData.map((row, idx) => {
-                                    const approved = row.approvedIndents?.[0];
-                                    const threeParty = row.threePartyApproval?.[0];
-                                    const quotes = row.vendorRateUpdates?.[0];
-                                    const poList = row.poMasters || [];
-                                    const grnList = row.received || [];
-                                    const storeOutList = row.storeOutApproval || [];
-
-                                    // Quoted rates text
-                                    const rateQuotes = [];
-                                    if (quotes?.vendorName1) rateQuotes.push(`${quotes.vendorName1}: ₹${quotes.rate1}`);
-                                    if (quotes?.vendorName2) rateQuotes.push(`${quotes.vendorName2}: ₹${quotes.rate2}`);
-                                    if (quotes?.vendorName3) rateQuotes.push(`${quotes.vendorName3}: ₹${quotes.rate3}`);
-                                    const quotesText = rateQuotes.join(', ') || '—';
-
-                                    return (
-                                        <TableRow key={row.id}>
-                                            <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                                            <TableCell className="text-xs font-medium whitespace-nowrap">{row.productName}</TableCell>
-                                            <TableCell className="text-xs whitespace-nowrap">
-                                                <div>{row.indenterName || '—'}</div>
-                                                {row.department && (
-                                                    <div className="text-[10px] text-muted-foreground">{row.department}</div>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-xs whitespace-nowrap">{row.areaOfUse || '—'}</TableCell>
-                                            <TableCell className="text-xs whitespace-nowrap">
-                                                <div>{row.quantity} {row.uom}</div>
-                                                <div className="text-[10px] text-muted-foreground">{row.createdAt ? formatDate(new Date(row.createdAt)) : '—'}</div>
-                                            </TableCell>
-                                            <TableCell className="text-xs whitespace-nowrap">
-                                                {approved ? (
-                                                    <>
-                                                        <div>{approved.approvedQuantity} {row.uom}</div>
-                                                        {approved.planned && (
-                                                            <div className="text-[10px] text-muted-foreground">Planned: {formatDate(new Date(approved.planned))}</div>
-                                                        )}
-                                                    </>
-                                                ) : <span className="text-muted-foreground">Pending</span>}
-                                            </TableCell>
-                                            <TableCell className="text-xs">
-                                                <div className="text-[10px] text-muted-foreground whitespace-pre-wrap">{quotesText}</div>
-                                                {threeParty && (
-                                                    <div className="font-medium text-emerald-600 mt-0.5 text-[11px]">
-                                                        Selected: {threeParty.approvedVendorName} (₹{threeParty.approvedRate})
-                                                        {threeParty.approvedDate && (
-                                                            <div className="text-[10px] text-muted-foreground font-normal">
-                                                                {formatDate(new Date(threeParty.approvedDate))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-xs">
-                                                {poList.length > 0 ? (
-                                                    <div className="space-y-1">
-                                                        {poList.map((po: any, pIdx: number) => (
-                                                            <div key={pIdx} className="whitespace-nowrap">
-                                                                <div className="font-medium">{po.poNumber} <span className="text-muted-foreground font-normal ml-0.5">({po.quantity} {po.unit})</span></div>
-                                                                <div className="text-[10px] text-muted-foreground">{po.createdAt ? formatDate(new Date(po.createdAt)) : ''}</div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : <span className="text-muted-foreground">—</span>}
-                                            </TableCell>
-                                            <TableCell className="text-xs">
-                                                {grnList.length > 0 ? (
-                                                    <div className="space-y-1">
-                                                        {grnList.map((grn: any, gIdx: number) => (
-                                                            <div key={gIdx} className="whitespace-nowrap">
-                                                                <div className="font-medium">{grn.grnNumber || 'GRN'} <span className="text-muted-foreground font-normal ml-0.5">({grn.receivedQuantity} {row.uom})</span></div>
-                                                                <div className="text-[10px] text-muted-foreground">
-                                                                    {grn.createdAt ? formatDate(new Date(grn.createdAt)) : ''}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : <span className="text-muted-foreground">—</span>}
-                                            </TableCell>
-                                            <TableCell className="text-xs">
-                                                {storeOutList.length > 0 ? (
-                                                    <div className="space-y-1">
-                                                        {storeOutList.map((so: any, sIdx: number) => (
-                                                            <div key={sIdx} className="whitespace-nowrap">
-                                                                <div className="font-medium">{so.issue_status || 'Issued'} <span className="text-muted-foreground font-normal ml-0.5">({so.issued_quantity || 0} {row.uom})</span></div>
-                                                                <div className="text-[10px] text-muted-foreground">
-                                                                    {so.createdAt ? formatDate(new Date(so.createdAt)) : ''}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : <span className="text-muted-foreground">—</span>}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })}
-                            </TableBody>
-                        </Table>
-                    </div>
-                )}
-            </DialogContent>
-        </Dialog>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
