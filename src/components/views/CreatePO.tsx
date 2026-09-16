@@ -1751,6 +1751,7 @@ export default () => {
                                                                         <FormControl>
                                                                             <Input
                                                                                 type="number"
+                                                                                step="any"
                                                                                 className={cn(
                                                                                     "rounded-sm h-7 w-20 p-0 text-center text-xs",
                                                                                     isInvalid && "border-red-500 focus-visible:ring-red-500"
@@ -1787,6 +1788,7 @@ export default () => {
                                                                     <FormControl>
                                                                         <Input
                                                                             type="number"
+                                                                            step="any"
                                                                             className="rounded-sm h-7 w-20 p-0 text-center text-xs"
                                                                             onFocus={(e) => e.target.select()}
                                                                             {...indentField}
@@ -1805,6 +1807,7 @@ export default () => {
                                                                     <FormControl>
                                                                         <Input
                                                                             type="number"
+                                                                            step="any"
                                                                             className="rounded-sm h-7 w-14 p-0 text-center text-xs"
                                                                             onFocus={(e) => e.target.select()}
                                                                             {...indentField}
@@ -1828,6 +1831,7 @@ export default () => {
                                                                         <FormControl>
                                                                             <Input
                                                                                 type="number"
+                                                                                step="any"
                                                                                 className="rounded-sm h-7 w-14 p-0 text-center text-xs"
                                                                                 max="100"
                                                                                 value={indentField.value}
@@ -1857,6 +1861,7 @@ export default () => {
                                                                         <FormControl>
                                                                             <Input
                                                                                 type="number"
+                                                                                step="any"
                                                                                 className="rounded-sm h-7 w-20 p-0 text-center text-xs"
                                                                                 value={indentField.value}
                                                                                 onFocus={(e) => e.target.select()}

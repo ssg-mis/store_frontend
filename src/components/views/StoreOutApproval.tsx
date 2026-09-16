@@ -923,6 +923,8 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
                                             <FormControl>
                                                 <Input
                                                     type="number"
+                                                    step="any"
+                                                    min="0.001"
                                                     placeholder="Enter quantity"
                                                     max={selectedIndent?.quantity}
                                                     {...field}

@@ -540,7 +540,7 @@ export default () => {
                         disabled={!isSelected}
                         className={`w-20 text-xs sm:text-sm ${!isSelected ? 'opacity-50' : ''}`}
                         min="0"
-                        step="1"
+                        step="any"
                     />
                 );
             },
