@@ -524,9 +524,18 @@ export default () => {
                 });
                 
                 if (data.indentType === 'Loan Out' || data.indentType === 'Loan Out Return') {
-                    toast.error(`You cannot create a Loan for items that are out of stock: ${messages.join(', ')}.`);
+                    toast.info('Item Not in Stock', {
+                        description: `Items out of stock cannot be issued for ${data.indentType}: ${messages.join(', ')}.`,
+                    });
                 } else {
-                    toast.error(`Insufficient stock for ${data.indentType}: ${messages.join(', ')}. Please change Indent Type to "Purchase" instead of "${data.indentType}".`);
+                    toast.info('Item Not in Store Stock', {
+                        description: `${messages.join(', ')}. Since this item is not in stock, please change Indent Type to "Purchase" to place an order.`,
+                        action: {
+                            label: 'Change to Purchase',
+                            onClick: () => form.setValue('indentType', 'Purchase'),
+                        },
+                        duration: 6000,
+                    });
                 }
                 return;
             }
@@ -585,7 +594,12 @@ export default () => {
 
             const result = await postToSheet(rows, 'insert', 'INDENT');
 
-            if (!result.success) throw new Error('API insertion failed');
+            if (!result.success) {
+                const errMsg = typeof result.error === 'string'
+                    ? result.error
+                    : (result.error as any)?.message || 'API insertion failed';
+                throw new Error(errMsg);
+            }
 
             if (data.indentType === 'Store Out') {
                 toast.success('Store Out executed successfully! Stock deducted.');
@@ -621,8 +635,9 @@ export default () => {
                 ],
             });
 
-        } catch (_) {
-            toast.error('Error while creating indent! Please try again');
+        } catch (err: any) {
+            console.error('Error while creating indent:', err);
+            toast.error(err?.message || 'Error while creating indent! Please try again');
         }
     }
 
@@ -664,7 +679,7 @@ export default () => {
                 </Button>
             </div>
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit, onError)} className="space-y-6 p-5">
+                <form noValidate onSubmit={form.handleSubmit(onSubmit, onError)} className="space-y-6 p-5">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                         <FormField
                             control={form.control}
@@ -1382,6 +1397,8 @@ export default () => {
                                                         <FormControl>
                                                             <Input
                                                                 type="number"
+                                                                step="any"
+                                                                min="0.001"
                                                                 {...field}
                                                                 disabled={!departmentHead}
                                                             />

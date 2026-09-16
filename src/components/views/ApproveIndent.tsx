@@ -936,8 +936,9 @@ export default () => {
                                                             <TableCell>
                                                                 <Input
                                                                     type="number"
+                                                                    step="any"
                                                                     value={currentQty === undefined ? item.quantity : currentQty}
-                                                                    min={1}
+                                                                    min={0.001}
                                                                     max={item.quantity}
                                                                     onChange={(e) => handleBulkUpdate(item.id, 'quantity', e.target.value)}
                                                                     className="w-20 text-xs h-8"

@@ -1037,6 +1037,7 @@ const ReceiveItems = () => {
                                                             <td className="px-3 py-3">
                                                                 <Input
                                                                     type="number"
+                                                                    step="any"
                                                                     className="h-8 w-full text-center font-semibold"
                                                                     max={indent.remainingQty}
                                                                     min={0}
@@ -1049,6 +1050,7 @@ const ReceiveItems = () => {
                                                             <td className="px-3 py-3">
                                                                 <Input
                                                                     type="number"
+                                                                    step="any"
                                                                     className="h-8 w-full text-center text-orange-700"
                                                                     min={0}
                                                                     value={row.purchaseReturn}
@@ -1060,6 +1062,7 @@ const ReceiveItems = () => {
                                                             <td className="px-3 py-3">
                                                                 <Input
                                                                     type="number"
+                                                                    step="any"
                                                                     className={`h-8 w-full text-center ${row.error ? 'border-red-500' : ''}`}
                                                                     min={0}
                                                                     value={row.damagedQuantity}
@@ -1215,7 +1218,7 @@ const ReceiveItems = () => {
                                                     <FormItem>
                                                         <FormLabel className="text-xs text-muted-foreground">Discount Amount</FormLabel>
                                                         <FormControl>
-                                                            <Input type="number" className="h-9 text-sm bg-muted/20 border-dashed" {...field} />
+                                                            <Input type="number" step="any" className="h-9 text-sm bg-muted/20 border-dashed" {...field} />
                                                         </FormControl>
                                                     </FormItem>
                                                 )}
@@ -1228,7 +1231,7 @@ const ReceiveItems = () => {
                                                     <FormItem>
                                                         <FormLabel className="text-xs text-muted-foreground">Advance Amount</FormLabel>
                                                         <FormControl>
-                                                            <Input type="number" className="h-9 text-sm bg-muted/20 border-dashed" {...field} />
+                                                            <Input type="number" step="any" className="h-9 text-sm bg-muted/20 border-dashed" {...field} />
                                                         </FormControl>
                                                     </FormItem>
                                                 )}
