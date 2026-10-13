@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
@@ -10,7 +10,13 @@ import { Pill } from '../ui/pill';
 import { fetchInventoryHistory, type InventoryHistory } from '@/lib/fetchers';
 import { formatDate } from '@/lib/utils';
 
-type Column<T> = { header: string; value: (row: T) => string | number | null | undefined; align?: 'right' };
+// `value` renders the cell; `excel` (optional) is the plain value used in the Excel export.
+type Column<T> = { header: string; value: (row: T) => ReactNode; excel?: (row: T) => string | number | null | undefined; align?: 'right' };
+
+const fileLink = (url: string | null | undefined, label: string) =>
+    url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline">{label}</a>
+    ) : '—';
 
 const showDate = (value?: string | null) => (value ? formatDate(new Date(value)) : '—');
 const showNum = (value?: number | null) => (value == null ? '—' : Number(value).toLocaleString('en-IN', { maximumFractionDigits: 3 }));
@@ -57,6 +63,7 @@ const poColumns: Column<H['purchaseOrders'][number]>[] = [
     { header: 'Rate', value: r => showMoney(r.rate), align: 'right' },
     { header: 'GST %', value: r => (r.gstPercent != null ? `${r.gstPercent}%` : '—'), align: 'right' },
     { header: 'Amount', value: r => showMoney(r.amount), align: 'right' },
+    { header: 'PO PDF', value: r => fileLink(r.pdf, 'View PDF'), excel: r => r.pdf || '' },
 ];
 const receivedColumns: Column<H['received'][number]>[] = [
     { header: 'Date', value: r => showDate(r.date) },
@@ -69,6 +76,8 @@ const receivedColumns: Column<H['received'][number]>[] = [
     { header: 'Type', value: r => (r.receiveType === 'Full' ? 'Fully' : r.receiveType === 'Partial' ? 'Partially' : '—') },
     { header: 'Bill No.', value: r => r.billNumber },
     { header: 'Remark', value: r => r.remark },
+    { header: 'Bill', value: r => fileLink(r.billPhoto, 'View'), excel: r => r.billPhoto || '' },
+    { header: 'Item Photo', value: r => fileLink(r.itemPhoto, 'View'), excel: r => r.itemPhoto || '' },
 ];
 const storeOutColumns: Column<H['storeOut'][number]>[] = [
     { header: 'Date', value: r => showDate(r.date) },
@@ -167,7 +176,7 @@ export default function InventoryHistoryDialog({ inventoryId, onClose }: { inven
         if (!data) return;
         const wb = XLSX.utils.book_new();
         const sheet = <T,>(name: string, rows: T[], columns: Column<T>[]) => {
-            const out = rows.map(r => Object.fromEntries(columns.map(c => [c.header, c.value(r) ?? ''])));
+            const out = rows.map(r => Object.fromEntries(columns.map(c => [c.header, (c.excel ? c.excel(r) : (c.value(r) as string | number | null)) ?? ''])));
             XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(out.length ? out : [{ Info: 'No records' }]), name);
         };
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{

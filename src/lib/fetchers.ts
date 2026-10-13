@@ -679,8 +679,8 @@ export interface InventoryHistory {
     quotes: { indentNumber: string; date: string; vendor: string | null; rate: number | null; paymentTerm: string | null; deliveryTime: number | null; approved: boolean }[];
     rfq: { quotationNumber: string; indentNumber: string; date: string; supplier: string; quantity: string | null; unit: string | null }[];
     priceList: { vendor: string | null; price: number | null; uom: string | null; validFrom: string | null; validUpto: string | null; valid: boolean }[];
-    purchaseOrders: { poNumber: string; indentNumber: string; date: string; vendor: string; quantity: number; unit: string; rate: number; gstPercent: number | null; amount: number }[];
-    received: { grnNumber: string | null; poNumber: string; indentNumber: string; date: string; vendor: string; okQuantity: number; damagedQuantity: number; purchaseReturn: number; uom: string; billNumber: string | null; billStatus: string | null; receiveType: string | null; remark: string | null }[];
+    purchaseOrders: { poNumber: string; indentNumber: string; date: string; vendor: string; quantity: number; unit: string; rate: number; gstPercent: number | null; amount: number; pdf: string | null }[];
+    received: { grnNumber: string | null; poNumber: string; indentNumber: string; date: string; vendor: string; okQuantity: number; damagedQuantity: number; purchaseReturn: number; uom: string; billNumber: string | null; billStatus: string | null; receiveType: string | null; remark: string | null; billPhoto: string | null; itemPhoto: string | null }[];
     storeOut: { indentNumber: string; date: string; quantity: number; approvedBy: string; status: string; department: string; indenter: string }[];
     loans: { indentNumber: string; date: string; quantity: number; approvedBy: string; status: string; user: string | null }[];
     activity: { date: string; action: string; quantity: number; user: string | null; indentNumber: string | null; department: string | null; departmentHead: string | null }[];
