@@ -18,6 +18,9 @@ export interface ComparisonQuote {
     paymentTerm: string | null;
     deliveryTime: number | null;
     comparisonSheet?: string | null;
+    // Per-product rates, aligned with `items` (null = not quoted). When present the PDF shows a
+    // product-wise comparison and compares vendors on their total amount (qty x rate).
+    productRates?: (number | null)[];
 }
 
 export interface POComparisonPdfProps {
@@ -260,7 +263,23 @@ export default function POComparisonPdf({
     const indentDisplay = uniqueIndents.length > 0 ? uniqueIndents.join(', ') : '—';
     const isIndentMode = Boolean(poNumber && poNumber.startsWith('SI-'));
 
-    // Lowest valid quoted rate
+    // With several products, each vendor's row lists its rate for every product (one row per vendor).
+    const showProductRates = items.length > 1 && quotes.some(q => Array.isArray(q.productRates));
+    const productRate = (q: ComparisonQuote, i: number) => {
+        const r = q.productRates?.[i];
+        return r != null && Number(r) > 0 ? Number(r) : null;
+    };
+    const lowestPerProduct = items.map((_, i) => {
+        const rates = quotes.map(q => productRate(q, i)).filter((r): r is number => r != null);
+        return rates.length > 0 ? Math.min(...rates) : null;
+    });
+    const productLabel = (i: number) => {
+        const it = items[i];
+        const code = it.internalCode && it.internalCode !== poNumber ? ` (${it.internalCode})` : '';
+        return `${i + 1}. ${it.product}${code}`;
+    };
+
+    // Lowest valid quoted rate (single-product view)
     const validRates = quotes.map(q => Number(q.rate || 0)).filter(r => r > 0);
     const lowestRate = validRates.length > 0 ? Math.min(...validRates) : null;
 
@@ -393,10 +412,12 @@ export default function POComparisonPdf({
                 <View style={styles.table}>
                     <View style={styles.tableHeaderRow}>
                         <Text style={[styles.thCell, { width: '7%', textAlign: 'center' }]}>Slot</Text>
-                        <Text style={[styles.thCell, { width: '32%' }]}>Vendor Name</Text>
-                        <Text style={[styles.thCell, { width: '16%', textAlign: 'right', paddingRight: 6 }]}>Quoted Rate</Text>
-                        <Text style={[styles.thCell, { width: '15%', textAlign: 'center' }]}>Payment Term</Text>
-                        <Text style={[styles.thCell, { width: '14%', textAlign: 'center' }]}>Delivery Time</Text>
+                        <Text style={[styles.thCell, { width: showProductRates ? '24%' : '32%' }]}>Vendor Name</Text>
+                        <Text style={[styles.thCell, { width: showProductRates ? '30%' : '16%', textAlign: showProductRates ? 'left' : 'right', paddingRight: 6 }]}>
+                            {showProductRates ? 'Quoted Rate (per product)' : 'Quoted Rate'}
+                        </Text>
+                        <Text style={[styles.thCell, { width: showProductRates ? '12%' : '15%', textAlign: 'center' }]}>Payment Term</Text>
+                        <Text style={[styles.thCell, { width: showProductRates ? '11%' : '14%', textAlign: 'center' }]}>Delivery Time</Text>
                         <Text style={[styles.thCellLast, { width: '16%', textAlign: 'center' }]}>Status / Remarks</Text>
                     </View>
 
@@ -409,7 +430,20 @@ export default function POComparisonPdf({
                     ) : (
                         quotes.map((q, idx) => {
                             const isApproved = (q.vendorName || '').trim().toLowerCase() === approvedVendorName.trim().toLowerCase();
-                            const isLowest = lowestRate !== null && Number(q.rate || 0) === lowestRate;
+                            // Multi-product: L1 on the products where this vendor is cheapest.
+                            const l1Products = showProductRates
+                                ? items.map((_, i) => i).filter(i => productRate(q, i) != null && productRate(q, i) === lowestPerProduct[i])
+                                : [];
+                            const isLowest = showProductRates
+                                ? l1Products.length === items.length
+                                : lowestRate !== null && Number(q.rate || 0) === lowestRate;
+                            const statusText = isApproved
+                                ? 'SELECTED'
+                                : isLowest
+                                    ? 'LOWEST (L1)'
+                                    : l1Products.length > 0
+                                        ? `L1 for item ${l1Products.map(i => i + 1).join(', ')}`
+                                        : 'QUOTED';
                             const isLast = idx === quotes.length - 1;
 
                             const rowStyle = isApproved
@@ -417,24 +451,41 @@ export default function POComparisonPdf({
                                 : (isLast ? styles.tableRowLast : styles.tableRow);
 
                             return (
-                                <View key={q.slot || idx} style={rowStyle}>
+                                <View key={idx} style={rowStyle}>
                                     <Text style={[styles.tdCell, { width: '7%', textAlign: 'center', fontFamily: 'Helvetica-Bold' }]}>
                                         {q.slot}
                                     </Text>
-                                    <Text style={[styles.tdCell, { width: '32%', fontFamily: isApproved ? 'Helvetica-Bold' : 'Helvetica', color: isApproved ? '#15803d' : '#111' }]}>
+                                    <Text style={[styles.tdCell, { width: showProductRates ? '24%' : '32%', fontFamily: isApproved ? 'Helvetica-Bold' : 'Helvetica', color: isApproved ? '#15803d' : '#111' }]}>
                                         {q.vendorName || '—'}
                                     </Text>
-                                    <Text style={[styles.tdCell, { width: '16%', textAlign: 'right', paddingRight: 6, fontFamily: 'Helvetica-Bold', color: isLowest ? '#16a34a' : '#111' }]}>
-                                        {q.rate != null ? `Rs. ${Number(q.rate).toFixed(2)}` : '—'}
-                                    </Text>
-                                    <Text style={[styles.tdCell, { width: '15%', textAlign: 'center', color: '#334155' }]}>
+                                    {showProductRates ? (
+                                        <View style={[styles.tdCell, { width: '30%' }]}>
+                                            {items.map((_, i) => {
+                                                const r = productRate(q, i);
+                                                const lowestHere = r != null && r === lowestPerProduct[i];
+                                                return (
+                                                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: i === items.length - 1 ? 0 : 2 }}>
+                                                        <Text style={{ color: '#334155', flex: 1, paddingRight: 4 }}>{productLabel(i)}</Text>
+                                                        <Text style={{ fontFamily: 'Helvetica-Bold', color: lowestHere ? '#16a34a' : '#111' }}>
+                                                            {r != null ? `Rs. ${r.toFixed(2)}` : '—'}
+                                                        </Text>
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    ) : (
+                                        <Text style={[styles.tdCell, { width: '16%', textAlign: 'right', paddingRight: 6, fontFamily: 'Helvetica-Bold', color: isLowest ? '#16a34a' : '#111' }]}>
+                                            {q.rate != null ? `Rs. ${Number(q.rate).toFixed(2)}` : '—'}
+                                        </Text>
+                                    )}
+                                    <Text style={[styles.tdCell, { width: showProductRates ? '12%' : '15%', textAlign: 'center', color: '#334155' }]}>
                                         {q.paymentTerm || '—'}
                                     </Text>
-                                    <Text style={[styles.tdCell, { width: '14%', textAlign: 'center', color: '#334155' }]}>
+                                    <Text style={[styles.tdCell, { width: showProductRates ? '11%' : '14%', textAlign: 'center', color: '#334155' }]}>
                                         {q.deliveryTime != null ? `${q.deliveryTime} day${q.deliveryTime === 1 ? '' : 's'}` : '—'}
                                     </Text>
-                                    <Text style={[styles.tdCellLast, { width: '16%', textAlign: 'center', fontFamily: 'Helvetica-Bold', color: isApproved ? '#15803d' : isLowest ? '#16a34a' : '#64748b' }]}>
-                                        {isApproved ? 'SELECTED' : isLowest ? 'LOWEST (L1)' : 'QUOTED'}
+                                    <Text style={[styles.tdCellLast, { width: '16%', textAlign: 'center', fontFamily: 'Helvetica-Bold', color: isApproved ? '#15803d' : (isLowest || l1Products.length > 0) ? '#16a34a' : '#64748b' }]}>
+                                        {statusText}
                                     </Text>
                                 </View>
                             );

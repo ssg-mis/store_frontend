@@ -16,6 +16,7 @@ import {
     DialogTitle,
     DialogClose,
 } from '../ui/dialog';
+import { Textarea } from '../ui/textarea';
 import { Button } from '../ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import { PuffLoader as Loader } from 'react-spinners';
@@ -80,6 +81,8 @@ interface HistoryData {
     advanceAmount?: number;
     leadTimeToLiftMaterial?: string;
     photoOfBill: string;
+    receiveType?: string;
+    remark?: string;
 }
 
 const ReceiveItems = () => {
@@ -243,6 +246,8 @@ const ReceiveItems = () => {
                         advanceAmount: Number(receivedRecord.advanceAmount) || 0,
                         leadTimeToLiftMaterial: receivedRecord.leadTimeToLiftMaterial || '',
                         photoOfBill: receivedRecord.photoOfBill || '',
+                        receiveType: receivedRecord.receiveType || '',
+                        remark: receivedRecord.remark || '',
                     };
                 });
                 setHistoryData(prev => append ? [...prev, ...mappedData] : mappedData);
@@ -435,6 +440,8 @@ const ReceiveItems = () => {
                 'Lead Time To Lift': item.leadTimeToLiftMaterial || '—',
                 'Product Photo': item.photoOfProduct || '—',
                 'Bill Photo': item.photoOfBill || '—',
+                'Receive Type': item.receiveType === 'Full' ? 'Fully' : item.receiveType === 'Partial' ? 'Partially' : '—',
+                'Remark': item.remark || '—',
             }));
 
             const worksheet = XLSX.utils.json_to_sheet(formattedRows);
@@ -575,6 +582,8 @@ const ReceiveItems = () => {
 
     // Updated Schema — items are managed in local state, not in the form
     const schema = z.object({
+        receiveType: z.enum(['Partial', 'Full'], { message: 'Select receive type' }),
+        remark: z.string().trim().min(1, 'Remark is required'),
         billStatus: z.string().min(1, 'Required'),
         billNo: z.string().min(1, 'Required'),
         billAmount: z.coerce.number().optional(),
@@ -602,25 +611,31 @@ const ReceiveItems = () => {
     // Local state for item quantities — avoids RHF dynamic array registration issues
     const [itemRows, setItemRows] = useState<Array<{ indentId: number; indentNumber: string; quantity: number; purchaseReturn: number; damagedQuantity: number; error?: string }>>([]);
 
+    type ItemRow = { indentId: number; indentNumber: string; quantity: number; purchaseReturn: number; damagedQuantity: number; error?: string };
+
+    // "Partial" caps received qty at the pending qty; "Full" closes the item, so any qty is allowed.
+    const validateItemRow = (row: ItemRow, receiveType: string | undefined): ItemRow => {
+        const updated = { ...row };
+        const pendingQty = matchingIndents.find(i => i.id === row.indentId)?.remainingQty || 0;
+        const usableQty = updated.quantity - updated.purchaseReturn;
+
+        // Validate — each field is a subset of the one above it
+        if (receiveType !== 'Full' && updated.quantity > pendingQty) {
+            updated.error = `Received qty (${updated.quantity}) cannot exceed pending qty (${pendingQty})`;
+        } else if (updated.purchaseReturn > updated.quantity) {
+            updated.error = `Purchase return (${updated.purchaseReturn}) cannot exceed received qty (${updated.quantity})`;
+        } else if (updated.damagedQuantity > usableQty) {
+            updated.error = `Damaged qty (${updated.damagedQuantity}) cannot exceed usable qty after return (${usableQty})`;
+        } else {
+            updated.error = undefined;
+        }
+        return updated;
+    };
+
     const updateItemRow = (indentId: number, field: 'quantity' | 'purchaseReturn' | 'damagedQuantity', value: number) => {
         setItemRows(prev => prev.map((row) => {
             if (row.indentId !== indentId) return row;
-            const updated = { ...row, [field]: value };
-            const pendingQty = matchingIndents.find(i => i.id === indentId)?.remainingQty || 0;
-            const usableQty = updated.quantity - updated.purchaseReturn;
-
-            // Validate — each field is a subset of the one above it
-            if (updated.quantity > pendingQty) {
-                updated.error = `Received qty (${updated.quantity}) cannot exceed pending qty (${pendingQty})`;
-            } else if (updated.purchaseReturn > updated.quantity) {
-                updated.error = `Purchase return (${updated.purchaseReturn}) cannot exceed received qty (${updated.quantity})`;
-            } else if (updated.damagedQuantity > usableQty) {
-                updated.error = `Damaged qty (${updated.damagedQuantity}) cannot exceed usable qty after return (${usableQty})`;
-            } else {
-                updated.error = undefined;
-            }
-
-            return updated;
+            return validateItemRow({ ...row, [field]: value }, form.getValues('receiveType'));
         }));
     };
 
@@ -629,6 +644,8 @@ const ReceiveItems = () => {
     const form = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
+            receiveType: undefined as unknown as 'Partial' | 'Full',
+            remark: '',
             billStatus: 'Received',
             billNo: '',
             billAmount: undefined,
@@ -678,6 +695,12 @@ const ReceiveItems = () => {
         }
     }, [selectedIndent, openDialog, tableData]);
 
+    // Re-check quantities when the receive type changes (the pending-qty cap applies only to "Partial").
+    const watchedReceiveType = form.watch('receiveType');
+    useEffect(() => {
+        setItemRows(prev => prev.map(row => validateItemRow(row, watchedReceiveType)));
+    }, [watchedReceiveType]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Updated onSubmit
     async function onSubmit(values: z.infer<typeof schema>) {
         // Validate item rows (managed in local state, not form)
@@ -686,7 +709,10 @@ const ReceiveItems = () => {
             toast.error('Fix quantity errors before submitting');
             return;
         }
-        const itemsToReceive = itemRows.filter(item => item.quantity > 0 || item.purchaseReturn > 0);
+        // "Full" closes every item on the PO, so each one gets a record even if its qty is 0.
+        const itemsToReceive = values.receiveType === 'Full'
+            ? itemRows
+            : itemRows.filter(item => item.quantity > 0 || item.purchaseReturn > 0);
 
         if (itemsToReceive.length === 0) {
             toast.error('Please enter quantity for at least one item');
@@ -735,6 +761,8 @@ const ReceiveItems = () => {
                     leadTimeToLiftMaterial: values.leadTime,
                     photoOfBill: billPhotoUrl,
                     planned: nowIso,
+                    receiveType: values.receiveType,
+                    remark: values.remark.trim(),
                 };
             });
 
@@ -1000,6 +1028,36 @@ const ReceiveItems = () => {
                                     </div>
                                 </div>
 
+                                {/* Receive Type — chosen first; the rest of the form opens after it */}
+                                <FormField
+                                    control={form.control}
+                                    name="receiveType"
+                                    render={({ field }) => (
+                                        <FormItem className="max-w-xs">
+                                            <FormLabel className="text-xs font-semibold">Receive Type <span className="text-red-500">*</span></FormLabel>
+                                            <Select onValueChange={field.onChange} value={field.value ?? ''}>
+                                                <FormControl>
+                                                    <SelectTrigger className="h-10 w-full shadow-sm">
+                                                        <SelectValue placeholder="Select Partially or Fully" />
+                                                    </SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="Partial">Partially</SelectItem>
+                                                    <SelectItem value="Full">Fully</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <p className="text-[11px] text-muted-foreground">
+                                                {field.value === 'Full'
+                                                    ? 'Items will be closed with the quantity entered, even if it is less or more than pending.'
+                                                    : field.value === 'Partial'
+                                                        ? 'Only the quantity entered is received; the rest stays pending.'
+                                                        : 'Choose how this delivery should be received.'}
+                                            </p>
+                                        </FormItem>
+                                    )}
+                                />
+
+                                {watchedReceiveType && (<>
                                 {/* Item Receiving Table */}
                                 <div className="border rounded-lg overflow-hidden shadow-sm">
                                     <div className="bg-muted px-4 py-2 border-b flex items-center justify-between">
@@ -1039,7 +1097,7 @@ const ReceiveItems = () => {
                                                                     type="number"
                                                                     step="any"
                                                                     className="h-8 w-full text-center font-semibold"
-                                                                    max={indent.remainingQty}
+                                                                    max={watchedReceiveType === 'Full' ? undefined : indent.remainingQty}
                                                                     min={0}
                                                                     value={row.quantity}
 
@@ -1283,7 +1341,26 @@ const ReceiveItems = () => {
                                             />
                                         )}
                                     </div>
+
+                                    <FormField
+                                        control={form.control}
+                                        name="remark"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-xs font-semibold">Remark <span className="text-red-500">*</span></FormLabel>
+                                                <FormControl>
+                                                    <Textarea
+                                                        rows={2}
+                                                        className="text-sm shadow-sm"
+                                                        placeholder={watchedReceiveType === 'Full' ? 'Why is this being closed as fully received?' : 'Enter remark'}
+                                                        {...field}
+                                                    />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
                                 </div>
+                                </>)}
 
                                 <DialogFooter className="border-t pt-4">
                                     <DialogClose asChild>
@@ -1291,7 +1368,7 @@ const ReceiveItems = () => {
                                             Cancel
                                         </Button>
                                     </DialogClose>
-                                    <Button type="submit" disabled={loading} className="h-9 px-6 font-semibold shadow-lg hover:shadow-xl transition-all">
+                                    <Button type="submit" disabled={loading || !watchedReceiveType} className="h-9 px-6 font-semibold shadow-lg hover:shadow-xl transition-all">
                                         {loading ? (
                                             <>
                                                 <Loader size={18} color="#ffffff" className="mr-2" />
@@ -1444,6 +1521,8 @@ const ReceiveItems = () => {
                                         <TableHead className="text-xs text-right">Damaged Qty</TableHead>
                                         <TableHead className="text-xs text-right">Okay Qty</TableHead>
                                         <TableHead className="text-xs text-right text-orange-600 font-semibold">Remaining Qty</TableHead>
+                                        <TableHead className="text-xs">Receive Type</TableHead>
+                                        <TableHead className="text-xs">Remark</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1466,6 +1545,8 @@ const ReceiveItems = () => {
                                             // Remaining = PO Qty − (gross received + purchase return), matching pending view formula
                                             runningTotals[code] = (runningTotals[code] || 0) + grossReceived + (item.purchaseReturn || 0);
                                             
+                                            // A "Full" receipt closes the item, so nothing remains after it.
+                                            if (item.receiveType === 'Full') runningTotals[code] = Math.max(runningTotals[code], item.orderQuantity);
                                             const remainingQty = Math.max(0, item.orderQuantity - runningTotals[code]);
                                             
                                             return (
@@ -1483,6 +1564,10 @@ const ReceiveItems = () => {
                                                     <TableCell className="text-xs text-right font-semibold text-orange-600">
                                                         {remainingQty}
                                                     </TableCell>
+                                                    <TableCell className="text-xs">
+                                                        {item.receiveType === 'Full' ? 'Fully' : item.receiveType === 'Partial' ? 'Partially' : '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-xs max-w-[220px] whitespace-normal">{item.remark || '—'}</TableCell>
                                                 </TableRow>
                                             );
                                         });

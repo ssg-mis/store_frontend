@@ -36,6 +36,7 @@ interface RateApprovalProduct {
     id: number;
     indentId: number;
     product: string;
+    productCode?: string;
     quantity: number;
     uom: string;
     vendors: [string, string, string, number?][]; // [name, rate, term, deliveryTime?]
@@ -55,6 +56,7 @@ interface HistoryProduct {
     id: number;
     indentId: number;
     product: string;
+    productCode?: string;
     quantity: number;
     uom: string;
     approvedVendor: string;
@@ -84,7 +86,7 @@ const formatFirmAddress = (firm: any, fallback = '') => {
 
 export default () => {
     const { user } = useAuth();
-    const { updateIndentSheet, updateRelatedSheets } = useSheets();
+    const { updateIndentSheet, updateRelatedSheets, rateUpdateSheet } = useSheets();
 
     const [firms, setFirms] = useState<any[]>([]);
     useEffect(() => {
@@ -184,6 +186,7 @@ export default () => {
                         id: r.id,
                         indentId: r.indentId,
                         product: r.productName || '',
+                        productCode: r.productCode || r.product_code || '',
                         quantity: r.approvedQuantity || r.quantity || 0,
                         uom: r.uom || '',
                         vendors: productVendors
@@ -260,6 +263,7 @@ export default () => {
                         id: r.id,
                         indentId: r.indentId,
                         product: r.productName || '',
+                        productCode: r.productCode || r.product_code || '',
                         quantity: r.approvedQuantity || r.quantity || 0,
                         uom: r.uom || '',
                         approvedVendor: r.approvedVendorName,
@@ -392,7 +396,8 @@ export default () => {
 
             // Build items
             const items: ComparisonItem[] = indent.products.map(p => ({
-                internalCode: indent.indentNo,
+                // Item code (e.g. SI-0725-A) tells apart products of the same indent.
+                internalCode: p.productCode || indent.indentNo,
                 product: p.product,
                 description: null,
                 quantity: Number(p.quantity || 0),
@@ -411,7 +416,29 @@ export default () => {
                 const approvedVendorsSet = new Set(historyProducts.map(p => p.approvedVendor).filter(Boolean));
                 approvedVendorName = Array.from(approvedVendorsSet).join(', ');
 
-                if (indent.vendorTotals && Object.keys(indent.vendorTotals).length > 0) {
+                // Every vendor's per-product quote, from the saved vendor rate updates of these indents.
+                const quotesPerProduct: any[][] = historyProducts.map(p =>
+                    ((rateUpdateSheet || []).find((r: any) => r.indentId === p.indentId)?.quotes || []) as any[]
+                );
+                const historyVendorNames: string[] = [];
+                quotesPerProduct.forEach(qs => qs.forEach((q: any) => {
+                    if (q.vendorName && !historyVendorNames.includes(q.vendorName)) historyVendorNames.push(q.vendorName);
+                }));
+
+                if (historyVendorNames.length > 0) {
+                    historyVendorNames.forEach((vName, idx) => {
+                        const offers = quotesPerProduct.map(qs => qs.find((q: any) => q.vendorName === vName));
+                        const firstOffer = offers.find(Boolean);
+                        quotes.push({
+                            slot: idx + 1,
+                            vendorName: vName,
+                            rate: firstOffer?.rate != null ? Number(firstOffer.rate) : null,
+                            paymentTerm: firstOffer?.paymentTerm || null,
+                            deliveryTime: firstOffer?.deliveryTime != null ? Number(firstOffer.deliveryTime) : null,
+                            productRates: offers.map(o => (o?.rate != null ? Number(o.rate) : null)),
+                        });
+                    });
+                } else if (indent.vendorTotals && Object.keys(indent.vendorTotals).length > 0) {
                     Object.entries(indent.vendorTotals).forEach(([vName, total], idx) => {
                         const isApproved = approvedVendorsSet.has(vName);
                         const matchProd = historyProducts.find(p => p.approvedVendor === vName);
@@ -436,33 +463,24 @@ export default () => {
                     });
                 }
             } else {
+                // One quote per vendor, carrying that vendor's rate for each product (product-wise PDF table).
                 const pendingProducts = indent.products as RateApprovalProduct[];
-                if (pendingProducts.length === 1) {
-                    const p = pendingProducts[0];
-                    (p.vendors || []).forEach((v, idx) => {
-                        if (v[0]) {
-                            quotes.push({
-                                slot: idx + 1,
-                                vendorName: v[0],
-                                rate: v[1] ? parseFloat(v[1]) : null,
-                                paymentTerm: v[2] || null,
-                                deliveryTime: v[3] != null ? Number(v[3]) : null,
-                            });
-                        }
+                const vendorNames: string[] = [];
+                pendingProducts.forEach(p => (p.vendors || []).forEach(v => {
+                    if (v[0] && !vendorNames.includes(v[0])) vendorNames.push(v[0]);
+                }));
+                vendorNames.forEach((vName, idx) => {
+                    const offers = pendingProducts.map(p => (p.vendors || []).find(v => v[0] === vName));
+                    const firstOffer = offers.find(Boolean);
+                    quotes.push({
+                        slot: idx + 1,
+                        vendorName: vName,
+                        rate: firstOffer?.[1] ? parseFloat(firstOffer[1]) : null,
+                        paymentTerm: firstOffer ? firstOffer[2] : null,
+                        deliveryTime: firstOffer && firstOffer[3] != null ? Number(firstOffer[3]) : null,
+                        productRates: offers.map(o => (o?.[1] ? parseFloat(o[1]) : null)),
                     });
-                } else {
-                    const vendorNames = Object.keys(indent.vendorTotals);
-                    vendorNames.forEach((vName, idx) => {
-                        const firstOffer = pendingProducts.flatMap(p => p.vendors || []).find(v => v[0] === vName);
-                        quotes.push({
-                            slot: idx + 1,
-                            vendorName: vName,
-                            rate: indent.vendorTotals[vName] ?? (firstOffer ? parseFloat(firstOffer[1]) : null),
-                            paymentTerm: firstOffer ? firstOffer[2] : null,
-                            deliveryTime: firstOffer && firstOffer[3] != null ? Number(firstOffer[3]) : null,
-                        });
-                    });
-                }
+                });
             }
 
             const props: POComparisonPdfProps = {

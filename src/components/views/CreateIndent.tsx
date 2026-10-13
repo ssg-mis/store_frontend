@@ -868,13 +868,6 @@ export default () => {
                             const selectedCategoryName = products[index]?.productCategory || '';
                             const selectedCategory = productCategories.find(c => c.product_category_name === selectedCategoryName);
                             const selectedSubCategoryName = products[index]?.productSubCategory || '';
-                            // Category options: narrowed to the sub category's parent if one is picked; else every category.
-                            const categoryOptions = selectedSubCategoryName && selectedSubCategoryName !== '__none__'
-                                ? (() => {
-                                    const parent = findParentCategoryOfSubCategory(selectedSubCategoryName);
-                                    return parent ? [parent] : productCategories;
-                                })()
-                                : productCategories;
 
                             // Sub category options: the selected category's own list if one is picked; else every sub category.
                             const subCategoryOptions = (
@@ -900,42 +893,22 @@ export default () => {
                                     ? master.itemToGroups[selectedProductName] as { id: number; name: string }[]
                                     : allGroups;
 
-                            // Cross-filter candidates derived from real Inventory item↔category↔subCategory↔uom
-                            // combinations — narrows each of these four fields by whichever of the other three
-                            // are already picked, so choosing any one of them updates what's valid in the rest.
-                            // Department/Department Head are deliberately NOT part of this — they're free-choice
-                            // fields and must never restrict which products/categories/uoms are selectable.
-                            const comboCategoryCandidates = (selectedProductName || products[index]?.uom || (selectedSubCategoryName && selectedSubCategoryName !== '__none__'))
-                                ? new Set(uniqueComboValues(filterProductCombos({
-                                    itemName: selectedProductName || undefined,
-                                    uom: products[index]?.uom || undefined,
-                                    productSubCategoryName: selectedSubCategoryName || undefined,
-                                }), 'itemCategoryName').map(normalizeLookupValue))
-                                : null;
-
-                            const comboSubCategoryCandidates = (selectedProductName || products[index]?.uom)
-                                ? new Set(uniqueComboValues(filterProductCombos({
-                                    itemName: selectedProductName || undefined,
-                                    uom: products[index]?.uom || undefined,
-                                    itemCategoryName: selectedCategoryName || undefined,
-                                }), 'productSubCategoryName').map(normalizeLookupValue))
-                                : null;
-
-                            const comboProductNameCandidates = (selectedCategoryName || (selectedSubCategoryName && selectedSubCategoryName !== '__none__') || products[index]?.uom)
+                            // Product Name is narrowed by the picked category / sub category (from real Inventory
+                            // combinations). Category, Sub Category and UOM are never narrowed by the product, so they
+                            // can always be switched; switching clears whatever no longer belongs. UOM follows the product.
+                            const comboProductNameCandidates = (selectedCategoryName || (selectedSubCategoryName && selectedSubCategoryName !== '__none__'))
                                 ? new Set(uniqueComboValues(filterProductCombos({
                                     itemCategoryName: selectedCategoryName || undefined,
                                     productSubCategoryName: selectedSubCategoryName || undefined,
-                                    uom: products[index]?.uom || undefined,
                                 }), 'itemName').map(normalizeLookupValue))
                                 : null;
 
-                            const categoryOptionsFinal = (comboCategoryCandidates && comboCategoryCandidates.size > 0)
-                                ? categoryOptions.filter(c => comboCategoryCandidates.has(normalizeLookupValue(c.product_category_name)))
-                                : categoryOptions;
+                            // Category always lists every category so it can be switched at any time; picking a
+                            // different one clears the product / sub category / UOM that don't belong to it.
+                            const categoryOptionsFinal = productCategories;
 
-                            const subCategoryOptionsFinal = (comboSubCategoryCandidates && comboSubCategoryCandidates.size > 0)
-                                ? subCategoryOptions.filter(s => comboSubCategoryCandidates.has(normalizeLookupValue(s.product_sub_category_name)))
-                                : subCategoryOptions;
+                            // Sub Category lists the selected category's own sub categories (or all of them).
+                            const subCategoryOptionsFinal = subCategoryOptions;
 
                             return (
                                 <div
@@ -1129,6 +1102,16 @@ export default () => {
                                                                         form.setValue(`products.${index}.productSubCategory` as any, '');
                                                                     }
                                                                 }
+                                                                // Product (and its UOM / specification) must belong to the new category.
+                                                                const currentProduct = form.getValues(`products.${index}.productName` as any);
+                                                                if (currentProduct) {
+                                                                    const productCategoryNames = uniqueComboValues(filterProductCombos({ itemName: currentProduct }), 'itemCategoryName').map(normalizeLookupValue);
+                                                                    if (productCategoryNames.length > 0 && !productCategoryNames.includes(normalizeLookupValue(val))) {
+                                                                        form.setValue(`products.${index}.productName` as any, '');
+                                                                        form.setValue(`products.${index}.uom` as any, '');
+                                                                        form.setValue(`products.${index}.specifications` as any, '');
+                                                                    }
+                                                                }
                                                                 reconcileProductFacets(index, 'productCategory', val);
                                                             }}
                                                             value={field.value}
@@ -1165,6 +1148,16 @@ export default () => {
                                                                     const parent = findParentCategoryOfSubCategory(val);
                                                                     if (parent && parent.product_category_name !== form.getValues(`products.${index}.productCategory` as any)) {
                                                                         form.setValue(`products.${index}.productCategory` as any, parent.product_category_name);
+                                                                    }
+                                                                    // Product (and its UOM / specification) must belong to the new sub category.
+                                                                    const currentProduct = form.getValues(`products.${index}.productName` as any);
+                                                                    if (currentProduct) {
+                                                                        const productSubCategoryNames = uniqueComboValues(filterProductCombos({ itemName: currentProduct }), 'productSubCategoryName').map(normalizeLookupValue);
+                                                                        if (productSubCategoryNames.length > 0 && !productSubCategoryNames.includes(normalizeLookupValue(val))) {
+                                                                            form.setValue(`products.${index}.productName` as any, '');
+                                                                            form.setValue(`products.${index}.uom` as any, '');
+                                                                            form.setValue(`products.${index}.specifications` as any, '');
+                                                                        }
                                                                     }
                                                                 }
                                                                 reconcileProductFacets(index, 'productSubCategory', val);

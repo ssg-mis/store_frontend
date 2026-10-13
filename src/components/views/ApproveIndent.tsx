@@ -5,7 +5,8 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { DownloadOutlined } from "@ant-design/icons";
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet, approveIndent } from '@/lib/fetchers';
+import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet, approveIndent, fetchVendors } from '@/lib/fetchers';
+import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { Tabs, TabsContent } from '../ui/tabs';
@@ -27,6 +28,9 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
 const statuses = ['Select', 'Reject', 'Three Party', 'Regular'];
+// Vendors picked at approval for a Multi-Party product (autofilled later in Vendor Rate Update).
+const MIN_MULTI_PARTY_VENDORS = 2;
+const MAX_MULTI_PARTY_VENDORS = 10;
 
 interface ApproveTableData {
     id: number;
@@ -127,7 +131,14 @@ export default () => {
     const [editValues, setEditValues] = useState<Partial<HistoryData>>({});
     const [loading, setLoading] = useState(false);
     const [selectedIndents, setSelectedIndents] = useState<Set<string>>(new Set());
-    const [bulkUpdates, setBulkUpdates] = useState<Map<number, { vendorType?: string; quantity?: number; product?: string; plannedDate?: string; firm?: string }>>(new Map());
+    const [bulkUpdates, setBulkUpdates] = useState<Map<number, { vendorType?: string; quantity?: number; product?: string; plannedDate?: string; firm?: string; suggestedVendors?: string[] }>>(new Map());
+    // Vendor master list, for picking Multi-Party vendors at approval time.
+    const [vendorNames, setVendorNames] = useState<string[]>([]);
+    useEffect(() => {
+        fetchVendors()
+            .then((list: any[]) => setVendorNames(Array.from(new Set((list || []).map((v: any) => v.vendorName).filter(Boolean)))))
+            .catch(() => setVendorNames([]));
+    }, []);
     const [submitting, setSubmitting] = useState(false);
     // Separate initial loading (shows skeleton) from background searching (shows progress bar)
     const [pendingInitialLoading, setPendingInitialLoading] = useState(true);
@@ -353,8 +364,8 @@ export default () => {
 
     const handleBulkUpdate = (
         id: number,
-        field: 'vendorType' | 'quantity' | 'product' | 'plannedDate' | 'firm',
-        value: string | number
+        field: 'vendorType' | 'quantity' | 'product' | 'plannedDate' | 'firm' | 'suggestedVendors',
+        value: string | number | string[]
     ) => {
         setBulkUpdates((prevUpdates) => {
             const newUpdates = new Map(prevUpdates);
@@ -394,6 +405,17 @@ export default () => {
             return;
         }
 
+        // Validation: Multi-Party products need at least 2 vendors picked
+        const missingVendors = selectedProductIds
+            .map(id => ({ id, update: bulkUpdates.get(id) }))
+            .filter(({ update }) => update?.vendorType === 'Three Party' && (update.suggestedVendors?.length || 0) < MIN_MULTI_PARTY_VENDORS)
+            .map(({ id }) => pendingItems.find(i => i.id === id)?.product || '')
+            .filter(Boolean);
+        if (missingVendors.length > 0) {
+            toast.error(`Select at least ${MIN_MULTI_PARTY_VENDORS} vendors for Multi-Party products: ${missingVendors.join(', ')}`);
+            return;
+        }
+
         // Validation: check valid quantities
         let qtyError = false;
         selectedProductIds.forEach(id => {
@@ -427,6 +449,7 @@ export default () => {
                         quantity: update.quantity !== undefined ? Number(update.quantity) : originalRecord.quantity,
                         productName: update.product || originalRecord.product,
                         vendorType: update.vendorType || originalRecord.vendorType,
+                        suggestedVendors: (update.vendorType || originalRecord.vendorType) === 'Three Party' ? (update.suggestedVendors || []) : [],
                         planned: update.plannedDate || new Date().toISOString().split('T')[0],
                         firm: update.firm || originalRecord.firm
                     }
@@ -970,6 +993,49 @@ export default () => {
                                                                             <SelectItem value="Reject">Reject</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
+                                                                    {currentVendorType === 'Three Party' && (() => {
+                                                                        const picked = bulkUpdates.get(item.id)?.suggestedVendors || [];
+                                                                        const available = vendorNames.filter(n => !picked.includes(n));
+                                                                        return (
+                                                                            <div className="mt-2 w-48 space-y-1.5">
+                                                                                <Select
+                                                                                    value=""
+                                                                                    onValueChange={(val) => handleBulkUpdate(item.id, 'suggestedVendors', [...picked, val])}
+                                                                                    disabled={picked.length >= MAX_MULTI_PARTY_VENDORS}
+                                                                                >
+                                                                                    <SelectTrigger className="w-full h-8 text-xs">
+                                                                                        <SelectValue placeholder={picked.length >= MAX_MULTI_PARTY_VENDORS ? 'Max vendors added' : `Add vendor (${picked.length} added)`} />
+                                                                                    </SelectTrigger>
+                                                                                    <SearchableSelectContent searchPlaceholder="Search vendors...">
+                                                                                        {available.length > 0 ? available.map(n => (
+                                                                                            <SelectItem key={n} value={n}>{n}</SelectItem>
+                                                                                        )) : (
+                                                                                            <p className="px-2 py-1.5 text-xs text-muted-foreground">No vendors found</p>
+                                                                                        )}
+                                                                                    </SearchableSelectContent>
+                                                                                </Select>
+                                                                                {picked.length > 0 && (
+                                                                                    <div className="flex flex-wrap gap-1">
+                                                                                        {picked.map(n => (
+                                                                                            <span key={n} className="inline-flex items-center gap-1 rounded-full border bg-secondary px-2 py-0.5 text-[10px] font-medium">
+                                                                                                {n}
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    className="text-muted-foreground hover:text-destructive"
+                                                                                                    onClick={() => handleBulkUpdate(item.id, 'suggestedVendors', picked.filter(p => p !== n))}
+                                                                                                >
+                                                                                                    ×
+                                                                                                </button>
+                                                                                            </span>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                )}
+                                                                                {picked.length < MIN_MULTI_PARTY_VENDORS && (
+                                                                                    <p className="text-[10px] text-red-500">Select at least {MIN_MULTI_PARTY_VENDORS} vendors</p>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })()}
                                                                 </TableCell>
                                                             )}
                                                             <TableCell>
