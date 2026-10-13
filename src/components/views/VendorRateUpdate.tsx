@@ -11,7 +11,7 @@ import {
     DialogHeader,
     DialogFooter,
 } from '../ui/dialog';
-import { postToSheet, uploadFile, fetchVendors, fetchFromSupabasePaginated, fetchIndentMasterData, fetchPaymentTerms, fetchVendorProductPrices, type VendorProductPriceRow } from '@/lib/fetchers';
+import { postToSheet, uploadFile, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchIndentMasterData, fetchPaymentTerms, fetchVendorProductPrices, type VendorProductPriceRow } from '@/lib/fetchers';
 import { z } from 'zod';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -53,6 +53,7 @@ interface VendorUpdateData {
     attachment: string;
     vendorType: 'Three Party' | 'Regular';
     vendorName?: string;
+    suggestedVendors?: string[];
     requestDate: string;
     approvalDate: string;
     date: string;
@@ -151,7 +152,7 @@ const ProductDropdownCell = ({ items }: { items: any[] }) => {
 
 export default () => {
     const { user } = useAuth();
-    const { updateIndentSheet, updateRelatedSheets } = useSheets();
+    const { updateIndentSheet, updateRelatedSheets, rateUpdateSheet, poMasterSheet } = useSheets();
 
     const [selectedGroup, setSelectedGroup] = useState<PendingGroup | null>(null);
     const [selectedHistory, setSelectedHistory] = useState<HistoryData | null>(null);
@@ -240,6 +241,79 @@ export default () => {
         return match && match.price != null ? Number(match.price) : null;
     }, [vendorProductPrices]);
 
+    // RFQ (Request for Quotation) history — which suppliers each indent was sent to.
+    const [rfqHistory, setRfqHistory] = useState<any[]>([]);
+    useEffect(() => {
+        fetchSheet('QUOTATION HISTORY')
+            .then((rows: any) => setRfqHistory(Array.isArray(rows) ? rows : []))
+            .catch(() => setRfqHistory([]));
+    }, []);
+
+    const normName = (value?: string | null) => (value || '').trim().toLowerCase();
+
+    // Every past rate a vendor gave for a product: earlier multi-party quotes and earlier POs.
+    const pastVendorRates = useMemo(() => {
+        const rows: { vendorName: string; product: string; rate: number; date: number }[] = [];
+        (rateUpdateSheet || []).forEach((r: any) => {
+            const date = new Date(r.createdAt || 0).getTime() || 0;
+            (r.quotes || []).forEach((q: any) => {
+                const rate = Number(q.rate);
+                if (q.vendorName && rate > 0) rows.push({ vendorName: q.vendorName, product: r.productName || '', rate, date });
+            });
+        });
+        (poMasterSheet || []).forEach((po: any) => {
+            const rate = Number(po.rate);
+            if (po.partyName && rate > 0) {
+                rows.push({ vendorName: po.partyName, product: po.product || '', rate, date: new Date(po.createdAt || po.timestamp || 0).getTime() || 0 });
+            }
+        });
+        return rows.sort((a, b) => b.date - a.date);
+    }, [rateUpdateSheet, poMasterSheet]);
+
+    // Rate to pre-fill for a vendor + product: a valid Price List price first, else that vendor's latest past rate.
+    const getAutofillRate = useCallback((vendorName: string, productName: string): { rate: number; source: string } | null => {
+        if (!vendorName || !productName) return null;
+        const listPrice = getValidVendorPrice(vendorName, productName);
+        if (listPrice != null) return { rate: listPrice, source: 'Price list' };
+        const past = pastVendorRates.find(r => normName(r.vendorName) === normName(vendorName) && normName(r.product) === normName(productName));
+        return past ? { rate: past.rate, source: `Last rate${past.date ? ` (${formatDate(new Date(past.date))})` : ''}` } : null;
+    }, [getValidVendorPrice, pastVendorRates]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Vendors to pre-select for a multi-party indent: the vendors picked at Approve Indent first, then its
+    // RFQ suppliers, then vendors who previously quoted / supplied these products (most recent first).
+    // Only names in the vendor master.
+    const suggestVendorsForGroup = (items: { indentId?: number; product: string; suggestedVendors?: string[] }[]) => {
+        const masterByName = new Map<string, string>(
+            (vendors || []).map((v: any) => [normName(v.vendorName), v.vendorName as string])
+        );
+        const indentIds = new Set(items.map(i => i.indentId).filter(Boolean));
+        const productNames = new Set(items.map(i => normName(i.product)));
+
+        const rfqNames: string[] = [];
+        items.forEach(item => (item.suggestedVendors || []).forEach(v => {
+            const name = masterByName.get(normName(v));
+            if (name && !rfqNames.includes(name)) rfqNames.push(name);
+        }));
+        rfqHistory
+            .filter((q: any) => indentIds.has(q.indent_id ?? q.indentId))
+            .sort((a: any, b: any) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime())
+            .forEach((q: any) => {
+                const name = masterByName.get(normName(q.supplierName));
+                if (name && !rfqNames.includes(name)) rfqNames.push(name);
+            });
+
+        const pastNames: string[] = [];
+        pastVendorRates
+            .filter(r => productNames.has(normName(r.product)))
+            .forEach(r => {
+                const name = masterByName.get(normName(r.vendorName));
+                if (name && !rfqNames.includes(name) && !pastNames.includes(name)) pastNames.push(name);
+            });
+
+        const slots = Math.min(MAX_VENDORS, Math.max(3, rfqNames.length));
+        return [...rfqNames, ...pastNames].slice(0, slots);
+    };
+
     useEffect(() => {
         const loadVendors = async () => {
             setVendorsLoading(true);
@@ -276,6 +350,7 @@ export default () => {
                     id: record.id,
                     indentId: record.indentId,
                     indentNo: record.indentNumber || record.indent_number || record.indentNo || '',
+                    suggestedVendors: record.suggestedVendors || [],
                     firm: record.firm || 'N/A',
                     indenter: record.indenterName || '',
                     department: record.department || '',
@@ -974,8 +1049,14 @@ export default () => {
 
     useEffect(() => {
         if (selectedGroup) {
-            // Default to 3 vendor columns (common case); user can add up to 10 or remove down to 1.
-            threePartyForm.reset({ vendors: makeDefaultVendors(3, selectedGroup.items.length) });
+            // Default to 3 vendor columns (more if more vendors were suggested); vendor names are
+            // pre-filled where we have data, rates are always entered by hand. User can add up to 10 or remove down to 1.
+            const suggested = suggestVendorsForGroup(selectedGroup.items);
+            const defaults = makeDefaultVendors(Math.max(3, suggested.length), selectedGroup.items.length);
+            suggested.forEach((vendorName, v) => {
+                defaults[v].vendorName = vendorName;
+            });
+            threePartyForm.reset({ vendors: defaults });
             regularForm.reset({
                 products: selectedGroup.items.map(() => ({ vendorName: '', rate: '' as unknown as number, paymentTerm: '' })),
             });
@@ -1494,16 +1575,16 @@ export default () => {
                                                                         name={`vendors.${v}.rates.${i}`}
                                                                         render={({ field }) => {
                                                                             const selectedVendor = threePartyForm.watch(`vendors.${v}.vendorName`);
-                                                                            const validPrice = selectedVendor ? getValidVendorPrice(selectedVendor, product.product) : null;
+                                                                            const autofill = selectedVendor ? getAutofillRate(selectedVendor, product.product) : null;
                                                                             return (
                                                                                 <FormItem>
                                                                                     <FormControl>
                                                                                         <Input type="number" placeholder="Enter rate" className="w-full h-8 text-xs" {...field} />
                                                                                     </FormControl>
                                                                                     {selectedVendor && (
-                                                                                        validPrice != null
-                                                                                            ? <p className="text-[10px] text-green-600 mt-0.5">Vendor price: &#8377;{validPrice.toLocaleString()}</p>
-                                                                                            : <p className="text-[10px] text-yellow-600 mt-0.5">No valid price available</p>
+                                                                                        autofill
+                                                                                            ? <p className="text-[10px] text-green-600 mt-0.5">{autofill.source}: &#8377;{autofill.rate.toLocaleString()}</p>
+                                                                                            : <p className="text-[10px] text-yellow-600 mt-0.5">No previous rate</p>
                                                                                     )}
                                                                                     <FormMessage className="text-[10px]" />
                                                                                 </FormItem>

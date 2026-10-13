@@ -10,7 +10,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
-import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO } from '@/lib/fetchers';
+import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO, fetchPaymentTerms } from '@/lib/fetchers';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import { ClipLoader as Loader } from 'react-spinners';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '../ui/textarea';
+import { Checkbox } from '../ui/checkbox';
 
 
 function generatePoNumber(poNumbers: string[], today = new Date(), firmAlias?: string): string {
@@ -556,11 +557,38 @@ export default () => {
         }
     }, [detailsData, displayFirm, selectedFirmAddress]);
 
+    // Payment terms master (head + sub-terms) — picking one adds it as a term with its sub-terms.
+    const [paymentTermHeads, setPaymentTermHeads] = useState<{ id: number; name: string; subTerms?: string[] }[]>([]);
+    useEffect(() => {
+        fetchPaymentTerms()
+            .then((rows: any[]) => setPaymentTermHeads((rows || []).filter((t: any) => t.isActive !== false)))
+            .catch(() => setPaymentTermHeads([]));
+    }, []);
+    // A term is stored as one string: first line = heading, further lines = "a) sub-term".
+    const parseTerm = (value: string) => {
+        const [heading = '', ...rest] = String(value || '').split('\n');
+        return { heading, subs: rest.map(l => l.trim().replace(/^[a-z]\)\s*/, '')) };
+    };
+    const buildTerm = (heading: string, subs: string[]) =>
+        [heading, ...subs.map((sub, i) => `   ${String.fromCharCode(97 + (i % 26))}) ${sub}`)].join('\n');
+    const cleanTerm = (value: string) => {
+        const { heading, subs } = parseTerm(value);
+        return buildTerm(heading.trim(), subs.map(t => t.trim()).filter(Boolean));
+    };
+    const findHead = (name: string) =>
+        paymentTermHeads.find(t => t.name.trim().toLowerCase() === name.trim().toLowerCase());
+    const [termSuggestOpen, setTermSuggestOpen] = useState(false);
+
     const termsArray = useFieldArray({
         control: form.control,
         // @ts-ignore
         name: 'terms',
     });
+
+    // If the term being edited no longer exists (e.g. terms were reset), clear the edit state.
+    useEffect(() => {
+        if (readOnly >= termsArray.fields.length) setReadOnly(-1);
+    }, [termsArray.fields.length, readOnly]);
 
     const itemsArray = useFieldArray({
         control: form.control,
@@ -765,10 +793,10 @@ export default () => {
             form.setValue('approvedBy', po.approvedBy || po.approved_by || '');
             form.setValue('gstin', vendor?.vendor_gstin || vendor?.gstin || '');
             form.setValue('quotationNumber', po.quotationNumber || po.quotation_number || '');
-            form.setValue('quotationDate', (po.quotationDate || po.quotation_date) ? new Date(po.quotationDate || po.quotation_date) : new Date());
+            form.setValue('quotationDate', (po.quotationDate || po.quotation_date) ? new Date(po.quotationDate || po.quotation_date) : undefined);
             form.setValue('description', po.description || '');
             form.setValue('ourEnqNo', po.enquiryNumber || po.enquiry_number || '');
-            form.setValue('enquiryDate', (po.enquiryDate || po.enquiry_date) ? new Date(po.enquiryDate || po.enquiry_date) : new Date());
+            form.setValue('enquiryDate', (po.enquiryDate || po.enquiry_date) ? new Date(po.enquiryDate || po.enquiry_date) : undefined);
 
             form.setValue(
                 'indents',
@@ -844,6 +872,7 @@ export default () => {
     };
 
     async function onSubmit(values: FormData) {
+        values = { ...values, terms: (values.terms || []).map(t => cleanTerm(t)) };
         // Approved Quantity Validation
         if (mode !== 'revise') {
             const qtyErrors: string[] = [];
@@ -990,9 +1019,9 @@ export default () => {
                     transportationType: values.transportationType,
                     destinationAddress: destinationAddress || null,
                     quotationNumber: values.quotationNumber,
-                    quotationDate: values.quotationDate ? new Date(values.quotationDate) : null,
-                    enquiryNumber: values.ourEnqNo,
-                    enquiryDate: values.enquiryDate ? new Date(values.enquiryDate) : null,
+                    quotationDate: values.quotationNumber && values.quotationDate ? new Date(values.quotationDate) : null,
+                    enquiryNumber: values.ourEnqNo?.trim() || null,
+                    enquiryDate: values.ourEnqNo?.trim() && values.enquiryDate ? new Date(values.enquiryDate) : null,
                     term1: values.terms[0] || null,
                     term2: values.terms[1] || null,
                     term3: values.terms[2] || null,
@@ -1101,8 +1130,8 @@ export default () => {
                     orderDate: values.poDate ? formatDate(new Date(values.poDate)) : formatDate(new Date()),
                     quotationNumber: values.quotationNumber || '',
                     quotationDate: values.quotationDate ? formatDate(new Date(values.quotationDate)) : '',
-                    enqNo: values.ourEnqNo || '',
-                    enqDate: values.enquiryDate ? formatDate(new Date(values.enquiryDate)) : '',
+                    enqNo: values.ourEnqNo?.trim() || '',
+                    enqDate: values.ourEnqNo?.trim() && values.enquiryDate ? formatDate(new Date(values.enquiryDate)) : '',
                     description: values.description || '',
                     items: values.indents.map((v) => {
                         const indent = enrichedFetchedIndents.find((i: any) =>
@@ -1577,6 +1606,52 @@ export default () => {
                                             )}
                                         />
                                     )}
+                                    <FormField
+                                        control={form.control}
+                                        name="ourEnqNo"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Enquiry No.</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        className="h-9"
+                                                        placeholder="Enter enquiry number"
+                                                        {...field}
+                                                        value={field.value || ''}
+                                                    />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="enquiryDate"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Enquiry Date</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        className="h-9"
+                                                        type="date"
+                                                        value={
+                                                            field.value
+                                                                ? field.value
+                                                                    .toISOString()
+                                                                    .split('T')[0]
+                                                                : ''
+                                                        }
+                                                        onChange={(e) =>
+                                                            field.onChange(
+                                                                e.target.value
+                                                                    ? new Date(e.target.value)
+                                                                    : undefined
+                                                            )
+                                                        }
+                                                    />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
                                 </div>
                             </div>
 
@@ -2022,25 +2097,120 @@ export default () => {
                                     {termsArray.fields.map((field, index) => {
                                         const write = readOnly === index;
                                         return (
-                                            <div className="flex items-center" key={field.id}>
-                                                <span className="px-3">{index + 1}.</span>
+                                            <div className="flex items-start border-b last:border-b-0" key={field.id}>
+                                                <span className="px-3 py-1 text-sm">{index + 1}.</span>
                                                 <FormField
                                                     control={form.control}
                                                     name={`terms.${index}`}
                                                     render={({ field: termField }) => (
-                                                        <FormItem className="w-full">
-                                                            <FormControl>
-                                                                <Input
-                                                                    className={cn(
-                                                                        'border-transparent rounded-xs h-6 shadow-none',
-                                                                        !write
-                                                                            ? ''
-                                                                            : 'border-b border-b-foreground'
-                                                                    )}
-                                                                    readOnly={!write}
-                                                                    {...termField}
-                                                                />
-                                                            </FormControl>
+                                                        <FormItem className="w-full py-1">
+                                                            {write ? (() => {
+                                                                const { heading, subs } = parseTerm(termField.value as string);
+                                                                const head = findHead(heading);
+                                                                const typed = heading.trim().toLowerCase();
+                                                                const usedHeadings = (form.getValues('terms') || [])
+                                                                    .filter((_, ti) => ti !== index)
+                                                                    .map(t => parseTerm(t).heading.trim().toLowerCase());
+                                                                const suggestions = typed && !head
+                                                                    ? paymentTermHeads.filter(t => t.name.toLowerCase().includes(typed)).slice(0, 8)
+                                                                    : [];
+                                                                return (
+                                                                    <div className="relative space-y-2">
+                                                                        <FormControl>
+                                                                            <Input
+                                                                                className="h-8"
+                                                                                placeholder="Type a term — matching term headings are suggested"
+                                                                                autoFocus
+                                                                                autoComplete="off"
+                                                                                value={heading}
+                                                                                onFocus={() => setTermSuggestOpen(true)}
+                                                                                onBlur={() => setTermSuggestOpen(false)}
+                                                                                onChange={(e) => {
+                                                                                    setTermSuggestOpen(true);
+                                                                                    // Sub-terms are kept while typing; picking a suggested heading starts fresh.
+                                                                                    termField.onChange(buildTerm(e.target.value, subs));
+                                                                                }}
+                                                                            />
+                                                                        </FormControl>
+                                                                        {termSuggestOpen && suggestions.length > 0 && (
+                                                                            <div className="absolute z-20 top-9 left-0 w-full max-w-md rounded-md border bg-popover shadow-md py-1">
+                                                                                {suggestions.map(t => (
+                                                                                    <button
+                                                                                        key={t.id}
+                                                                                        type="button"
+                                                                                        className="block w-full text-left px-3 py-1.5 text-sm hover:bg-muted"
+                                                                                        onMouseDown={(e) => {
+                                                                                            e.preventDefault();
+                                                                                            if (usedHeadings.includes(t.name.trim().toLowerCase())) {
+                                                                                                toast.error(`"${t.name}" is already added`);
+                                                                                                return;
+                                                                                            }
+                                                                                            termField.onChange(buildTerm(t.name, []));
+                                                                                            setTermSuggestOpen(false);
+                                                                                        }}
+                                                                                    >
+                                                                                        {t.name}
+                                                                                    </button>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                        {(head || subs.length > 0) && (
+                                                                            <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1.5">
+                                                                                <p className="text-xs font-medium text-muted-foreground">
+                                                                                    Sub-terms{head ? ` for "${head.name}"` : ''} — tick to include, edit the text for this PO
+                                                                                </p>
+                                                                                {/* Included sub-terms (editable, in order) */}
+                                                                                {subs.map((sub, si) => (
+                                                                                    <div key={`s${si}`} className="flex items-center gap-2">
+                                                                                        <Checkbox
+                                                                                            checked
+                                                                                            onCheckedChange={() => termField.onChange(buildTerm(heading, subs.filter((_, j) => j !== si)))}
+                                                                                        />
+                                                                                        <span className="w-4 text-xs text-muted-foreground">{String.fromCharCode(97 + (si % 26))})</span>
+                                                                                        <Input
+                                                                                            className="h-7 text-sm"
+                                                                                            value={sub}
+                                                                                            placeholder="Enter sub-term"
+                                                                                            onChange={(e) => termField.onChange(buildTerm(heading, subs.map((x, j) => (j === si ? e.target.value : x))))}
+                                                                                        />
+                                                                                    </div>
+                                                                                ))}
+                                                                                {/* Master sub-terms not yet included */}
+                                                                                {(head?.subTerms || []).filter(sub => !subs.includes(sub)).map(sub => (
+                                                                                    <label key={`m${sub}`} className="flex items-center gap-2 text-sm cursor-pointer text-muted-foreground">
+                                                                                        <Checkbox
+                                                                                            checked={false}
+                                                                                            onCheckedChange={() => termField.onChange(buildTerm(heading, [...subs, sub]))}
+                                                                                        />
+                                                                                        {sub}
+                                                                                    </label>
+                                                                                ))}
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    className="h-7 px-2 text-xs"
+                                                                                    onClick={() => termField.onChange(buildTerm(heading, [...subs, '']))}
+                                                                                >
+                                                                                    + Add sub-term
+                                                                                </Button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })() : (() => {
+                                                                // Read view: first line is the term / heading, further lines are its sub-terms.
+                                                                const { heading, subs } = parseTerm(termField.value as string);
+                                                                const subTerms = subs.filter(t => t.trim()).map((t, ti) => `${String.fromCharCode(97 + (ti % 26))}) ${t.trim()}`);
+                                                                return (
+                                                                    <div className="text-sm px-3">
+                                                                        <p className={subTerms.length ? 'font-semibold' : ''}>{heading || <span className="text-muted-foreground">—</span>}</p>
+                                                                        {subTerms.filter(t => t.trim()).map((sub, si) => (
+                                                                            <p key={si} className="pl-5 text-muted-foreground">{sub.trim()}</p>
+                                                                        ))}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </FormItem>
                                                     )}
                                                 />
@@ -2050,6 +2220,7 @@ export default () => {
                                                     onClick={(e) => {
                                                         e.preventDefault();
                                                         if (write) {
+                                                            form.setValue(`terms.${index}`, cleanTerm(form.getValues(`terms.${index}`) || ''));
                                                             setReadOnly(-1);
                                                         } else if (readOnly === -1) {
                                                             setReadOnly(index);
@@ -2082,7 +2253,7 @@ export default () => {
                                     })}
                                 </div>
 
-                                <div className="w-full flex justify-end p-3">
+                                <div className="w-full flex justify-end gap-3 p-3">
                                     <Button
                                         className="w-50"
                                         variant="outline"
@@ -2090,7 +2261,7 @@ export default () => {
                                         onClick={(e) => {
                                             e.preventDefault();
                                             if (termsArray.fields.length < 11) {
-                                                if (readOnly === -1) {
+                                                if (readOnly === -1 || readOnly >= termsArray.fields.length) {
                                                     // @ts-ignore
                                                     termsArray.append('');
                                                     setReadOnly(termsArray.fields.length);

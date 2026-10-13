@@ -1,4 +1,5 @@
-import { Database, Plus, Pencil, Trash2, ChevronRight, ChevronDown } from 'lucide-react';
+import { Database, Plus, Pencil, Trash2, ChevronRight, ChevronDown, History } from 'lucide-react';
+import InventoryHistoryDialog from '../element/InventoryHistoryDialog';
 import Heading from '../element/Heading';
 import { useEffect, useState, useMemo } from 'react';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
@@ -140,6 +141,7 @@ function Field({
     required,
     placeholder,
     textarea,
+    suggestions,
 }: {
     label: string;
     id: string;
@@ -149,6 +151,7 @@ function Field({
     required?: boolean;
     placeholder?: string;
     textarea?: boolean;
+    suggestions?: string[];
 }) {
     return (
         <div className="flex flex-col gap-1.5">
@@ -173,8 +176,50 @@ function Field({
                     onChange={(e) => onChange(e.target.value)}
                     placeholder={placeholder ?? `Enter ${label.toLowerCase()}`}
                     className="text-sm"
+                    list={suggestions?.length ? `${id}_suggestions` : undefined}
+                    autoComplete="off"
                 />
             )}
+            {suggestions?.length ? (
+                <datalist id={`${id}_suggestions`}>
+                    {suggestions.map(s => <option key={s} value={s} />)}
+                </datalist>
+            ) : null}
+        </div>
+    );
+}
+
+// Free-text sub-term lines under a payment term (head), with add / remove.
+function SubTermsField({ value, onChange }: { value: string[]; onChange: (val: string[]) => void }) {
+    return (
+        <div className="flex flex-col gap-1.5">
+            <Label className="text-sm font-medium">
+                Sub-terms
+                <span className="ml-2 text-xs font-normal text-muted-foreground">({value.filter(v => v.trim()).length})</span>
+            </Label>
+            {value.map((term, i) => (
+                <div key={i} className="flex items-center gap-2">
+                    <span className="w-5 text-xs text-muted-foreground">{String.fromCharCode(97 + (i % 26))})</span>
+                    <Input
+                        value={term}
+                        onChange={(e) => onChange(value.map((t, j) => (j === i ? e.target.value : t)))}
+                        placeholder="Enter sub-term"
+                        className="text-sm"
+                    />
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-red-400 hover:text-destructive"
+                        onClick={() => onChange(value.filter((_, j) => j !== i))}
+                    >
+                        <Trash2 size={16} />
+                    </Button>
+                </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => onChange([...value, ''])}>
+                <Plus size={14} className="mr-1" /> Add sub-term
+            </Button>
         </div>
     );
 }
@@ -331,8 +376,10 @@ export default function MasterData() {
     const [addingHead, setAddingHead] = useState(false);
     const [allSpecifications, setAllSpecifications] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
     const [newSpecificationName, setNewSpecificationName] = useState('');
-    const [allPaymentTerms, setAllPaymentTerms] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
+    const [allPaymentTerms, setAllPaymentTerms] = useState<{ id: number, name: string, isActive?: boolean, subTerms?: string[] }[]>([]);
     const [newPaymentTermMasterName, setNewPaymentTermMasterName] = useState('');
+    const [newPaymentTermSubTerms, setNewPaymentTermSubTerms] = useState<string[]>([]);
+    const [simpleEditSubTerms, setSimpleEditSubTerms] = useState<string[]>([]);
     const [allDeliveryTerms, setAllDeliveryTerms] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
     const [newDeliveryTermName, setNewDeliveryTermName] = useState('');
     const [allTransportationTerms, setAllTransportationTerms] = useState<{ id: number, name: string, isActive?: boolean }[]>([]);
@@ -677,8 +724,9 @@ export default function MasterData() {
 
     function openSimpleEditDialog(
         type: typeof simpleEditType,
-        row: { product_category_id?: number; product_category_name?: string; product_sub_category_id?: number; product_sub_category_name?: string; productCategoryId?: number | null; product_group_id?: number; product_group_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean; specifications?: { id: number; name: string }[] }
+        row: { product_category_id?: number; product_category_name?: string; product_sub_category_id?: number; product_sub_category_name?: string; productCategoryId?: number | null; product_group_id?: number; product_group_name?: string; uom_id?: number; uom_name?: string; id?: number; name?: string; isActive?: boolean; specifications?: { id: number; name: string }[]; subTerms?: string[] }
     ) {
+        setSimpleEditSubTerms(row.subTerms ?? []);
         setSimpleEditType(type);
         setSimpleEditId(row.product_category_id ?? row.product_sub_category_id ?? row.product_group_id ?? row.uom_id ?? row.id ?? null);
         setSimpleEditName(row.product_category_name ?? row.product_sub_category_name ?? row.product_group_name ?? row.uom_name ?? row.name ?? '');
@@ -723,7 +771,11 @@ export default function MasterData() {
             } else if (simpleEditType === 'specification') {
                 result = await updateSpecification(simpleEditId, { name: simpleEditName.trim(), isActive });
             } else if (simpleEditType === 'paymentTerm') {
-                result = await updatePaymentTerm(simpleEditId, { name: simpleEditName.trim(), isActive });
+                result = await updatePaymentTerm(simpleEditId, {
+                    name: simpleEditName.trim(),
+                    isActive,
+                    subTerms: simpleEditSubTerms.map(t => t.trim()).filter(Boolean),
+                });
             } else if (simpleEditType === 'deliveryTerm') {
                 result = await updateDeliveryTerm(simpleEditId, { name: simpleEditName.trim(), isActive });
             } else if (simpleEditType === 'transportationTerm') {
@@ -935,6 +987,8 @@ export default function MasterData() {
         }
     }
 
+    const [historyInventoryId, setHistoryInventoryId] = useState<number | null>(null);
+
     const inventoryColumns = useMemo<ColumnDef<any>[]>(() => [
         {
             accessorKey: 'itemName',
@@ -960,6 +1014,18 @@ export default function MasterData() {
             accessorKey: 'uom',
             header: 'UOM',
             cell: ({ getValue }) => <TruncCell value={getValue() as string} width={80} />,
+        },
+        {
+            id: 'history',
+            header: () => <div className="text-center">History</div>,
+            cell: ({ row }) => (
+                <div className="flex justify-center">
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary" title="View product history"
+                        onClick={() => setHistoryInventoryId(row.original.id)}>
+                        <History className="h-3.5 w-3.5" /> History
+                    </Button>
+                </div>
+            ),
         },
         {
             id: 'actions',
@@ -1177,8 +1243,22 @@ export default function MasterData() {
         ),
     ], [loadSpecifications]);
 
-    const paymentTermColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean }>[]>(() => [
+    const paymentTermColumns = useMemo<ColumnDef<{ id: number; name: string; isActive?: boolean; subTerms?: string[] }>[]>(() => [
         { accessorKey: 'name', header: 'Payment Term', cell: ({ getValue }) => <TruncCell value={getValue() as string} width={240} /> },
+        {
+            accessorKey: 'subTerms',
+            header: 'Sub-terms',
+            cell: ({ row }) => {
+                const subs = row.original.subTerms || [];
+                return subs.length === 0 ? (
+                    <span className="text-muted-foreground">—</span>
+                ) : (
+                    <ol className="list-[lower-alpha] pl-4 text-xs space-y-0.5 max-w-[360px] whitespace-normal">
+                        {subs.map((s, i) => <li key={i}>{s}</li>)}
+                    </ol>
+                );
+            },
+        },
         activeStatusCol(),
         rowActionsCol(
             row => openSimpleEditDialog('paymentTerm', row),
@@ -1559,11 +1639,24 @@ export default function MasterData() {
             toast.error('Payment Term is required');
             return;
         }
+        // A head that already exists is opened for editing instead of being duplicated.
+        const existingTerm = allPaymentTerms.find(t => t.name.trim().toLowerCase() === newPaymentTermMasterName.trim().toLowerCase());
+        if (existingTerm) {
+            toast.info(`"${existingTerm.name}" already exists — opened it so you can edit its sub-terms.`);
+            setSheetOpen(false);
+            openSimpleEditDialog('paymentTerm', existingTerm);
+            return;
+        }
         setSubmitting(true);
         try {
-            await postPaymentTerm(newPaymentTermMasterName.trim(), newMasterActive === 'true');
+            await postPaymentTerm(
+                newPaymentTermMasterName.trim(),
+                newMasterActive === 'true',
+                newPaymentTermSubTerms.map(t => t.trim()).filter(Boolean),
+            );
             toast.success('Payment term saved successfully!');
             setNewPaymentTermMasterName('');
+            setNewPaymentTermSubTerms([]);
             setNewMasterActive('true');
             loadPaymentTerms();
             closeOrReturnAfterRelatedAdd();
@@ -2986,7 +3079,9 @@ export default function MasterData() {
                                     value={newPaymentTermMasterName}
                                     onChange={setNewPaymentTermMasterName}
                                     required
+                                    suggestions={allPaymentTerms.map(t => t.name)}
                                 />
+                                <SubTermsField value={newPaymentTermSubTerms} onChange={setNewPaymentTermSubTerms} />
                                 <ActiveStatusField
                                     value={newMasterActive}
                                     onChange={setNewMasterActive}
@@ -3258,6 +3353,8 @@ export default function MasterData() {
                 </DialogContent>
             </Dialog>
 
+            <InventoryHistoryDialog inventoryId={historyInventoryId} onClose={() => setHistoryInventoryId(null)} />
+
             <Dialog open={simpleEditOpen} onOpenChange={(open) => {
                 setSimpleEditOpen(open);
                 if (!open) setSimpleEditId(null);
@@ -3278,6 +3375,10 @@ export default function MasterData() {
                             onChange={setSimpleEditName}
                             required
                         />
+
+                        {simpleEditType === 'paymentTerm' && (
+                            <SubTermsField value={simpleEditSubTerms} onChange={setSimpleEditSubTerms} />
+                        )}
 
                         {simpleEditType === 'productSubCategory' && (
                             <div className="flex flex-col gap-1.5">

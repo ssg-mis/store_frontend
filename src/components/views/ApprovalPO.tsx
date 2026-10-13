@@ -305,14 +305,27 @@ export default function ApprovalPO() {
                     amount: Number(it.amount || 0),
                     make: it.make || '',
                 })),
-                quotes: quotes.map(q => ({
-                    slot: q.slot,
-                    vendorName: q.vendorName,
-                    rate: q.rate != null ? Number(q.rate) : null,
-                    paymentTerm: q.paymentTerm,
-                    deliveryTime: q.deliveryTime != null ? Number(q.deliveryTime) : null,
-                    comparisonSheet: q.comparisonSheet,
-                })),
+                // One quote per vendor with its rate for each PO item (product-wise PDF table).
+                quotes: (() => {
+                    const perItem: VendorQuote[][] = group.items.map((it: any) => (it.vendorQuotes || []) as VendorQuote[]);
+                    const names: string[] = [];
+                    [quotes, ...perItem].forEach(list => list.forEach(q => {
+                        if (q.vendorName && !names.includes(q.vendorName)) names.push(q.vendorName);
+                    }));
+                    return names.map((name, idx) => {
+                        const offers = perItem.map(list => list.find(q => q.vendorName === name));
+                        const first = offers.find(Boolean) || quotes.find(q => q.vendorName === name);
+                        return {
+                            slot: idx + 1,
+                            vendorName: name,
+                            rate: first?.rate != null ? Number(first.rate) : null,
+                            paymentTerm: first?.paymentTerm ?? null,
+                            deliveryTime: first?.deliveryTime != null ? Number(first.deliveryTime) : null,
+                            comparisonSheet: first?.comparisonSheet,
+                            productRates: offers.map(o => (o?.rate != null ? Number(o.rate) : null)),
+                        };
+                    });
+                })(),
             };
 
             const blob = await pdf(<POComparisonPdf {...props} />).toBlob();

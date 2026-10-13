@@ -667,6 +667,35 @@ export interface InventoryAuditLog {
     metadata?: Record<string, any>;
 }
 
+export interface InventoryHistory {
+    item: { id: number; itemName: string; uom: string; department: string; departmentHead: string; firm: string | null };
+    scope: 'row' | 'all';
+    summary: { indented: number; approved: number; purchased: number; stockIn: number; storeOut: number; loanOut: number; current: number; onOrder: number };
+    rates: {
+        last: { rate: number; vendor: string; date: string; poNumber: string } | null;
+        lowest: number | null; highest: number | null; average: number | null; purchaseCount: number;
+    };
+    indents: { stage: string; indentNumber: string; productCode: string | null; date: string; indenter: string; department: string; departmentHead: string; firm: string | null; quantity: number; approvedQuantity: number | null; vendorType: string | null; uom: string; indentType: string }[];
+    quotes: { indentNumber: string; date: string; vendor: string | null; rate: number | null; paymentTerm: string | null; deliveryTime: number | null; approved: boolean }[];
+    rfq: { quotationNumber: string; indentNumber: string; date: string; supplier: string; quantity: string | null; unit: string | null }[];
+    priceList: { vendor: string | null; price: number | null; uom: string | null; validFrom: string | null; validUpto: string | null; valid: boolean }[];
+    purchaseOrders: { poNumber: string; indentNumber: string; date: string; vendor: string; quantity: number; unit: string; rate: number; gstPercent: number | null; amount: number; pdf: string | null }[];
+    received: { grnNumber: string | null; poNumber: string; indentNumber: string; date: string; vendor: string; okQuantity: number; damagedQuantity: number; purchaseReturn: number; uom: string; billNumber: string | null; billStatus: string | null; receiveType: string | null; remark: string | null; billPhoto: string | null; itemPhoto: string | null }[];
+    storeOut: { indentNumber: string; date: string; quantity: number; approvedBy: string; status: string; department: string; indenter: string }[];
+    loans: { indentNumber: string; date: string; quantity: number; approvedBy: string; status: string; user: string | null }[];
+    activity: { date: string; action: string; quantity: number; user: string | null; indentNumber: string | null; department: string | null; departmentHead: string | null }[];
+}
+
+// Everything that happened to one inventory item (purchases, store in/out, loans, rates, logs).
+export async function fetchInventoryHistory(inventoryId: number, scope: 'row' | 'all' = 'row'): Promise<InventoryHistory> {
+    const response = await apiFetch(`${API_BASE_URL}/inventory/${inventoryId}/history?scope=${scope}`);
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+}
+
 export async function fetchInventoryAuditLogs(inventoryId: number): Promise<InventoryAuditLog[]> {
     try {
         const response = await apiFetch(`${API_BASE_URL}/inventory/${inventoryId}/audit-logs`);
@@ -1373,14 +1402,17 @@ export async function fetchPaymentTerms() {
     }
 }
 
-export async function postPaymentTerm(name: string, isActive: boolean = true) {
+export async function postPaymentTerm(name: string, isActive: boolean = true, subTerms: string[] = []) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/payment-terms`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, isActive })
+            body: JSON.stringify({ name, isActive, subTerms })
         });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP error! status: ${response.status}`);
+        }
         return await response.json();
     } catch (error) {
         console.error('Error posting payment term:', error);
@@ -1388,7 +1420,7 @@ export async function postPaymentTerm(name: string, isActive: boolean = true) {
     }
 }
 
-export async function updatePaymentTerm(id: number, data: { name?: string; isActive?: boolean }) {
+export async function updatePaymentTerm(id: number, data: { name?: string; isActive?: boolean; subTerms?: string[] }) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/payment-terms/${id}`, {
             method: 'PUT',

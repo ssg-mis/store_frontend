@@ -292,6 +292,18 @@ function gstGroups(items: Item[]) {
     return Array.from(groups.entries()).sort(([a], [b]) => b - a);
 }
 
+// The first two digits of a GSTIN are the state code; different codes mean an inter-state supply (IGST).
+function gstStateCode(gstin?: string) {
+    const code = (gstin || '').trim().slice(0, 2);
+    return /^\d{2}$/.test(code) ? code : '';
+}
+
+function isInterState(companyGstin?: string, supplierGstin?: string) {
+    const companyState = gstStateCode(companyGstin);
+    const supplierState = gstStateCode(supplierGstin);
+    return Boolean(companyState && supplierState && companyState !== supplierState);
+}
+
 function numberToWords(num: number): string {
     const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
     const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
@@ -364,9 +376,12 @@ export default ({
     const netAmount = items.reduce((sum, item) => sum + Number(item.rate || 0) * Number(item.quantity || 0), 0);
     const taxableAmount = items.reduce((sum, item) => sum + lineTaxableAmount(item), 0);
     const discountAmount = netAmount - taxableAmount;
-    const cgstTotal = gstRows.reduce((sum, [, value]) => sum + value / 2, 0);
+    const totalGst = gstRows.reduce((sum, [, value]) => sum + value, 0);
+    const interState = isInterState(companyGstin, supplierGstin);
+    const igstTotal = interState ? totalGst : 0;
+    const cgstTotal = interState ? 0 : totalGst / 2;
     const sgstTotal = cgstTotal;
-    const grossAmount = taxableAmount + cgstTotal + sgstTotal;
+    const grossAmount = taxableAmount + totalGst;
     const displayedTerms = terms.length ? terms : splitLines(description);
     const addressLines = splitLines(companyAddress);
     const companyMeta = [
@@ -422,7 +437,7 @@ export default ({
                             <View style={styles.metaRow}>
                                 <View style={styles.metaCell}>
                                     <Text style={styles.label}>Mode/Terms of Payment</Text>
-                                    <Text>{displayedTerms[0] || '-'}</Text>
+                                    <Text>{(displayedTerms[0] || '').split('\n')[0].trim() || '-'}</Text>
                                 </View>
                                 <View style={styles.metaCellLast}>
                                     <Text style={styles.label}>Dispatched Through</Text>
@@ -446,7 +461,7 @@ export default ({
                                 </View>
                                 <View style={styles.metaCellLast}>
                                     <Text style={styles.label}>Enquiry Date / Freight</Text>
-                                    <Text>{enqDate || '-'}</Text>
+                                    <Text>{(enqNo && enqNo !== '-') ? (enqDate || '-') : '-'}</Text>
                                 </View>
                             </View>
                         </View>
@@ -525,6 +540,12 @@ export default ({
                         <View style={styles.row}>
                             <Text style={[styles.cell, styles.summaryLabel]}>SGST</Text>
                             <Text style={[styles.cellLast, styles.summaryValue]}>{formatMoney(sgstTotal)}</Text>
+                        </View>
+                    )}
+                    {igstTotal > 0 && (
+                        <View style={styles.row}>
+                            <Text style={[styles.cell, styles.summaryLabel]}>IGST</Text>
+                            <Text style={[styles.cellLast, styles.summaryValue]}>{formatMoney(igstTotal)}</Text>
                         </View>
                     )}
                     <View style={styles.row}>
