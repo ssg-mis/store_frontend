@@ -20,7 +20,7 @@ import { postToSheet, uploadFile, fetchFromSupabasePaginated, fetchFirms } from 
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Users, FileDown, Eye } from 'lucide-react';
+import { Users, FileDown, Eye, FileText, Paperclip, Truck, CreditCard, Hash, ExternalLink, ImageIcon } from 'lucide-react';
 import { Tabs, TabsContent } from '../ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useAuth } from '@/context/AuthContext';
@@ -40,6 +40,18 @@ interface RateApprovalProduct {
     quantity: number;
     uom: string;
     vendors: [string, string, string, number?][]; // [name, rate, term, deliveryTime?]
+    quoteFiles: Record<string, string>; // vendorName -> uploaded quotation file URL
+    category?: string;
+    subCategory?: string;
+    specifications?: string;
+    attachment?: string | null;
+    areaOfUse?: string;
+}
+
+interface RfqInfo {
+    quotationNo: string;
+    pdfLink: string | null;
+    date?: string;
 }
 
 interface GroupedRateApprovalData {
@@ -47,10 +59,18 @@ interface GroupedRateApprovalData {
     firm: string;
     indenter: string;
     department: string;
+    departmentHead?: string;
+    indentType?: string;
     products: RateApprovalProduct[];
     date: string;
     vendorTotals: Record<string, number>;
+    rfqs: Record<string, RfqInfo>; // lower-cased supplier name -> latest RFQ sent to it
 }
+
+const isImageUrl = (url?: string | null) => !!url && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(url);
+const fileNameFromUrl = (url: string) => {
+    try { return decodeURIComponent(url.split('?')[0].split('/').pop() || 'File'); } catch { return 'File'; }
+};
 
 interface HistoryProduct {
     id: number;
@@ -83,6 +103,47 @@ const formatFirmAddress = (firm: any, fallback = '') => {
     ].filter(Boolean);
     return lines.join('\n') || fallback;
 };
+
+// Thumbnail for an uploaded file: images preview in-app, anything else (PDF etc.) opens in a new tab.
+function FileThumb({ url, label, onPreview, compact = false }: { url: string; label?: string; onPreview: (url: string) => void; compact?: boolean }) {
+    if (isImageUrl(url)) {
+        return (
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onPreview(url); }}
+                className={`group relative overflow-hidden rounded-md border bg-muted shrink-0 ${compact ? 'h-9 w-9' : 'h-14 w-14'}`}
+                title={label || 'View image'}
+            >
+                <img src={url} alt={label || 'Uploaded image'} className="h-full w-full object-cover transition-transform group-hover:scale-110" />
+            </button>
+        );
+    }
+    return (
+        <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`inline-flex items-center gap-1.5 rounded-md border bg-background hover:bg-muted transition-colors text-primary ${compact ? 'px-1.5 py-1 text-[10px]' : 'px-2 py-1.5 text-xs'}`}
+            title={fileNameFromUrl(url)}
+        >
+            <FileText className={compact ? 'h-3 w-3 shrink-0' : 'h-4 w-4 shrink-0'} />
+            <span className="truncate max-w-[140px]">{label || fileNameFromUrl(url)}</span>
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+        </a>
+    );
+}
+
+function InfoItem({ label, value }: { label: string; value?: string | number | null }) {
+    return (
+        <div className="flex flex-col min-w-0">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
+            <span className="text-sm font-medium text-foreground mt-0.5 truncate" title={value ? String(value) : undefined}>
+                {value || <span className="text-muted-foreground">—</span>}
+            </span>
+        </div>
+    );
+}
 
 export default () => {
     const { user } = useAuth();
@@ -155,11 +216,21 @@ export default () => {
                             firm: r.firm || 'N/A',
                             indenter: r.indenterName || '',
                             department: r.department || '',
+                            departmentHead: r.departmentHead || '',
+                            indentType: r.indentType || '',
                             date: r.createdAt ? formatDate(new Date(r.createdAt)) : '',
                             products: [],
-                            vendorTotals: {}
+                            vendorTotals: {},
+                            rfqs: {},
                         };
                     }
+                    // Rows arrive newest first, so the first RFQ seen per supplier is the latest.
+                    (r.quotationHistory || []).forEach((q: any) => {
+                        const key = String(q.supplierName || '').trim().toLowerCase();
+                        if (key && q.quotationNo && !grouped[indentNo].rfqs[key]) {
+                            grouped[indentNo].rfqs[key] = { quotationNo: q.quotationNo, pdfLink: q.pdfLink || null, date: q.date };
+                        }
+                    });
 
                     // Only process the latest update for each unique product (indentId)
                     if (seenProductIds.has(r.indentId)) return;
@@ -182,6 +253,11 @@ export default () => {
                             ]
                     ).filter((v: [string, string, string, number?]) => v[0]);
 
+                    const quoteFiles: Record<string, string> = {};
+                    (Array.isArray(r.quotes) ? r.quotes : []).forEach((q: any) => {
+                        if (q.vendorName && q.comparisonSheet) quoteFiles[q.vendorName] = q.comparisonSheet;
+                    });
+
                     grouped[indentNo].products.push({
                         id: r.id,
                         indentId: r.indentId,
@@ -189,7 +265,13 @@ export default () => {
                         productCode: r.productCode || r.product_code || '',
                         quantity: r.approvedQuantity || r.quantity || 0,
                         uom: r.uom || '',
-                        vendors: productVendors
+                        vendors: productVendors,
+                        quoteFiles,
+                        category: r.productCategory || '',
+                        subCategory: r.productSubCategory || '',
+                        specifications: r.specifications || '',
+                        attachment: r.attachment || null,
+                        areaOfUse: r.areaOfUse || '',
                     });
 
                     // Update totals
@@ -544,8 +626,21 @@ export default () => {
             header: 'Products',
             accessorKey: 'products',
             cell: ({ row }: { row: Row<GroupedRateApprovalData> }) => {
-                const count = row.original.products.length;
-                return <span>{count} Items</span>;
+                const products = row.original.products;
+                const shown = products.slice(0, 3);
+                return (
+                    <div className="flex flex-col gap-0.5 text-left text-xs">
+                        {shown.map(p => (
+                            <span key={p.id} className="whitespace-nowrap">
+                                <span className="font-medium">{p.product}</span>
+                                <span className="text-muted-foreground"> · {p.quantity} {p.uom}</span>
+                            </span>
+                        ))}
+                        {products.length > shown.length && (
+                            <span className="text-[10px] text-muted-foreground">+{products.length - shown.length} more</span>
+                        )}
+                    </div>
+                );
             },
         },
         { accessorKey: 'date', header: 'Date' },
@@ -690,6 +785,47 @@ export default () => {
     }, [productSelections, selectedIndent]);
 
     const activeVendorNames = useMemo(() => Object.keys(selectedVendorsSummary), [selectedVendorsSummary]);
+
+    // In-app preview of an uploaded image (PDFs open in a new tab instead).
+    const [previewFile, setPreviewFile] = useState<string | null>(null);
+
+    // Per-vendor overview for the selected indent: amount (rate × qty), terms, delivery, uploaded files, RFQ no.
+    const vendorStats = useMemo(() => {
+        if (!selectedIndent) return [];
+        const productCount = selectedIndent.products.length;
+        const stats = Object.keys(selectedIndent.vendorTotals).map(name => {
+            let amount = 0;
+            let quoted = 0;
+            const terms = new Set<string>();
+            const days: number[] = [];
+            const files: { product: string; url: string }[] = [];
+            selectedIndent.products.forEach(p => {
+                const offer = p.vendors.find(v => v[0] === name);
+                if (!offer) return;
+                quoted++;
+                amount += (parseFloat(offer[1]) || 0) * (p.quantity || 1);
+                if (offer[2]) terms.add(offer[2]);
+                if (offer[3] != null) days.push(Number(offer[3]));
+                const file = p.quoteFiles?.[name];
+                if (file && !files.some(f => f.url === file)) files.push({ product: p.product, url: file });
+            });
+            return {
+                name,
+                amount,
+                quoted,
+                terms: [...terms],
+                minDays: days.length ? Math.min(...days) : null,
+                maxDays: days.length ? Math.max(...days) : null,
+                files,
+                rfq: selectedIndent.rfqs?.[name.trim().toLowerCase()],
+            };
+        });
+        // L1 is the lowest total among vendors that quoted every product (if any did).
+        const complete = stats.filter(v => v.quoted === productCount);
+        const pool = complete.length ? complete : stats;
+        const l1 = pool.length ? Math.min(...pool.map(v => v.amount)) : null;
+        return stats.map(v => ({ ...v, isL1: l1 !== null && v.amount === l1 && pool.includes(v) }));
+    }, [selectedIndent]);
 
     // Check if any product has a non-L1 vendor selected
     const isAnyNonL1 = useMemo(() => {
@@ -841,55 +977,149 @@ export default () => {
                 </Tabs>
 
                 {selectedIndent && (
-                    <DialogContent className="max-w-4xl max-h-[95vh] flex flex-col p-0 overflow-hidden">
+                    <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-[95vw] xl:max-w-7xl max-h-[95vh] flex flex-col p-0 gap-0 overflow-hidden">
                         <Form {...form}>
                             <form
                                 onSubmit={form.handleSubmit(onSubmit, onError)}
                                 className="flex flex-col h-full overflow-hidden"
                             >
-                                <DialogHeader className="p-6 pb-2 space-y-1">
-                                    <DialogTitle>Grouped Rate Approval</DialogTitle>
+                                <DialogHeader className="px-6 py-4 border-b space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2 pr-8">
+                                        <DialogTitle>Grouped Rate Approval</DialogTitle>
+                                        <span className="rounded-full bg-primary/10 text-primary px-2.5 py-0.5 text-xs font-bold">{selectedIndent.indentNo}</span>
+                                    </div>
                                     <DialogDescription>
-                                        Compare and approve vendors for indent{' '}
-                                        <span className="font-medium text-foreground">
-                                            {selectedIndent.indentNo}
-                                        </span>
+                                        Review each vendor's quotation, compare rates product-wise and pick an approved vendor for every product.
                                     </DialogDescription>
                                 </DialogHeader>
                                 
-                                <div 
+                                <div
                                     ref={scrollRef}
-                                    className="flex-1 overflow-y-auto px-6 py-2 space-y-5"
+                                    className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-muted/10"
                                 >
-                                    <div className="rounded-lg border overflow-hidden">
-                                        <div className="bg-primary px-4 py-2 flex items-center justify-between text-white">
-                                            <span className="text-sm font-bold tracking-wide">{selectedIndent.indentNo}</span>
-                                            <span className="text-[11px] bg-white/20 rounded-full px-2 py-0.5 font-medium">
-                                                {selectedIndent.firm}
-                                            </span>
+                                    {/* 1. Indent summary */}
+                                    <section className="rounded-xl border bg-card overflow-hidden">
+                                        <div className="bg-primary px-5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-white">
+                                            <span className="text-sm font-bold tracking-wide">Indent {selectedIndent.indentNo}</span>
+                                            <span className="text-[11px] bg-white/20 rounded-full px-2.5 py-0.5 font-medium">{selectedIndent.firm}</span>
                                         </div>
-                                        <div className="bg-muted/30 px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-2 border-b">
-                                            {[
-                                                { label: 'Indenter',   value: selectedIndent.indenter },
-                                                { label: 'Department', value: selectedIndent.department },
-                                            ].map(({ label, value }) =>
-                                                value ? (
-                                                    <div key={label} className="flex flex-col">
-                                                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</span>
-                                                        <span className="text-xs font-medium text-foreground mt-0.5">{value}</span>
-                                                    </div>
-                                                ) : null
-                                            )}
+                                        <div className="px-5 py-4 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                                            <InfoItem label="Date" value={selectedIndent.date} />
+                                            <InfoItem label="Indenter" value={selectedIndent.indenter} />
+                                            <InfoItem label="Department" value={selectedIndent.department} />
+                                            <InfoItem label="Department Head" value={selectedIndent.departmentHead} />
+                                            <InfoItem label="Indent Type" value={selectedIndent.indentType} />
+                                            <InfoItem label="Products" value={`${selectedIndent.products.length} item${selectedIndent.products.length > 1 ? 's' : ''}`} />
+                                            <InfoItem label="Vendors Quoted" value={vendorStats.length} />
+                                            <InfoItem
+                                                label="Lowest Total (L1)"
+                                                value={(() => {
+                                                    const l1 = vendorStats.find(v => v.isL1);
+                                                    return l1 ? `₹${l1.amount.toLocaleString()} · ${l1.name}` : '';
+                                                })()}
+                                            />
                                         </div>
+                                    </section>
 
-                                        {/* Comparison Matrix Table */}
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-xs text-left border-collapse">
+                                    {/* 2. Vendor quotations */}
+                                    <section className="space-y-3">
+                                        <div>
+                                            <h4 className="text-sm font-bold text-foreground">Vendor Quotations</h4>
+                                            <p className="text-xs text-muted-foreground">Quotation number, terms and the files uploaded with each vendor's quote.</p>
+                                        </div>
+                                        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                                            {vendorStats.map(v => (
+                                                <div
+                                                    key={v.name}
+                                                    className={`rounded-xl border bg-card p-4 flex flex-col gap-3 ${v.isL1 ? 'border-green-500 ring-1 ring-green-500/30' : ''}`}
+                                                >
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <div className="font-bold text-sm uppercase tracking-tight truncate" title={v.name}>{v.name}</div>
+                                                            <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                                                <Hash className="h-3 w-3" />
+                                                                {v.rfq ? (
+                                                                    <span>Quotation No. <span className="font-semibold text-foreground">{v.rfq.quotationNo}</span></span>
+                                                                ) : (
+                                                                    <span>No quotation no.</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        {v.isL1 && (
+                                                            <span className="shrink-0 rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-[10px] font-bold">L1 LOWEST</span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className={`rounded-lg px-3 py-2 ${v.isL1 ? 'bg-green-50 border border-green-200' : 'bg-muted/40 border'}`}>
+                                                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total Amount</div>
+                                                        <div className={`text-lg font-black ${v.isL1 ? 'text-green-700' : 'text-foreground'}`}>₹{v.amount.toLocaleString()}</div>
+                                                        <div className="text-[11px] text-muted-foreground">
+                                                            Quoted {v.quoted} of {selectedIndent.products.length} product{selectedIndent.products.length > 1 ? 's' : ''}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                                        <div className="flex items-start gap-1.5 min-w-0">
+                                                            <CreditCard className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                                                            <div className="min-w-0">
+                                                                <div className="text-[10px] text-muted-foreground">Payment Term</div>
+                                                                <div className="font-medium truncate" title={v.terms.join(', ')}>{v.terms.join(', ') || '—'}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-start gap-1.5">
+                                                            <Truck className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                                                            <div>
+                                                                <div className="text-[10px] text-muted-foreground">Delivery</div>
+                                                                <div className="font-medium">
+                                                                    {v.minDays == null ? '—' : v.minDays === v.maxDays ? `${v.minDays} day${v.minDays === 1 ? '' : 's'}` : `${v.minDays}–${v.maxDays} days`}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-1.5">
+                                                        <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                                                            <Paperclip className="h-3 w-3" /> Uploaded Quotation
+                                                        </div>
+                                                        {v.files.length === 0 && !v.rfq?.pdfLink ? (
+                                                            <p className="text-xs text-muted-foreground">No file uploaded</p>
+                                                        ) : (
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {v.files.map(f => (
+                                                                    <FileThumb
+                                                                        key={f.url}
+                                                                        url={f.url}
+                                                                        label={v.files.length > 1 ? f.product : undefined}
+                                                                        onPreview={setPreviewFile}
+                                                                    />
+                                                                ))}
+                                                                {v.rfq?.pdfLink && (
+                                                                    <FileThumb url={v.rfq.pdfLink} label={`RFQ ${v.rfq.quotationNo}`} onPreview={setPreviewFile} />
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </section>
+
+                                    {/* 3. Product-wise comparison */}
+                                    <section className="space-y-3">
+                                        <div>
+                                            <h4 className="text-sm font-bold text-foreground">Product-wise Comparison</h4>
+                                            <p className="text-xs text-muted-foreground">Click a vendor's cell to approve that vendor for the product.</p>
+                                        </div>
+                                        <div className="rounded-xl border bg-card overflow-x-auto">
+                                            <table className="w-full text-sm text-left border-collapse min-w-[720px]">
                                                 <thead className="bg-muted/50 border-b">
                                                     <tr>
-                                                        <th className="px-4 py-2 border-r font-semibold w-1/3">Product / Item</th>
-                                                        {Object.keys(selectedIndent.vendorTotals).map(vendor => (
-                                                            <th key={vendor} className="px-4 py-2 border-r font-semibold text-center">{vendor}</th>
+                                                        <th className="px-4 py-3 border-r font-semibold min-w-[260px]">Product / Item</th>
+                                                        {vendorStats.map(v => (
+                                                            <th key={v.name} className="px-4 py-3 border-r font-semibold text-center min-w-[170px]">
+                                                                <div className="uppercase text-xs leading-tight">{v.name}</div>
+                                                                {v.rfq && <div className="text-[10px] font-normal text-muted-foreground mt-0.5">{v.rfq.quotationNo}</div>}
+                                                            </th>
                                                         ))}
                                                     </tr>
                                                 </thead>
@@ -901,16 +1131,40 @@ export default () => {
                                                         const minRate = validRates.length > 0 ? Math.min(...validRates) : null;
 
                                                         return (
-                                                            <tr key={p.id || idx} className="border-b hover:bg-muted/10">
-                                                                <td className="px-4 py-2.5 border-r">
-                                                                    <div className="font-medium text-xs">{p.product}</div>
-                                                                    <div className="text-[10px] text-muted-foreground">{p.quantity} {p.uom}</div>
+                                                            <tr key={p.id || idx} className="border-b last:border-b-0 align-top">
+                                                                <td className="px-4 py-3 border-r">
+                                                                    <div className="flex items-start gap-3">
+                                                                        {p.attachment && (
+                                                                            <FileThumb url={p.attachment} label="Indent attachment" onPreview={setPreviewFile} compact />
+                                                                        )}
+                                                                        <div className="min-w-0 space-y-0.5">
+                                                                            <div className="font-semibold">{p.product}</div>
+                                                                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                                                                                {p.productCode && <span className="font-mono">{p.productCode}</span>}
+                                                                                <span className="font-medium text-foreground">{p.quantity} {p.uom}</span>
+                                                                                {(p.category || p.subCategory) && (
+                                                                                    <span>{[p.category, p.subCategory].filter(Boolean).join(' › ')}</span>
+                                                                                )}
+                                                                            </div>
+                                                                            {p.specifications && (
+                                                                                <div className="text-[11px] text-muted-foreground whitespace-pre-line">
+                                                                                    <span className="font-medium text-foreground/80">Spec: </span>{p.specifications}
+                                                                                </div>
+                                                                            )}
+                                                                            {p.areaOfUse && (
+                                                                                <div className="text-[11px] text-muted-foreground">
+                                                                                    <span className="font-medium text-foreground/80">Use: </span>{p.areaOfUse}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
                                                                 </td>
-                                                                {Object.keys(selectedIndent.vendorTotals).map(vendorName => {
+                                                                {vendorStats.map(({ name: vendorName }) => {
                                                                     const offer = p.vendors.find(v => v[0] === vendorName);
                                                                     const isSelected = productSelections[p.id] === vendorName;
                                                                     const offerRate = offer ? parseFloat(offer[1]) : null;
                                                                     const isItemL1 = offerRate !== null && minRate !== null && offerRate === minRate;
+                                                                    const file = p.quoteFiles?.[vendorName];
 
                                                                     return (
                                                                         <td
@@ -923,16 +1177,16 @@ export default () => {
                                                                                     }));
                                                                                 }
                                                                             }}
-                                                                            className={`px-3 py-2 border-r transition-all ${
-                                                                                offer ? 'cursor-pointer hover:bg-muted/30 select-none' : 'text-center'
+                                                                            className={`px-3 py-3 border-r transition-all ${
+                                                                                offer ? 'cursor-pointer hover:bg-muted/30 select-none' : 'text-center text-muted-foreground'
                                                                             } ${
                                                                                 isSelected ? 'bg-green-50/80 ring-2 ring-inset ring-green-600' : ''
                                                                             }`}
                                                                         >
                                                                             {offer ? (
-                                                                                <div className="flex items-center gap-2.5">
+                                                                                <div className="flex items-start gap-2.5">
                                                                                     <div
-                                                                                        className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                                                                                        className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-all ${
                                                                                             isSelected
                                                                                                 ? 'border-green-600 bg-green-600 shadow-xs'
                                                                                                 : 'border-muted-foreground/40 bg-background hover:border-green-600'
@@ -940,24 +1194,32 @@ export default () => {
                                                                                     >
                                                                                         {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                                                                                     </div>
-                                                                                    <div className="flex-1 min-w-0 text-left">
+                                                                                    <div className="flex-1 min-w-0 text-left space-y-0.5">
                                                                                         <div className="flex items-center gap-1.5">
-                                                                                            <span className={`text-xs ${isSelected ? 'font-bold text-green-900' : 'font-semibold'}`}>
+                                                                                            <span className={isSelected ? 'font-bold text-green-900' : 'font-semibold'}>
                                                                                                 ₹{offerRate?.toLocaleString()}
                                                                                             </span>
+                                                                                            <span className="text-[10px] text-muted-foreground">/ {p.uom || 'unit'}</span>
                                                                                             {isItemL1 && (
-                                                                                                <span className="text-[8px] bg-green-100 text-green-800 font-bold px-1 py-0.5 rounded leading-none">
-                                                                                                    L1
-                                                                                                </span>
+                                                                                                <span className="text-[9px] bg-green-100 text-green-800 font-bold px-1 py-0.5 rounded leading-none">L1</span>
                                                                                             )}
                                                                                         </div>
-                                                                                        <div className="text-[9px] text-muted-foreground truncate max-w-[130px]" title={offer[2]}>
-                                                                                            {offer[2] || 'No terms'}
+                                                                                        <div className="text-[11px] text-muted-foreground">
+                                                                                            Amount: <span className="font-medium text-foreground">₹{((offerRate || 0) * (p.quantity || 1)).toLocaleString()}</span>
                                                                                         </div>
+                                                                                        <div className="text-[11px] text-muted-foreground truncate" title={offer[2]}>
+                                                                                            {offer[2] || 'No terms'}
+                                                                                            {offer[3] != null && ` · ${offer[3]}d delivery`}
+                                                                                        </div>
+                                                                                        {file && (
+                                                                                            <div className="pt-1">
+                                                                                                <FileThumb url={file} label="Quotation" onPreview={setPreviewFile} compact />
+                                                                                            </div>
+                                                                                        )}
                                                                                     </div>
                                                                                 </div>
                                                                             ) : (
-                                                                                <span className="text-muted-foreground">-</span>
+                                                                                <span>Not quoted</span>
                                                                             )}
                                                                         </td>
                                                                     );
@@ -966,23 +1228,20 @@ export default () => {
                                                         );
                                                     })}
                                                 </tbody>
-                                                <tfoot className="bg-muted/50 font-bold">
+                                                <tfoot className="bg-muted/50 font-bold border-t">
                                                     <tr>
-                                                        <td className="px-4 py-3 border-r text-right">GROSS TOTAL OFFER</td>
-                                                        {Object.entries(selectedIndent.vendorTotals).map(([vendor, total]) => {
-                                                            const isMin = total === Math.min(...Object.values(selectedIndent.vendorTotals));
-                                                            return (
-                                                                <td key={vendor} className={`px-4 py-3 border-r text-center ${isMin ? 'text-green-600 bg-green-50' : ''}`}>
-                                                                    <div className="text-sm">₹{total.toLocaleString()}</div>
-                                                                    {isMin && <div className="text-[9px] uppercase tracking-tighter">L1 Lowest (Total)</div>}
-                                                                </td>
-                                                            );
-                                                        })}
+                                                        <td className="px-4 py-3 border-r text-right">TOTAL AMOUNT</td>
+                                                        {vendorStats.map(v => (
+                                                            <td key={v.name} className={`px-4 py-3 border-r text-center ${v.isL1 ? 'text-green-700 bg-green-50' : ''}`}>
+                                                                <div className="text-base">₹{v.amount.toLocaleString()}</div>
+                                                                {v.isL1 && <div className="text-[10px] uppercase tracking-tight">L1 Lowest (Total)</div>}
+                                                            </td>
+                                                        ))}
                                                     </tr>
                                                 </tfoot>
                                             </table>
                                         </div>
-                                    </div>
+                                    </section>
 
                                     {/* Approved Vendors Dynamic Selection Summary */}
                                     <div className="space-y-3">
@@ -1006,17 +1265,11 @@ export default () => {
                                             <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 text-center text-muted-foreground bg-muted/10">
                                                 <p className="text-xs font-semibold text-foreground">No vendor selected yet</p>
                                                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                                                    Click the selection circle in the price matrix above to assign an approved vendor for each product.
+                                                    Click a vendor's cell in the product-wise comparison above to assign an approved vendor for each product.
                                                 </p>
                                             </div>
                                         ) : (
-                                            <div className={`grid gap-2 ${
-                                                activeVendorNames.length === 1
-                                                    ? 'grid-cols-1 sm:max-w-[240px]'
-                                                    : activeVendorNames.length === 2
-                                                    ? 'grid-cols-2'
-                                                    : 'grid-cols-3'
-                                            }`}>
+                                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                                                 {Object.entries(selectedVendorsSummary).map(([vendorName, info]) => (
                                                     <div
                                                         key={vendorName}
@@ -1031,6 +1284,9 @@ export default () => {
                                                                     <span>{info.deliveryTime}d delivery</span>
                                                                 )}
                                                                 <span>• {info.products.length} item{info.products.length > 1 ? 's' : ''}</span>
+                                                                {selectedIndent.rfqs?.[vendorName.trim().toLowerCase()] && (
+                                                                    <span>• {selectedIndent.rfqs[vendorName.trim().toLowerCase()].quotationNo}</span>
+                                                                )}
                                                             </div>
 
                                                             {/* Compact Price Box */}
@@ -1137,6 +1393,26 @@ export default () => {
                                 </DialogFooter>
                             </form>
                         </Form>
+
+                        <Dialog open={!!previewFile} onOpenChange={(open) => { if (!open) setPreviewFile(null); }}>
+                            <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-4xl p-3 gap-2">
+                                <DialogHeader className="px-1">
+                                    <DialogTitle className="flex items-center gap-2 text-sm">
+                                        <ImageIcon className="h-4 w-4" />
+                                        {previewFile ? fileNameFromUrl(previewFile) : 'Preview'}
+                                    </DialogTitle>
+                                    <DialogDescription className="sr-only">Uploaded image preview</DialogDescription>
+                                </DialogHeader>
+                                {previewFile && (
+                                    <div className="flex flex-col items-center gap-2">
+                                        <img src={previewFile} alt="Uploaded file" className="max-h-[75vh] w-auto rounded-md object-contain bg-muted" />
+                                        <a href={previewFile} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                                            Open original <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                    </div>
+                                )}
+                            </DialogContent>
+                        </Dialog>
                     </DialogContent>
                 )}
             </Dialog>
