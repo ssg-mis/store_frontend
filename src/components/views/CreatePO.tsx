@@ -179,66 +179,66 @@ export default () => {
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
+
+            // Secondary data — not needed for the vendor / indent dropdowns, so it loads in the
+            // background (in parallel) and fills in as each request finishes.
+            const secondary = [
+                fetchSheet('INVENTORY').then((inventory: any) => setInventoryData(inventory || [])),
+                fetchSheet('QUOTATION HISTORY').then((qh: any) => setQuotationHistoryData(qh || [])),
+                fetchFirms().then((firmsData: any) => setFirms(firmsData || [])),
+                // Received records — to find POs that have been partially or fully received
+                fetchFromSupabasePaginated(
+                    'received',
+                    '*',
+                    { column: 'createdAt', options: { ascending: false } }
+                ).then((receivedRecords: any) => {
+                    setReceivedPoNumbers(new Set<string>(
+                        (receivedRecords || []).map((r: any) => r.poNumber || r.po_number).filter(Boolean)
+                    ));
+                }),
+            ];
+
             try {
-                // Fetch pending indents (Stage 4: Pending POs)
-                const allIndents = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'planned_4', options: { ascending: false } },
-                    (q) => q.not('planned_4', 'is', null).is('actual_4', null)
-                );
+                // Core data for the vendor / indent dropdowns — fetched in parallel, applied as soon as it lands.
+                const [allIndentsRaw, approvals, poData, masterData, vendorsRaw] = await Promise.all([
+                    // All indents, fetched once: used as-is for the Revise tab and filtered below for pending POs.
+                    fetchFromSupabasePaginated('indent', '*', { column: 'id', options: { ascending: true } }),
+                    fetchFromSupabasePaginated('three_party_approval', '*'),
+                    fetchFromSupabasePaginated('po_master', '*', { column: 'timestamp', options: { ascending: false } }),
+                    fetchSheet('MASTER') as Promise<any>,
+                    fetchVendors(),
+                ]);
 
-                const poData = await fetchFromSupabasePaginated(
-                    'po_master',
-                    '*',
-                    { column: 'timestamp', options: { ascending: false } }
-                );
+                const isBlank = (v: any) => v === null || v === undefined || v === '';
+                // Pending indents (Stage 4: Pending POs) — planned_4 set, actual_4 not yet; newest planned first.
+                const allIndents = (allIndentsRaw || [])
+                    .filter((i: any) => !isBlank(i.planned_4 ?? i.planned4) && isBlank(i.actual_4 ?? i.actual4))
+                    .sort((a: any, b: any) => {
+                        const va = a.planned_4 ?? a.planned4 ?? '';
+                        const vb = b.planned_4 ?? b.planned4 ?? '';
+                        return va < vb ? 1 : va > vb ? -1 : 0;
+                    });
 
-                const masterData = await fetchSheet('MASTER') as any;
-                const vendorsRaw = await fetchVendors();
-                const vendorsMapped = vendorsRaw.map(v => ({
+                const vendorsMapped = (vendorsRaw || []).map((v: any) => ({
                     vendor_name: v.vendorName,
                     vendor_address: v.address,
                     vendor_gstin: v.gstin,
                     vendor_email: v.email
                 }));
 
-                const inventory = await fetchSheet('INVENTORY') as any[];
-                setInventoryData(inventory || []);
-
-                const quotationHistory = await fetchSheet('QUOTATION HISTORY') as any[];
-                setQuotationHistoryData(quotationHistory || []);
-
-                const firmsData = await fetchFirms();
-                setFirms(firmsData || []);
-
-                const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
-
-                // Fetch received records to find POs that have been partially or fully received
-                const receivedRecords = await fetchFromSupabasePaginated(
-                    'received',
-                    '*',
-                    { column: 'createdAt', options: { ascending: false } }
-                );
-                const receivedPoSet = new Set<string>(
-                    (receivedRecords || []).map((r: any) => r.poNumber || r.po_number).filter(Boolean)
-                );
-                setReceivedPoNumbers(receivedPoSet);
-
-                // Fetch all indents (including those with POs) for indent type filtering in Revise tab
-                const allIndentsRaw = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'id', options: { ascending: true } }
-                );
                 setAllIndentsData(allIndentsRaw || []);
-
-                enrichAndSetData(allIndents || [], approvals || [], poData || [], masterData, vendorsMapped);
+                enrichAndSetData(allIndents, approvals || [], poData || [], masterData, vendorsMapped);
             } catch (error: any) {
                 console.error('Error fetching data from Supabase:', error);
                 toast.error('Failed to fetch data: ' + error.message);
             } finally {
                 setLoading(false);
+            }
+
+            const failed = (await Promise.allSettled(secondary)).filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+            if (failed.length) {
+                console.error('Error fetching supporting data:', failed.map(f => f.reason));
+                toast.error('Some supporting data failed to load: ' + (failed[0].reason?.message || 'unknown error'));
             }
         };
 
@@ -1493,15 +1493,18 @@ export default () => {
                                                             <Select
                                                                 onValueChange={field.onChange}
                                                                 value={field.value}
-                                                                disabled={!!indentNames?.length}
+                                                                disabled={!!indentNames?.length || loading}
                                                             >
                                                                 <SelectTrigger
                                                                     size="sm"
                                                                     className="w-full"
                                                                 >
-                                                                    <SelectValue placeholder="Select vendor" />
+                                                                    <SelectValue placeholder={loading ? 'Loading vendors…' : 'Select vendor'} />
                                                                 </SelectTrigger>
                                                                 <SelectContent>
+                                                                    {!subIndentSheetData.some((i: any) => i.approvedVendorName || i.approved_vendor_name) && (
+                                                                        <div className="px-3 py-2 text-sm text-muted-foreground">No vendors pending for PO</div>
+                                                                    )}
                                                                     {[
                                                                         ...new Map(
                                                                             subIndentSheetData
