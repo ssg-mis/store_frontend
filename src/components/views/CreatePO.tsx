@@ -10,7 +10,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
-import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO, fetchPaymentTerms } from '@/lib/fetchers';
+import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO, fetchTerms } from '@/lib/fetchers';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -179,66 +179,66 @@ export default () => {
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
+
+            // Secondary data — not needed for the vendor / indent dropdowns, so it loads in the
+            // background (in parallel) and fills in as each request finishes.
+            const secondary = [
+                fetchSheet('INVENTORY').then((inventory: any) => setInventoryData(inventory || [])),
+                fetchSheet('QUOTATION HISTORY').then((qh: any) => setQuotationHistoryData(qh || [])),
+                fetchFirms().then((firmsData: any) => setFirms(firmsData || [])),
+                // Received records — to find POs that have been partially or fully received
+                fetchFromSupabasePaginated(
+                    'received',
+                    '*',
+                    { column: 'createdAt', options: { ascending: false } }
+                ).then((receivedRecords: any) => {
+                    setReceivedPoNumbers(new Set<string>(
+                        (receivedRecords || []).map((r: any) => r.poNumber || r.po_number).filter(Boolean)
+                    ));
+                }),
+            ];
+
             try {
-                // Fetch pending indents (Stage 4: Pending POs)
-                const allIndents = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'planned_4', options: { ascending: false } },
-                    (q) => q.not('planned_4', 'is', null).is('actual_4', null)
-                );
+                // Core data for the vendor / indent dropdowns — fetched in parallel, applied as soon as it lands.
+                const [allIndentsRaw, approvals, poData, masterData, vendorsRaw] = await Promise.all([
+                    // All indents, fetched once: used as-is for the Revise tab and filtered below for pending POs.
+                    fetchFromSupabasePaginated('indent', '*', { column: 'id', options: { ascending: true } }),
+                    fetchFromSupabasePaginated('three_party_approval', '*'),
+                    fetchFromSupabasePaginated('po_master', '*', { column: 'timestamp', options: { ascending: false } }),
+                    fetchSheet('MASTER') as Promise<any>,
+                    fetchVendors(),
+                ]);
 
-                const poData = await fetchFromSupabasePaginated(
-                    'po_master',
-                    '*',
-                    { column: 'timestamp', options: { ascending: false } }
-                );
+                const isBlank = (v: any) => v === null || v === undefined || v === '';
+                // Pending indents (Stage 4: Pending POs) — planned_4 set, actual_4 not yet; newest planned first.
+                const allIndents = (allIndentsRaw || [])
+                    .filter((i: any) => !isBlank(i.planned_4 ?? i.planned4) && isBlank(i.actual_4 ?? i.actual4))
+                    .sort((a: any, b: any) => {
+                        const va = a.planned_4 ?? a.planned4 ?? '';
+                        const vb = b.planned_4 ?? b.planned4 ?? '';
+                        return va < vb ? 1 : va > vb ? -1 : 0;
+                    });
 
-                const masterData = await fetchSheet('MASTER') as any;
-                const vendorsRaw = await fetchVendors();
-                const vendorsMapped = vendorsRaw.map(v => ({
+                const vendorsMapped = (vendorsRaw || []).map((v: any) => ({
                     vendor_name: v.vendorName,
                     vendor_address: v.address,
                     vendor_gstin: v.gstin,
                     vendor_email: v.email
                 }));
 
-                const inventory = await fetchSheet('INVENTORY') as any[];
-                setInventoryData(inventory || []);
-
-                const quotationHistory = await fetchSheet('QUOTATION HISTORY') as any[];
-                setQuotationHistoryData(quotationHistory || []);
-
-                const firmsData = await fetchFirms();
-                setFirms(firmsData || []);
-
-                const approvals = await fetchFromSupabasePaginated('three_party_approval', '*');
-
-                // Fetch received records to find POs that have been partially or fully received
-                const receivedRecords = await fetchFromSupabasePaginated(
-                    'received',
-                    '*',
-                    { column: 'createdAt', options: { ascending: false } }
-                );
-                const receivedPoSet = new Set<string>(
-                    (receivedRecords || []).map((r: any) => r.poNumber || r.po_number).filter(Boolean)
-                );
-                setReceivedPoNumbers(receivedPoSet);
-
-                // Fetch all indents (including those with POs) for indent type filtering in Revise tab
-                const allIndentsRaw = await fetchFromSupabasePaginated(
-                    'indent',
-                    '*',
-                    { column: 'id', options: { ascending: true } }
-                );
                 setAllIndentsData(allIndentsRaw || []);
-
-                enrichAndSetData(allIndents || [], approvals || [], poData || [], masterData, vendorsMapped);
+                enrichAndSetData(allIndents, approvals || [], poData || [], masterData, vendorsMapped);
             } catch (error: any) {
                 console.error('Error fetching data from Supabase:', error);
                 toast.error('Failed to fetch data: ' + error.message);
             } finally {
                 setLoading(false);
+            }
+
+            const failed = (await Promise.allSettled(secondary)).filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+            if (failed.length) {
+                console.error('Error fetching supporting data:', failed.map(f => f.reason));
+                toast.error('Some supporting data failed to load: ' + (failed[0].reason?.message || 'unknown error'));
             }
         };
 
@@ -557,12 +557,12 @@ export default () => {
         }
     }, [detailsData, displayFirm, selectedFirmAddress]);
 
-    // Payment terms master (head + sub-terms) — picking one adds it as a term with its sub-terms.
-    const [paymentTermHeads, setPaymentTermHeads] = useState<{ id: number; name: string; subTerms?: string[] }[]>([]);
+    // Terms master (header + sub-terms) — picking one adds it as a term with its sub-terms.
+    const [termHeads, setTermHeads] = useState<{ id: number; name: string; subTerms?: string[] }[]>([]);
     useEffect(() => {
-        fetchPaymentTerms()
-            .then((rows: any[]) => setPaymentTermHeads((rows || []).filter((t: any) => t.isActive !== false)))
-            .catch(() => setPaymentTermHeads([]));
+        fetchTerms()
+            .then((rows: any[]) => setTermHeads((rows || []).filter((t: any) => t.isActive !== false)))
+            .catch(() => setTermHeads([]));
     }, []);
     // A term is stored as one string: first line = heading, further lines = "a) sub-term".
     const parseTerm = (value: string) => {
@@ -576,7 +576,7 @@ export default () => {
         return buildTerm(heading.trim(), subs.map(t => t.trim()).filter(Boolean));
     };
     const findHead = (name: string) =>
-        paymentTermHeads.find(t => t.name.trim().toLowerCase() === name.trim().toLowerCase());
+        termHeads.find(t => t.name.trim().toLowerCase() === name.trim().toLowerCase());
     const [termSuggestOpen, setTermSuggestOpen] = useState(false);
 
     const termsArray = useFieldArray({
@@ -1493,15 +1493,18 @@ export default () => {
                                                             <Select
                                                                 onValueChange={field.onChange}
                                                                 value={field.value}
-                                                                disabled={!!indentNames?.length}
+                                                                disabled={!!indentNames?.length || loading}
                                                             >
                                                                 <SelectTrigger
                                                                     size="sm"
                                                                     className="w-full"
                                                                 >
-                                                                    <SelectValue placeholder="Select vendor" />
+                                                                    <SelectValue placeholder={loading ? 'Loading vendors…' : 'Select vendor'} />
                                                                 </SelectTrigger>
                                                                 <SelectContent>
+                                                                    {!subIndentSheetData.some((i: any) => i.approvedVendorName || i.approved_vendor_name) && (
+                                                                        <div className="px-3 py-2 text-sm text-muted-foreground">No vendors pending for PO</div>
+                                                                    )}
                                                                     {[
                                                                         ...new Map(
                                                                             subIndentSheetData
@@ -2111,15 +2114,18 @@ export default () => {
                                                                 const usedHeadings = (form.getValues('terms') || [])
                                                                     .filter((_, ti) => ti !== index)
                                                                     .map(t => parseTerm(t).heading.trim().toLowerCase());
-                                                                const suggestions = typed && !head
-                                                                    ? paymentTermHeads.filter(t => t.name.toLowerCase().includes(typed)).slice(0, 8)
-                                                                    : [];
+                                                                // All master headers not yet used on this PO are suggested; typing narrows the list.
+                                                                const suggestions = head
+                                                                    ? []
+                                                                    : termHeads.filter(t =>
+                                                                        !usedHeadings.includes(t.name.trim().toLowerCase()) &&
+                                                                        (!typed || t.name.toLowerCase().includes(typed)));
                                                                 return (
                                                                     <div className="relative space-y-2">
                                                                         <FormControl>
                                                                             <Input
                                                                                 className="h-8"
-                                                                                placeholder="Type a term — matching term headings are suggested"
+                                                                                placeholder="Pick a term header from the list, or type your own"
                                                                                 autoFocus
                                                                                 autoComplete="off"
                                                                                 value={heading}
@@ -2133,23 +2139,24 @@ export default () => {
                                                                             />
                                                                         </FormControl>
                                                                         {termSuggestOpen && suggestions.length > 0 && (
-                                                                            <div className="absolute z-20 top-9 left-0 w-full max-w-md rounded-md border bg-popover shadow-md py-1">
+                                                                            <div className="absolute z-20 top-9 left-0 w-full max-w-md max-h-64 overflow-y-auto rounded-md border bg-popover shadow-md py-1">
+                                                                                <p className="px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Term headers</p>
                                                                                 {suggestions.map(t => (
                                                                                     <button
                                                                                         key={t.id}
                                                                                         type="button"
-                                                                                        className="block w-full text-left px-3 py-1.5 text-sm hover:bg-muted"
+                                                                                        className="flex w-full items-center justify-between gap-3 text-left px-3 py-1.5 text-sm hover:bg-muted"
                                                                                         onMouseDown={(e) => {
                                                                                             e.preventDefault();
-                                                                                            if (usedHeadings.includes(t.name.trim().toLowerCase())) {
-                                                                                                toast.error(`"${t.name}" is already added`);
-                                                                                                return;
-                                                                                            }
-                                                                                            termField.onChange(buildTerm(t.name, []));
+                                                                                            // Picking a header brings in all its sub-terms ticked; untick any not needed for this PO.
+                                                                                            termField.onChange(buildTerm(t.name, t.subTerms || []));
                                                                                             setTermSuggestOpen(false);
                                                                                         }}
                                                                                     >
-                                                                                        {t.name}
+                                                                                        <span className="truncate">{t.name}</span>
+                                                                                        <span className="shrink-0 text-xs text-muted-foreground">
+                                                                                            {(t.subTerms || []).length} sub-term{(t.subTerms || []).length === 1 ? '' : 's'}
+                                                                                        </span>
                                                                                     </button>
                                                                                 ))}
                                                                             </div>
