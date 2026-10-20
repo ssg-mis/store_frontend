@@ -10,7 +10,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet } from '@/types';
-import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO, fetchPaymentTerms } from '@/lib/fetchers';
+import { postToSheet, fetchSheet, fetchVendors, fetchFromSupabasePaginated, fetchUsers, fetchFirms, fetchNextPONumber, uploadFile, sendWhatsAppPdfForPO, fetchTerms } from '@/lib/fetchers';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -557,12 +557,12 @@ export default () => {
         }
     }, [detailsData, displayFirm, selectedFirmAddress]);
 
-    // Payment terms master (head + sub-terms) — picking one adds it as a term with its sub-terms.
-    const [paymentTermHeads, setPaymentTermHeads] = useState<{ id: number; name: string; subTerms?: string[] }[]>([]);
+    // Terms master (header + sub-terms) — picking one adds it as a term with its sub-terms.
+    const [termHeads, setTermHeads] = useState<{ id: number; name: string; subTerms?: string[] }[]>([]);
     useEffect(() => {
-        fetchPaymentTerms()
-            .then((rows: any[]) => setPaymentTermHeads((rows || []).filter((t: any) => t.isActive !== false)))
-            .catch(() => setPaymentTermHeads([]));
+        fetchTerms()
+            .then((rows: any[]) => setTermHeads((rows || []).filter((t: any) => t.isActive !== false)))
+            .catch(() => setTermHeads([]));
     }, []);
     // A term is stored as one string: first line = heading, further lines = "a) sub-term".
     const parseTerm = (value: string) => {
@@ -576,7 +576,7 @@ export default () => {
         return buildTerm(heading.trim(), subs.map(t => t.trim()).filter(Boolean));
     };
     const findHead = (name: string) =>
-        paymentTermHeads.find(t => t.name.trim().toLowerCase() === name.trim().toLowerCase());
+        termHeads.find(t => t.name.trim().toLowerCase() === name.trim().toLowerCase());
     const [termSuggestOpen, setTermSuggestOpen] = useState(false);
 
     const termsArray = useFieldArray({
@@ -2111,15 +2111,18 @@ export default () => {
                                                                 const usedHeadings = (form.getValues('terms') || [])
                                                                     .filter((_, ti) => ti !== index)
                                                                     .map(t => parseTerm(t).heading.trim().toLowerCase());
-                                                                const suggestions = typed && !head
-                                                                    ? paymentTermHeads.filter(t => t.name.toLowerCase().includes(typed)).slice(0, 8)
-                                                                    : [];
+                                                                // All master headers not yet used on this PO are suggested; typing narrows the list.
+                                                                const suggestions = head
+                                                                    ? []
+                                                                    : termHeads.filter(t =>
+                                                                        !usedHeadings.includes(t.name.trim().toLowerCase()) &&
+                                                                        (!typed || t.name.toLowerCase().includes(typed)));
                                                                 return (
                                                                     <div className="relative space-y-2">
                                                                         <FormControl>
                                                                             <Input
                                                                                 className="h-8"
-                                                                                placeholder="Type a term — matching term headings are suggested"
+                                                                                placeholder="Pick a term header from the list, or type your own"
                                                                                 autoFocus
                                                                                 autoComplete="off"
                                                                                 value={heading}
@@ -2133,23 +2136,24 @@ export default () => {
                                                                             />
                                                                         </FormControl>
                                                                         {termSuggestOpen && suggestions.length > 0 && (
-                                                                            <div className="absolute z-20 top-9 left-0 w-full max-w-md rounded-md border bg-popover shadow-md py-1">
+                                                                            <div className="absolute z-20 top-9 left-0 w-full max-w-md max-h-64 overflow-y-auto rounded-md border bg-popover shadow-md py-1">
+                                                                                <p className="px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Term headers</p>
                                                                                 {suggestions.map(t => (
                                                                                     <button
                                                                                         key={t.id}
                                                                                         type="button"
-                                                                                        className="block w-full text-left px-3 py-1.5 text-sm hover:bg-muted"
+                                                                                        className="flex w-full items-center justify-between gap-3 text-left px-3 py-1.5 text-sm hover:bg-muted"
                                                                                         onMouseDown={(e) => {
                                                                                             e.preventDefault();
-                                                                                            if (usedHeadings.includes(t.name.trim().toLowerCase())) {
-                                                                                                toast.error(`"${t.name}" is already added`);
-                                                                                                return;
-                                                                                            }
-                                                                                            termField.onChange(buildTerm(t.name, []));
+                                                                                            // Picking a header brings in all its sub-terms ticked; untick any not needed for this PO.
+                                                                                            termField.onChange(buildTerm(t.name, t.subTerms || []));
                                                                                             setTermSuggestOpen(false);
                                                                                         }}
                                                                                     >
-                                                                                        {t.name}
+                                                                                        <span className="truncate">{t.name}</span>
+                                                                                        <span className="shrink-0 text-xs text-muted-foreground">
+                                                                                            {(t.subTerms || []).length} sub-term{(t.subTerms || []).length === 1 ? '' : 's'}
+                                                                                        </span>
                                                                                     </button>
                                                                                 ))}
                                                                             </div>

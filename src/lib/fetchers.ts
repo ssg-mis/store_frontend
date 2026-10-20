@@ -1402,12 +1402,12 @@ export async function fetchPaymentTerms() {
     }
 }
 
-export async function postPaymentTerm(name: string, isActive: boolean = true, subTerms: string[] = []) {
+export async function postPaymentTerm(name: string, isActive: boolean = true) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/payment-terms`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, isActive, subTerms })
+            body: JSON.stringify({ name, isActive })
         });
         if (!response.ok) {
             const body = await response.json().catch(() => ({}));
@@ -1420,7 +1420,7 @@ export async function postPaymentTerm(name: string, isActive: boolean = true, su
     }
 }
 
-export async function updatePaymentTerm(id: number, data: { name?: string; isActive?: boolean; subTerms?: string[] }) {
+export async function updatePaymentTerm(id: number, data: { name?: string; isActive?: boolean }) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/payment-terms/${id}`, {
             method: 'PUT',
@@ -1448,6 +1448,68 @@ export async function deletePaymentTerm(id: number) {
         return { success: true };
     } catch (error: any) {
         console.error('Error deleting payment term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/* ───── Terms (header + sub-terms) ───── */
+export async function fetchTerms() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/terms`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching terms:', error);
+        return [];
+    }
+}
+
+export async function postTerm(name: string, isActive: boolean = true, subTerms: string[] = []) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/terms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, isActive, subTerms })
+        });
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP error! status: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting term:', error);
+        throw error;
+    }
+}
+
+export async function updateTerm(id: number, data: { name?: string; isActive?: boolean; subTerms?: string[] }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/terms/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update term');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating term:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteTerm(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/terms/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete term');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting term:', error);
         return { success: false, error: error.message };
     }
 }
