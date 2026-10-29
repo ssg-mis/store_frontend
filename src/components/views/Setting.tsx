@@ -89,6 +89,7 @@ const permissionLabels: Record<(typeof allPermissionKeys)[number], string> = {
     masterData: 'Master Data',
     setting: 'Setting',
     statusOfPo: 'Status of PO',
+    accessoryTracking: 'Employee Loan Tracker',
 };
 
 export default () => {

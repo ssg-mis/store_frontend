@@ -1914,5 +1914,122 @@ export async function updateReceivedPhotoApi({
     return response.json();
 }
 
+// ── Accessory Tracking ──────────────────────────────────────────────────────
 
+export type HrEmployeeRow = {
+    id: number;
+    code: string;
+    name: string;
+    department: string | null;
+    isActive: boolean;
+};
+
+export async function fetchHrEmployees(): Promise<HrEmployeeRow[]> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/hr-employees`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching HR employees:', error);
+        return [];
+    }
+}
+
+export async function syncHrEmployeesNow() {
+    const response = await apiFetch(`${API_BASE_URL}/hr-employees/sync`, { method: 'POST' });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to sync HR employees');
+    }
+    return response.json();
+}
+
+export type AccessoryIssueItemRow = {
+    id: number;
+    issueId: number;
+    productName: string;
+    department: string | null;
+    departmentHead: string | null;
+    firm: string | null;
+    areaOfUse: string | null;
+    productGroup: string | null;
+    productCategory: string | null;
+    productSubCategory: string | null;
+    specifications: string | null;
+    attachment: string | null;
+    uom: string;
+    issuedQuantity: number;
+    reusableQty: number;
+    unusableQty: number;
+    status: 'Issued' | 'Partially Returned' | 'Closed';
+    returnedAt: string | null;
+    returnRemarks: string | null;
+};
+
+export type AccessoryIssueRow = {
+    id: number;
+    createdAt: string;
+    employeeCode: string;
+    employeeName: string;
+    issuedBy: string | null;
+    status: 'Issued' | 'Partially Returned' | 'Closed';
+    remarks: string | null;
+    items: AccessoryIssueItemRow[];
+};
+
+export async function fetchAccessoryIssues(): Promise<AccessoryIssueRow[]> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/accessory-issues`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching accessory issues:', error);
+        return [];
+    }
+}
+
+export async function createAccessoryIssue(data: {
+    employeeCode: string;
+    employeeName: string;
+    issuedBy?: string;
+    remarks?: string;
+    items: {
+        productName: string;
+        department?: string;
+        departmentHead?: string;
+        firm?: string;
+        uom: string;
+        quantity: number;
+        areaOfUse?: string;
+        productGroup?: string;
+        productCategory?: string | null;
+        productSubCategory?: string | null;
+        specifications?: string;
+        attachment?: string;
+    }[];
+}) {
+    const response = await apiFetch(`${API_BASE_URL}/accessory-issues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create accessory issue');
+    }
+    return response.json();
+}
+
+export async function returnAccessoryItem(issueId: number, itemId: number, data: { reusableQty?: number; unusableQty?: number; returnRemarks?: string }) {
+    const response = await apiFetch(`${API_BASE_URL}/accessory-issues/${issueId}/items/${itemId}/return`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to record return');
+    }
+    return response.json();
+}
 

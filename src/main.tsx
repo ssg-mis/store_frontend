@@ -52,6 +52,8 @@ import Inventory from './components/views/Inventory';
 import POMaster from './components/views/POMaster';
 import ViewOnlyGuard from './components/element/ViewOnlyGuard';
 import StatusOfPO from './components/views/StatusOfPO';
+import AccessoryTracking from './components/views/AccessoryTracking';
+import CreateAccessoryIssue from './components/views/CreateAccessoryIssue';
 
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -292,7 +294,6 @@ const routes: RouteAttributes[] = [
         gateKey: 'storeOutApprovalView',
         name: 'Store Out / Approval',
         icon: <PackageCheck size={20} />,
-        hidden: true,
         element: <StoreOutApproval mode="store-out" />,
         notifications: (data) => {
             const pendingIndents = new Set();
@@ -323,6 +324,23 @@ const routes: RouteAttributes[] = [
             });
             return pendingIndents.size;
         },
+    },
+    {
+        path: 'accessory-tracking',
+        gateKey: 'accessoryTracking',
+        name: 'Employee Loan Tracker',
+        icon: <Package2 size={20} />,
+        element: <AccessoryTracking />,
+        notifications: () => 0,
+    },
+    {
+        path: 'accessory-tracking/new',
+        gateKey: 'accessoryTracking',
+        name: 'Issue Accessory',
+        icon: <Package2 size={20} />,
+        element: <CreateAccessoryIssue />,
+        hidden: true,
+        notifications: () => 0,
     },
     {
         path: 'master-data',
