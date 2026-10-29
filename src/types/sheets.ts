@@ -283,6 +283,7 @@ export type UserPermissions = {
     masterData: boolean;
     setting: boolean;
     statusOfPo: boolean;
+    accessoryTracking: boolean;
     firmAccess?: string[];
 };
 
@@ -311,6 +312,7 @@ export const allPermissionKeys = [
     "masterData",
     "setting",
     "statusOfPo",
+    "accessoryTracking",
 ] as const;
 
 

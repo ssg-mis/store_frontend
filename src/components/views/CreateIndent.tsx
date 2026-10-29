@@ -29,6 +29,7 @@ import Heading from '../element/Heading';
 import IndentPdf from '../element/IndentPdf';
 import { pdf } from '@react-pdf/renderer';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 
 
@@ -51,6 +52,7 @@ type UOMRow = {
 
 export default () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const isAdmin = (user as any)?.role === 'ADMIN';
     const today = new Date().toISOString().split('T')[0];
 
@@ -94,7 +96,7 @@ export default () => {
         firm: z.string().nonempty('Select a firm'),
         indenterName: z.string().nonempty(),
         indenterUserId: z.coerce.number().optional(),
-        indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'], { required_error: 'Select a status' }),
+        indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return', 'Employee Loan Tracker'], { required_error: 'Select a status' }),
         validityDate: z.string().optional(),
         coolOffPeriod: z.string().optional(),
         products: z
@@ -770,7 +772,19 @@ export default () => {
                                         Indent Type
                                         <span className="text-destructive">*</span>
                                     </FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value}>
+                                    <Select
+                                        onValueChange={(value) => {
+                                            // "Employee Loan Tracker" isn't a real indent type — it's an entry
+                                            // point into the separate Employee Loan Tracker flow (customer +
+                                            // products, reusable/unusable returns). Redirect instead of selecting it.
+                                            if (value === 'Employee Loan Tracker') {
+                                                navigate('/accessory-tracking/new');
+                                                return;
+                                            }
+                                            field.onChange(value);
+                                        }}
+                                        value={field.value}
+                                    >
                                         <FormControl>
                                             <SelectTrigger className="w-full">
                                                 <SelectValue placeholder="Select type" />
@@ -782,6 +796,7 @@ export default () => {
                                             <SelectItem value="Store Out Return">Store Out Return</SelectItem>
                                             <SelectItem value="Loan Out">Loan Out</SelectItem>
                                             <SelectItem value="Loan Out Return">Loan Out Return</SelectItem>
+                                            <SelectItem value="Employee Loan Tracker">Employee Loan Tracker</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </FormItem>
