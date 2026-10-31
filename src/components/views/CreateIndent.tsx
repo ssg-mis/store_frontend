@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form';
-import { cn } from '@/lib/utils';
+import { cn, isWeightUom } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -107,6 +107,7 @@ export default () => {
                     productName: z.string().nonempty(),
                     quantity: z.coerce.number().gt(0, 'Must be greater than 0'),
                     uom: z.string().nonempty(),
+                    orderedWeight: z.coerce.number().min(0, 'Cannot be negative').optional(),
                     areaOfUse: z.string().nonempty(),
                     productCategory: z.string().nonempty('Product category is required'),
                     productSubCategory: z.string().optional(),
@@ -135,6 +136,7 @@ export default () => {
                     productSubCategory: '',
                     specifications: '',
                     quantity: 1,
+                    orderedWeight: undefined,
                     areaOfUse: '',
                     departmentHead: '',
                     department: '',
@@ -145,6 +147,9 @@ export default () => {
 
     const products = form.watch('products');
     const indentType = form.watch('indentType');
+    // Kg weight is tracked alongside count units (PCS, BAG...) for stock-moving indent types.
+    const showsWeight = (type: string, uom: string) =>
+        ['Purchase', 'Store Out', 'Store Out Return'].includes(type) && !!uom && !isWeightUom(uom);
     const { fields, append: _append, remove: _remove } = useFieldArray({
         control: form.control,
         name: 'products',
@@ -576,6 +581,7 @@ export default () => {
                     productSubCategory: (product.productSubCategory && product.productSubCategory !== '__none__') ? product.productSubCategory : null,
                     quantity: product.quantity,
                     uom: product.uom,
+                    orderedWeight: showsWeight(data.indentType, product.uom) && product.orderedWeight ? product.orderedWeight : null,
                     specifications: product.specifications || '',
                     indentType: data.indentType,
                     validityDate: (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType)) ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
@@ -630,6 +636,7 @@ export default () => {
                         productSubCategory: '',
                         specifications: '',
                         quantity: 1,
+                        orderedWeight: undefined,
                         areaOfUse: '',
                         departmentHead: '',
                         department: '',
@@ -863,6 +870,7 @@ export default () => {
                                             productCategory: lastProduct.productCategory || '',
                                             productSubCategory: '',
                                             quantity: 1,
+                                            orderedWeight: undefined,
                                             uom: '',
                                             areaOfUse: lastProduct.areaOfUse || '',
                                             attachment: undefined,
@@ -1321,9 +1329,9 @@ export default () => {
                                                                     </SelectContent>
                                                                 </Select>
                                                                 {field.value && (
-                                                                    <div className="absolute top-full left-0 w-full z-10 pt-0.5 pointer-events-none">
+                                                                    <div className="w-full pt-0.5">
                                                                         <div className="flex flex-col gap-0.5">
-                                                                            <p className="text-[10px] text-muted-foreground bg-background/80 backdrop-blur-sm rounded-sm px-1">
+                                                                            <p className="text-[10px] text-muted-foreground px-1">
                                                                                 Stock: <span className={cn("font-bold", stock > 0 ? "text-green-600" : "text-red-500")}>
                                                                                     {stock}
                                                                                 </span>
@@ -1331,7 +1339,7 @@ export default () => {
                                                                             {(() => {
                                                                                 const lp = getLastPurchaseInfo(field.value, departmentHead);
                                                                                 return lp ? (
-                                                                                    <p className="text-[10px] text-yellow-600 font-medium bg-background/80 backdrop-blur-sm rounded-sm px-1">
+                                                                                    <p className="text-[10px] text-yellow-600 font-medium px-1">
                                                                                         Last Purchased: {lp.qty} {lp.uom} @ ₹{lp.rate} on {lp.date}{lp.vendor ? ` from ${lp.vendor}` : ''}
                                                                                     </p>
                                                                                 ) : null;
@@ -1414,6 +1422,30 @@ export default () => {
                                                     </FormItem>
                                                 )}
                                             />
+                                            {showsWeight(indentType, products[index]?.uom || '') && (
+                                                <FormField
+                                                    control={form.control}
+                                                    name={`products.${index}.orderedWeight`}
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel>
+                                                                {indentType === 'Purchase' ? 'Ordered Weight (kg)' : 'Weight (kg)'}
+                                                            </FormLabel>
+                                                            <FormControl>
+                                                                <Input
+                                                                    type="number"
+                                                                    step="any"
+                                                                    min="0"
+                                                                    placeholder={`Total kg for ${products[index]?.quantity || 0} ${products[index]?.uom}`}
+                                                                    {...field}
+                                                                    value={field.value ?? ''}
+                                                                    disabled={!departmentHead}
+                                                                />
+                                                            </FormControl>
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                            )}
                                         </div>
                                         <FormField
                                             control={form.control}
