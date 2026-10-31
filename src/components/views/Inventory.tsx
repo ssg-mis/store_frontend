@@ -25,6 +25,7 @@ interface InventoryTable {
     storeOut: number;
     loanOut: number;
     current: number;
+    currentWeight: number;
 }
 
 
@@ -45,6 +46,7 @@ export default () => {
                 inventoryId: i.inventoryId || (i as any).id || null,
                 uom: i.uom || '-',
                 current: Number(i.current || 0),
+                currentWeight: Number((i as any).currentWeight || 0),
                 status: i.colorCode || 'green',
                 indented: Number(i.indented || 0),
                 itemName: i.itemName || 'Unknown Item',
@@ -167,6 +169,11 @@ export default () => {
             cell: ({ row }) => renderMovementLink(row.original, 'loanOut', 'Loan Out'),
         },
         { accessorKey: 'current', header: 'Stock' },
+        {
+            accessorKey: 'currentWeight',
+            header: 'Stock (kg)',
+            cell: ({ row }) => (row.original.currentWeight ? `${Math.round(row.original.currentWeight * 1000) / 1000} kg` : '—'),
+        },
         {
             accessorKey: 'status',
             header: 'Status',

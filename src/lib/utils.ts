@@ -111,3 +111,10 @@ export function debounce<T extends (...args: any[]) => any>(
     };
 }
 
+
+// Units that already measure weight — items in these need no separate kg field.
+const WEIGHT_UOMS = new Set(['KG', 'KGS', 'GRAM', 'GRAMS', 'GM', 'TON', 'TONS', 'TONNE']);
+
+export function isWeightUom(uom?: string | null): boolean {
+    return WEIGHT_UOMS.has(String(uom || '').trim().toUpperCase());
+}

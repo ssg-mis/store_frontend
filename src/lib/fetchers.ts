@@ -1391,6 +1391,19 @@ export async function deleteSpecification(id: number) {
 }
 
 /* ───── Payment Terms ───── */
+// Allowed ± % between expected and actual received weight before a reason is required.
+export async function fetchWeightTolerance(): Promise<number> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/received/weight-settings`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        return Number(data?.tolerancePercent) || 3;
+    } catch (error) {
+        console.error('Error fetching weight tolerance:', error);
+        return 3;
+    }
+}
+
 export async function fetchPaymentTerms() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/payment-terms`);

@@ -1,12 +1,12 @@
 import type { ColumnDef } from '@tanstack/react-table';
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { Fragment, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import DataTable from '../element/DataTable';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
-import { uploadFile, fetchFromSupabasePaginated, postToSheet, fetchPaymentTerms, updateReceivedPhotoApi } from '@/lib/fetchers';
+import { uploadFile, fetchFromSupabasePaginated, postToSheet, fetchPaymentTerms, fetchWeightTolerance, updateReceivedPhotoApi } from '@/lib/fetchers';
 import {
     Dialog,
     DialogContent,
@@ -28,7 +28,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsContent } from '../ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
-import { formatDate, debounce, formatFirmName } from '@/lib/utils';
+import { formatDate, debounce, formatFirmName, isWeightUom } from '@/lib/utils';
 import { useSheets } from '@/context/SheetsContext';
 import { Pill } from '../ui/pill';
 
@@ -53,6 +53,8 @@ interface RecieveItemsData {
     transportType?: string;
     approvedActualTime?: number | null;
     leadTime?: string | null;
+    indentQuantity?: number;
+    orderedWeight?: number | null;
 }
 
 interface HistoryData {
@@ -83,7 +85,24 @@ interface HistoryData {
     photoOfBill: string;
     receiveType?: string;
     remark?: string;
+    expectedWeight?: number | null;
+    actualReceivedWeight?: number | null;
+    weightVariance?: number | null;
+    weightVariancePercent?: number | null;
+    varianceReason?: string;
 }
+
+// Expected kg for `qty`, pro-rated from the indent's ordered weight; null when the item isn't weight-tracked.
+const expectedWeightFor = (item: RecieveItemsData | undefined, qty: number): number | null => {
+    if (!item?.orderedWeight || !item.indentQuantity || isWeightUom(item.uom)) return null;
+    return Math.round((item.orderedWeight / item.indentQuantity) * qty * 1000) / 1000;
+};
+
+const formatVariance = (variance?: number | null, percent?: number | null) => {
+    if (variance === null || variance === undefined) return '—';
+    const sign = variance > 0 ? '+' : '';
+    return `${sign}${variance} kg${percent !== null && percent !== undefined ? ` (${sign}${percent}%)` : ''}`;
+};
 
 const ReceiveItems = () => {
     const [localIndentLoading, setLocalIndentLoading] = useState(false);
@@ -92,6 +111,11 @@ const ReceiveItems = () => {
     const { updateIndentSheet, updateReceivedSheet, updateRelatedSheets } = useSheets();
     // Payment terms now come from the Payment Term master tab (not a hardcoded list).
     const [PAYMENT_TERMS, setPaymentTerms] = useState<string[]>([]);
+    const [weightTolerance, setWeightTolerance] = useState(3);
+
+    useEffect(() => {
+        fetchWeightTolerance().then(setWeightTolerance);
+    }, []);
 
     useEffect(() => {
         fetchPaymentTerms().then((data: any[]) =>
@@ -181,6 +205,8 @@ const ReceiveItems = () => {
                         transportType: po.transportationType || 'N/A',
                         approvedActualTime: indent.approvedActualTime ?? null,
                         leadTime: po.leadTime || po.lead_time || null,
+                        indentQuantity: Number(indent.quantity) || 0,
+                        orderedWeight: indent.orderedWeight ?? null,
                     };
                 });
 
@@ -248,6 +274,11 @@ const ReceiveItems = () => {
                         photoOfBill: receivedRecord.photoOfBill || '',
                         receiveType: receivedRecord.receiveType || '',
                         remark: receivedRecord.remark || '',
+                        expectedWeight: receivedRecord.expectedWeight ?? null,
+                        actualReceivedWeight: receivedRecord.actualReceivedWeight ?? null,
+                        weightVariance: receivedRecord.weightVariance ?? null,
+                        weightVariancePercent: receivedRecord.weightVariancePercent ?? null,
+                        varianceReason: receivedRecord.varianceReason || '',
                     };
                 });
                 setHistoryData(prev => append ? [...prev, ...mappedData] : mappedData);
@@ -442,6 +473,10 @@ const ReceiveItems = () => {
                 'Bill Photo': item.photoOfBill || '—',
                 'Receive Type': item.receiveType === 'Full' ? 'Fully' : item.receiveType === 'Partial' ? 'Partially' : '—',
                 'Remark': item.remark || '—',
+                'Ordered Weight (kg)': item.expectedWeight ?? '—',
+                'Actual Received Weight (kg)': item.actualReceivedWeight ?? '—',
+                'Weight Variance': formatVariance(item.weightVariance, item.weightVariancePercent),
+                'Variance Reason': item.varianceReason || '—',
             }));
 
             const worksheet = XLSX.utils.json_to_sheet(formattedRows);
@@ -609,9 +644,30 @@ const ReceiveItems = () => {
     });
 
     // Local state for item quantities — avoids RHF dynamic array registration issues
-    const [itemRows, setItemRows] = useState<Array<{ indentId: number; indentNumber: string; quantity: number; purchaseReturn: number; damagedQuantity: number; error?: string }>>([]);
+    type ItemRow = {
+        indentId: number;
+        indentNumber: string;
+        quantity: number;
+        purchaseReturn: number;
+        damagedQuantity: number;
+        actualWeight: string;
+        varianceReason: string;
+        error?: string;
+    };
+    const [itemRows, setItemRows] = useState<ItemRow[]>([]);
 
-    type ItemRow = { indentId: number; indentNumber: string; quantity: number; purchaseReturn: number; damagedQuantity: number; error?: string };
+    // Weight check for one row: expected vs actual kg and whether a reason is needed.
+    const getWeightCheck = (row: ItemRow) => {
+        const item = matchingIndents.find(i => i.id === row.indentId);
+        const expected = expectedWeightFor(item, row.quantity);
+        if (expected === null || row.quantity <= 0) return null;
+        const actual = row.actualWeight === '' ? null : Number(row.actualWeight);
+        if (actual === null || !Number.isFinite(actual)) return { expected, actual: null, variance: null, percent: null, outOfTolerance: false };
+        const variance = Math.round((actual - expected) * 1000) / 1000;
+        const percent = expected > 0 ? Math.round((variance / expected) * 100000) / 1000 : null;
+        const outOfTolerance = percent === null ? variance !== 0 : Math.abs(percent) > weightTolerance;
+        return { expected, actual, variance, percent, outOfTolerance };
+    };
 
     // "Partial" caps received qty at the pending qty; "Full" closes the item, so any qty is allowed.
     const validateItemRow = (row: ItemRow, receiveType: string | undefined): ItemRow => {
@@ -630,6 +686,10 @@ const ReceiveItems = () => {
             updated.error = undefined;
         }
         return updated;
+    };
+
+    const updateItemWeight = (indentId: number, field: 'actualWeight' | 'varianceReason', value: string) => {
+        setItemRows(prev => prev.map(row => (row.indentId === indentId ? { ...row, [field]: value } : row)));
     };
 
     const updateItemRow = (indentId: number, field: 'quantity' | 'purchaseReturn' | 'damagedQuantity', value: number) => {
@@ -686,6 +746,8 @@ const ReceiveItems = () => {
                     quantity: indent.remainingQty || 0,
                     purchaseReturn: 0,
                     damagedQuantity: 0,
+                    actualWeight: '',
+                    varianceReason: '',
                 }));
             });
         } else if (!openDialog) {
@@ -717,6 +779,19 @@ const ReceiveItems = () => {
         if (itemsToReceive.length === 0) {
             toast.error('Please enter quantity for at least one item');
             return;
+        }
+
+        for (const item of itemsToReceive) {
+            const check = getWeightCheck(item);
+            const name = matchingIndents.find(i => i.id === item.indentId)?.product || item.indentNumber;
+            if (check && check.actual === null) {
+                toast.error(`Enter Actual Received Weight for ${name}`);
+                return;
+            }
+            if (check?.outOfTolerance && !item.varianceReason.trim()) {
+                toast.error(`Variance Reason is required for ${name} (weight differs by more than ±${weightTolerance}%)`);
+                return;
+            }
         }
 
         try {
@@ -763,6 +838,10 @@ const ReceiveItems = () => {
                     planned: nowIso,
                     receiveType: values.receiveType,
                     remark: values.remark.trim(),
+                    ...(getWeightCheck(item) && {
+                        actualReceivedWeight: Number(item.actualWeight),
+                        varianceReason: item.varianceReason.trim(),
+                    }),
                 };
             });
 
@@ -1085,9 +1164,12 @@ const ReceiveItems = () => {
                                             </thead>
                                             <tbody className="divide-y">
                                                 {matchingIndents.map((indent) => {
-                                                    const row = itemRows.find(r => r.indentId === indent.id) || { quantity: 0, purchaseReturn: 0, damagedQuantity: 0, error: undefined as string | undefined };
+                                                    const itemRow = itemRows.find(r => r.indentId === indent.id);
+                                                    const row = itemRow || { quantity: 0, purchaseReturn: 0, damagedQuantity: 0, actualWeight: '', varianceReason: '', error: undefined as string | undefined };
+                                                    const weightCheck = itemRow ? getWeightCheck(itemRow) : null;
                                                     return (
-                                                        <tr key={indent.id} className="hover:bg-muted/30 transition-colors">
+                                                        <Fragment key={indent.id}>
+                                                        <tr className="hover:bg-muted/30 transition-colors">
                                                             <td className="px-4 py-3 text-xs text-muted-foreground">{indent.productCode || '-'}</td>
                                                             <td className="px-4 py-3 max-w-[180px] truncate">{indent.product}</td>
                                                             <td className="px-4 py-3 text-center text-xs">{indent.uom}</td>
@@ -1134,6 +1216,53 @@ const ReceiveItems = () => {
                                                                 {Math.max(0, row.quantity - row.purchaseReturn - row.damagedQuantity)}
                                                             </td>
                                                         </tr>
+                                                        {weightCheck && (
+                                                            <tr className="bg-muted/20">
+                                                                <td colSpan={8} className="px-4 pb-3 pt-1">
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-[auto_180px_auto_1fr] gap-3 items-end">
+                                                                        <div className="text-xs">
+                                                                            <div className="text-muted-foreground">Ordered Weight</div>
+                                                                            <div className="font-semibold">{weightCheck.expected} kg</div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-xs text-muted-foreground">
+                                                                                Actual Received Weight (kg) <span className="text-red-500">*</span>
+                                                                            </label>
+                                                                            <Input
+                                                                                type="number"
+                                                                                step="any"
+                                                                                min={0}
+                                                                                className="h-8 text-center font-semibold"
+                                                                                placeholder="e.g. 240"
+                                                                                value={row.actualWeight}
+                                                                                onChange={e => updateItemWeight(indent.id, 'actualWeight', e.target.value)}
+                                                                            />
+                                                                        </div>
+                                                                        <div className="text-xs">
+                                                                            <div className="text-muted-foreground">Weight Variance</div>
+                                                                            <div className={`font-semibold ${weightCheck.outOfTolerance ? 'text-red-600' : 'text-green-700'}`}>
+                                                                                {formatVariance(weightCheck.variance, weightCheck.percent)}
+                                                                            </div>
+                                                                        </div>
+                                                                        {weightCheck.outOfTolerance && (
+                                                                            <div>
+                                                                                <label className="text-xs text-muted-foreground">
+                                                                                    Variance Reason <span className="text-red-500">*</span>
+                                                                                    <span className="ml-1">(more than ±{weightTolerance}%)</span>
+                                                                                </label>
+                                                                                <Input
+                                                                                    className="h-8"
+                                                                                    placeholder="Why is the weight different?"
+                                                                                    value={row.varianceReason}
+                                                                                    onChange={e => updateItemWeight(indent.id, 'varianceReason', e.target.value)}
+                                                                                />
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                        </Fragment>
                                                     );
                                                 })}
                                             </tbody>
@@ -1523,6 +1652,10 @@ const ReceiveItems = () => {
                                         <TableHead className="text-xs text-right text-orange-600 font-semibold">Remaining Qty</TableHead>
                                         <TableHead className="text-xs">Receive Type</TableHead>
                                         <TableHead className="text-xs">Remark</TableHead>
+                                        <TableHead className="text-xs text-right">Ordered Wt</TableHead>
+                                        <TableHead className="text-xs text-right">Actual Received Wt</TableHead>
+                                        <TableHead className="text-xs text-right">Weight Variance</TableHead>
+                                        <TableHead className="text-xs">Variance Reason</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1568,6 +1701,12 @@ const ReceiveItems = () => {
                                                         {item.receiveType === 'Full' ? 'Fully' : item.receiveType === 'Partial' ? 'Partially' : '—'}
                                                     </TableCell>
                                                     <TableCell className="text-xs max-w-[220px] whitespace-normal">{item.remark || '—'}</TableCell>
+                                                    <TableCell className="text-xs text-right">{item.expectedWeight != null ? `${item.expectedWeight} kg` : '—'}</TableCell>
+                                                    <TableCell className="text-xs text-right font-medium">{item.actualReceivedWeight != null ? `${item.actualReceivedWeight} kg` : '—'}</TableCell>
+                                                    <TableCell className={`text-xs text-right ${item.weightVariancePercent != null && Math.abs(item.weightVariancePercent) > weightTolerance ? 'text-red-600 font-semibold' : ''}`}>
+                                                        {formatVariance(item.weightVariance, item.weightVariancePercent)}
+                                                    </TableCell>
+                                                    <TableCell className="text-xs max-w-[220px] whitespace-normal">{item.varianceReason || '—'}</TableCell>
                                                 </TableRow>
                                             );
                                         });
