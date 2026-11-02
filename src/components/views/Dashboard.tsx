@@ -13,6 +13,7 @@ import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts'
 import { useEffect, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import { analyzeData } from '@/lib/filter';
+import ReceivedItemsDialog, { type ReceivedRecord } from '../element/ReceivedItemsDialog';
 
 function CustomChartTooltipContent({
     payload,
@@ -68,6 +69,7 @@ export default function Dashboard() {
     const [out, setOut] = useState({ count: 0, quantity: 0 });
     const [finance, setFinance] = useState({ poCount: 0, totalValue: 0 });
     const [alerts, setAlerts] = useState({ lowStock: 0, outOfStock: 0 });
+    const [receivedOpen, setReceivedOpen] = useState(false);
 
     useEffect(() => {
         const stats = analyzeData({
@@ -96,6 +98,11 @@ export default function Dashboard() {
 
     return (
         <div className="p-4 space-y-6">
+            <ReceivedItemsDialog
+                open={receivedOpen}
+                onOpenChange={setReceivedOpen}
+                records={receivedSheet as unknown as ReceivedRecord[]}
+            />
             <Heading
                 heading="Insights & Analytics"
                 subtext="Live overview of procurement, store, and inventory status."
@@ -151,7 +158,19 @@ export default function Dashboard() {
                     </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-white to-orange-50/50 border-orange-100 shadow-sm transition-all hover:shadow-md">
+                <Card
+                    role="button"
+                    tabIndex={0}
+                    title="View received items"
+                    onClick={() => setReceivedOpen(true)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setReceivedOpen(true);
+                        }
+                    }}
+                    className="bg-gradient-to-br from-white to-orange-50/50 border-orange-100 shadow-sm transition-all hover:shadow-md cursor-pointer hover:border-orange-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+                >
                     <CardContent className="pt-6">
                         <div className="text-orange-600 flex justify-between items-center mb-4">
                             <p className="font-bold uppercase text-xs tracking-wider">
