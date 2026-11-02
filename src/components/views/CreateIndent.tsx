@@ -581,7 +581,8 @@ export default () => {
                     productSubCategory: (product.productSubCategory && product.productSubCategory !== '__none__') ? product.productSubCategory : null,
                     quantity: product.quantity,
                     uom: product.uom,
-                    orderedWeight: showsWeight(data.indentType, product.uom) && product.orderedWeight ? product.orderedWeight : null,
+                    // Only sent when entered, so indents still work against a backend without weight support.
+                    ...(showsWeight(data.indentType, product.uom) && product.orderedWeight ? { orderedWeight: product.orderedWeight } : {}),
                     specifications: product.specifications || '',
                     indentType: data.indentType,
                     validityDate: (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType)) ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
