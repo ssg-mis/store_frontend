@@ -164,15 +164,15 @@ export default () => {
         setProductGroupFilters(prev => prev.filter((_, i) => i !== index));
     };
 
-    const getStock = (itemName: string, departmentHead: string) => {
-        const items = inventorySheet?.filter(
-            (i) =>
-                i.itemName?.toLowerCase().trim() === itemName?.toLowerCase().trim() &&
-                (!departmentHead || i.departmentHead?.toLowerCase().trim() === departmentHead?.toLowerCase().trim())
-        ) ?? [];
-        // Sum across all matching rows so duplicate inventory records don't cause false zero-stock
-        return items.reduce((sum, i) => sum + Number(i.current || 0), 0);
-    };
+    // Store stock is shared across departments: any department can issue it.
+    // Breakdown tells whose stock it is, e.g. [{ department: 'Mechanical', qty: 15 }].
+    const getStockBreakdown = (itemName: string) =>
+        inventorySheet?.find(
+            (i) => i.itemName?.toLowerCase().trim() === itemName?.toLowerCase().trim()
+        )?.stockByDepartment ?? [];
+
+    const getStock = (itemName: string) =>
+        getStockBreakdown(itemName).reduce((sum, d) => sum + d.qty, 0);
 
     const normalizeLookupValue = (value?: string | null) => value?.toLowerCase().trim() || '';
 
@@ -520,13 +520,13 @@ export default () => {
             const shortProducts = data.products
                 .filter(p => p.productName)
                 .filter(p => {
-                    const stock = getStock(p.productName, p.departmentHead);
+                    const stock = getStock(p.productName);
                     return stock < Number(p.quantity || 0);
                 });
 
             if (shortProducts.length > 0) {
                 const messages = shortProducts.map(p => {
-                    const stock = getStock(p.productName, p.departmentHead);
+                    const stock = getStock(p.productName);
                     return `${p.productName} (Available: ${stock})`;
                 });
                 
@@ -1225,7 +1225,7 @@ export default () => {
                                                 control={form.control}
                                                 name={`products.${index}.productName`}
                                                 render={({ field }) => {
-                                                    const stock = getStock(field.value, departmentHead);
+                                                    const stock = getStock(field.value);
                                                     return (
                                                         <FormItem className="min-w-0">
                                                             <FormLabel>
@@ -1311,7 +1311,7 @@ export default () => {
                                                                                     return searchMatch && facetMatch;
                                                                                 })
                                                                                 .map((dep: string, i: number) => {
-                                                                                    const depStock = getStock(dep, departmentHead);
+                                                                                    const depStock = getStock(dep);
                                                                                     return (
                                                                                         <SelectItem
                                                                                             key={i}
@@ -1336,6 +1336,11 @@ export default () => {
                                                                                 Stock: <span className={cn("font-bold", stock > 0 ? "text-green-600" : "text-red-500")}>
                                                                                     {stock}
                                                                                 </span>
+                                                                                {stock !== 0 && (
+                                                                                    <span className="font-medium text-foreground/80">
+                                                                                        {' '}({getStockBreakdown(field.value).map((d) => `${d.department}: ${d.qty}`).join(', ')})
+                                                                                    </span>
+                                                                                )}
                                                                             </p>
                                                                             {(() => {
                                                                                 const lp = getLastPurchaseInfo(field.value, departmentHead);

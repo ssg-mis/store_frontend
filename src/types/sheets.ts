@@ -136,6 +136,8 @@ export type InventorySheet = {
     storeOut: number;
     loanOut: number;
     current: number;
+    // Stock across every inventory row of this product, per department
+    stockByDepartment?: { department: string; qty: number }[];
     totalPrice: number;
     colorCode: string;
 };
