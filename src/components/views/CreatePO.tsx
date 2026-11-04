@@ -899,13 +899,9 @@ export default () => {
                 itemRow.id ? i.id === itemRow.id : (i.subIndentNumber || i.indentNumber || i.indent_number) === itemRow.indentNumber
             );
             const itemName = indent?.productName || indent?.product_name || '';
-            const departmentHead = indent?.departmentHead || '';
-
-            const inventoryItem = inventoryData.find(
-                i => i.itemName?.toLowerCase().trim() === itemName.toLowerCase().trim() &&
-                    (!departmentHead || i.departmentHead?.toLowerCase().trim() === departmentHead.toLowerCase().trim())
-            );
-            const stock = Number(inventoryItem?.current || 0);
+            // Store stock is shared across departments
+            const stock = (inventoryData.find(i => i.itemName?.toLowerCase().trim() === itemName.toLowerCase().trim())
+                ?.stockByDepartment ?? []).reduce((sum, d) => sum + d.qty, 0);
             const indentType = indent?.indentType || '';
             const isPurchase = indentType.toLowerCase().includes('purchase');
 
@@ -1812,11 +1808,8 @@ export default () => {
                                                             control={form.control}
                                                             name={`indents.${index}.quantity`}
                                                             render={({ field: indentField }) => {
-                                                                const inventoryItem = inventoryData.find(
-                                                                    i => i.itemName?.toLowerCase().trim() === (indent?.productName || indent?.product_name || '').toLowerCase().trim() &&
-                                                                        (!indent?.departmentHead || i.departmentHead?.toLowerCase().trim() === (indent?.departmentHead || '').toLowerCase().trim())
-                                                                );
-                                                                const stock = Number(inventoryItem?.current || 0);
+                                                                const stock = (inventoryData.find(i => i.itemName?.toLowerCase().trim() === (indent?.productName || indent?.product_name || '').toLowerCase().trim())
+                                                                    ?.stockByDepartment ?? []).reduce((sum, d) => sum + d.qty, 0);
                                                                 const indentType = indent?.indentType || '';
                                                                 const isPurchase = indentType.toLowerCase().includes('purchase');
                                                                 const isInsufficient = mode !== 'revise' && !isPurchase && Number(indentField.value) > stock;
