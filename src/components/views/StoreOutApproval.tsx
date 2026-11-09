@@ -75,7 +75,7 @@ interface HistoryData {
     indentType: string;
 }
 
-export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
+export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan'; initialTab?: string }) => {
     const { user } = useAuth();
     const { updateIndentSheet, updateRelatedSheets } = useSheets();
     const [openDialog, setOpenDialog] = useState(false);
@@ -84,11 +84,11 @@ export default ({ mode = 'store-out' }: { mode?: 'store-out' | 'loan' }) => {
     const [selectedIndent, setSelectedIndent] = useState<StoreOutTableData | null>(null);
     const [rejecting, setRejecting] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [mainTab, setMainTab] = useState(mode === 'loan' ? 'loan-out' : 'store-out');
+    const [mainTab, setMainTab] = useState(initialTab ?? (mode === 'loan' ? 'loan-out' : 'store-out'));
 
     useEffect(() => {
-        setMainTab(mode === 'loan' ? 'loan-out' : 'store-out');
-    }, [mode]);
+        setMainTab(initialTab ?? (mode === 'loan' ? 'loan-out' : 'store-out'));
+    }, [mode, initialTab]);
 
     // Filter states (kept for FilterBar options)
     const [pendingFilters, setPendingFilters] = useState({

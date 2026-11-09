@@ -1586,6 +1586,65 @@ export async function deleteDeliveryTerm(id: number) {
     }
 }
 
+/* ───── Contractors ───── */
+export async function fetchContractors() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/contractors`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching contractors:', error);
+        return [];
+    }
+}
+
+export async function postContractor(name: string, isActive: boolean = true) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/contractors`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, isActive })
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error posting contractor:', error);
+        throw error;
+    }
+}
+
+export async function updateContractor(id: number, data: { name?: string; isActive?: boolean }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/contractors/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to update contractor');
+        }
+        return { success: true, data: await response.json() };
+    } catch (error: any) {
+        console.error('Error updating contractor:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteContractor(id: number) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/contractors/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to delete contractor');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting contractor:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 /* ───── Transportation Terms ───── */
 export async function fetchTransportationTerms() {
     try {
@@ -1870,6 +1929,36 @@ export async function completePOTracking(poNumber: string, remarks?: string) {
     } catch (error: any) {
         console.error('Error completing PO tracking:', error);
         return { success: false, error: error.message };
+    }
+}
+
+export async function addPOVendorUpdate(data: { poNumber: string; vendorStatus: string; expectedDate?: string; remarks?: string }) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/vendor-updates`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to save vendor update');
+        }
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error saving vendor update:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function fetchPOVendorUpdates(poNumber: string): Promise<any[]> {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-masters/vendor-updates/${encodeURIComponent(poNumber)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        return data.updates || [];
+    } catch (error) {
+        console.error('Error fetching vendor updates:', error);
+        return [];
     }
 }
 
