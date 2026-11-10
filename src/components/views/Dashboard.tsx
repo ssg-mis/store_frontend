@@ -6,42 +6,106 @@ import {
     Truck,
     Warehouse,
     TrendingUp,
+    HandCoins,
+    RotateCcw,
+    Repeat2,
+    UserRoundCog,
+    PackageOpen,
+    ArrowUpRight,
+    HardHat,
+    PackageCheck as PackageCheckIcon,
+    Star,
+    type LucideIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { ChartContainer, ChartTooltip, type ChartConfig } from '../ui/chart';
-import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSheets } from '@/context/SheetsContext';
 import { analyzeData } from '@/lib/filter';
+import StoreOutApproval from './StoreOutApproval';
+import AccessoryTracking from './AccessoryTracking';
+import ContractorLoan from './ContractorLoan';
+import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
 import ReceivedItemsDialog, { type ReceivedRecord } from '../element/ReceivedItemsDialog';
 
-function CustomChartTooltipContent({
-    payload,
+const THEMES = {
+    blue: { grad: 'from-sky-500 to-blue-700', glow: 'bg-blue-400/20', chip: 'bg-blue-50 text-blue-700', ring: 'hover:ring-blue-200', shadow: 'shadow-blue-500/30' },
+    green: { grad: 'from-green-500 to-emerald-700', glow: 'bg-green-400/20', chip: 'bg-green-50 text-green-700', ring: 'hover:ring-green-200', shadow: 'shadow-green-500/30' },
+    orange: { grad: 'from-amber-500 to-orange-600', glow: 'bg-orange-400/20', chip: 'bg-orange-50 text-orange-700', ring: 'hover:ring-orange-200', shadow: 'shadow-orange-500/30' },
+    red: { grad: 'from-red-500 to-rose-700', glow: 'bg-red-400/20', chip: 'bg-red-50 text-red-700', ring: 'hover:ring-red-200', shadow: 'shadow-red-500/30' },
+    purple: { grad: 'from-violet-500 to-purple-700', glow: 'bg-purple-400/20', chip: 'bg-purple-50 text-purple-700', ring: 'hover:ring-purple-200', shadow: 'shadow-purple-500/30' },
+    indigo: { grad: 'from-indigo-500 to-blue-700', glow: 'bg-indigo-400/20', chip: 'bg-indigo-50 text-indigo-700', ring: 'hover:ring-indigo-200', shadow: 'shadow-indigo-500/30' },
+    cyan: { grad: 'from-cyan-500 to-sky-700', glow: 'bg-cyan-400/20', chip: 'bg-cyan-50 text-cyan-700', ring: 'hover:ring-cyan-200', shadow: 'shadow-cyan-500/30' },
+    emerald: { grad: 'from-emerald-500 to-teal-700', glow: 'bg-emerald-400/20', chip: 'bg-emerald-50 text-emerald-700', ring: 'hover:ring-emerald-200', shadow: 'shadow-emerald-500/30' },
+    rose: { grad: 'from-rose-500 to-pink-700', glow: 'bg-rose-400/20', chip: 'bg-rose-50 text-rose-700', ring: 'hover:ring-rose-200', shadow: 'shadow-rose-500/30' },
+} as const;
+
+function MetricCard({
     label,
+    value,
+    footerLabel,
+    footerValue,
+    icon: Icon,
+    color,
+    onClick,
 }: {
-    payload?: { payload: { quantity: number; frequency: number } }[];
-    label?: string;
+    label: string;
+    value: React.ReactNode;
+    footerLabel: string;
+    footerValue: React.ReactNode;
+    icon: LucideIcon;
+    color: keyof typeof THEMES;
+    onClick?: () => void;
 }) {
-    if (!payload?.length) return null;
-
-    const data = payload[0].payload;
-
+    const t = THEMES[color];
+    const clickable = !!onClick;
     return (
-        <div className="rounded-md border bg-white px-3 py-2 shadow-sm text-sm">
-            <p className="font-medium text-slate-900 border-b pb-1 mb-1">{label}</p>
-            <div className="flex flex-col gap-0.5 text-slate-600">
-                <p>
-                    Quantity:{' '}
-                    <span className="font-semibold text-slate-900">
-                        {Math.floor(data.quantity)}
+        <Card
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            title={clickable ? `View ${label}` : undefined}
+            onClick={onClick}
+            onKeyDown={
+                clickable
+                    ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onClick?.();
+                          }
+                      }
+                    : undefined
+            }
+            className={`group relative h-full min-h-[140px] overflow-hidden bg-white border-slate-200/70 shadow-sm ring-1 ring-transparent transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
+                clickable ? `${t.ring} cursor-pointer focus-visible:outline-none focus-visible:ring-2` : ''
+            }`}
+        >
+            <div className={`absolute -right-10 -top-10 size-32 rounded-full blur-2xl ${t.glow} transition-transform duration-500 group-hover:scale-125`} />
+            <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${t.grad}`} />
+            <CardContent className="relative p-4 h-full flex flex-col">
+                <div className={`flex items-start justify-between mb-3`}>
+                    <div className={`size-10 rounded-xl bg-gradient-to-br ${t.grad} text-white flex items-center justify-center shadow-lg ${t.shadow} transition-transform duration-300 group-hover:scale-105 group-hover:-rotate-3`}>
+                        <Icon size={20} strokeWidth={2} />
+                    </div>
+                    {clickable && (
+                        <div className="size-7 rounded-full border border-slate-200 text-slate-400 flex items-center justify-center transition-all group-hover:bg-slate-900 group-hover:text-white group-hover:border-slate-900">
+                            <ArrowUpRight size={14} />
+                        </div>
+                    )}
+                </div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-1 truncate">
+                    {label}
+                </p>
+                <p className="text-3xl font-black text-slate-900 tabular-nums leading-none tracking-tight">
+                    {value}
+                </p>
+                <div className="mt-auto pt-3 flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500 font-medium">{footerLabel}</span>
+                    <span className={`${t.chip} rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums`}>
+                        {footerValue}
                     </span>
-                </p>
-                <p>
-                    Order Frequency:{' '}
-                    <span className="font-semibold text-slate-900">{data.frequency}</span>
-                </p>
-            </div>
-        </div>
+                </div>
+            </CardContent>
+        </Card>
     );
 }
 
@@ -69,7 +133,23 @@ export default function Dashboard() {
     const [out, setOut] = useState({ count: 0, quantity: 0 });
     const [finance, setFinance] = useState({ poCount: 0, totalValue: 0 });
     const [alerts, setAlerts] = useState({ lowStock: 0, outOfStock: 0 });
+    const navigate = useNavigate();
     const [receivedOpen, setReceivedOpen] = useState(false);
+    const [typeDialog, setTypeDialog] = useState<string | null>(null);
+
+    const typeCards = [
+        { key: 'storeOut', label: 'Store Out', types: ['Store Out'], page: 'store' as const, mode: 'store-out' as const, tab: 'store-out', icon: PackageOpen, color: 'purple' as const },
+        { key: 'storeOutReturn', label: 'Store Out Return', types: ['Store Out Return'], page: 'store' as const, mode: 'store-out' as const, tab: 'store-out-return', icon: RotateCcw, color: 'indigo' as const },
+        { key: 'loanOut', label: 'Loan Out', types: ['Loan Out'], page: 'store' as const, mode: 'loan' as const, tab: 'loan-out', icon: HandCoins, color: 'cyan' as const },
+        { key: 'loanOutReturn', label: 'Loan Out Return', types: ['Loan Out Return'], page: 'store' as const, mode: 'loan' as const, tab: 'loan-out-return', icon: Repeat2, color: 'emerald' as const },
+        { key: 'contractorOut', label: 'Contractor Loan Out', types: ['Contractor Loan Out'], page: 'contractor' as const, mode: 'loan' as const, tab: 'contractor-loan-out', icon: HardHat, color: 'orange' as const },
+        { key: 'contractorIn', label: 'Contractor Loan In', types: ['Contractor Loan In'], page: 'contractor' as const, mode: 'loan' as const, tab: 'contractor-loan-in', icon: PackageCheckIcon, color: 'blue' as const },
+        { key: 'empLoan', label: 'Employee Loan Tracker', types: ['Employee Loan Tracker'], page: 'employee' as const, mode: 'loan' as const, tab: 'loan-out', icon: UserRoundCog, color: 'rose' as const },
+    ].map((c) => {
+        const records = indentSheet.filter((i) => c.types.includes(i.indentType));
+        return { ...c, records, qty: records.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0) };
+    });
+    const activeType = typeCards.find((c) => c.key === typeDialog);
 
     useEffect(() => {
         const stats = analyzeData({
@@ -89,13 +169,6 @@ export default function Dashboard() {
         setAlerts({ lowStock: stats.lowStock, outOfStock: stats.outOfStock });
     }, [indentSheet, receivedSheet, poMasterSheet, inventorySheet]);
 
-    const chartConfig = {
-        quantity: {
-            label: 'Quantity',
-            color: 'hsl(var(--primary))',
-        },
-    } satisfies ChartConfig;
-
     return (
         <div className="p-4 space-y-6">
             <ReceivedItemsDialog
@@ -103,6 +176,16 @@ export default function Dashboard() {
                 onOpenChange={setReceivedOpen}
                 records={receivedSheet as unknown as ReceivedRecord[]}
             />
+            <Dialog open={!!activeType} onOpenChange={(o) => !o && setTypeDialog(null)}>
+                <DialogContent className="sm:max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] overflow-y-auto p-0 gap-0">
+                    <DialogTitle className="sr-only">{activeType?.label}</DialogTitle>
+                    {activeType?.page === 'store' && (
+                        <StoreOutApproval mode={activeType.mode} initialTab={activeType.tab} />
+                    )}
+                    {activeType?.page === 'contractor' && <ContractorLoan initialTab={activeType.tab} />}
+                    {activeType?.page === 'employee' && <AccessoryTracking />}
+                </DialogContent>
+            </Dialog>
             <Heading
                 heading="Insights & Analytics"
                 subtext="Live overview of procurement, store, and inventory status."
@@ -111,239 +194,166 @@ export default function Dashboard() {
             </Heading>
 
             {/* Primary Metrics Layer */}
-            <div className="grid md:grid-cols-4 gap-4">
-                <Card className="bg-gradient-to-br from-white to-blue-50/50 border-blue-100 shadow-sm transition-all hover:shadow-md">
-                    <CardContent className="pt-6">
-                        <div className="text-blue-600 flex justify-between items-center mb-4">
-                            <p className="font-bold uppercase text-xs tracking-wider">
-                                Total Indents
-                            </p>
-                            <div className="bg-blue-100 p-2 rounded-lg">
-                                <ClipboardList size={20} />
-                            </div>
-                        </div>
-                        <p className="text-4xl font-extrabold text-blue-900 mb-2 tabular-nums">
-                            {indent.count}
-                        </p>
-                        <div className="flex justify-between items-end">
-                            <p className="text-sm text-blue-600/80 font-medium tracking-tight">
-                                Indented Vol.
-                            </p>
-                            <p className="font-semibold text-blue-950 text-lg tabular-nums">
-                                {Math.floor(indent.quantity)}
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <MetricCard label="Total Indents" value={indent.count} icon={ClipboardList} color="blue" footerLabel="Indented Vol." footerValue={Math.floor(indent.quantity).toLocaleString()} onClick={() => navigate('/create-indent')} />
+                <MetricCard label="PO Summary" value={finance.poCount} icon={TrendingUp} color="green" footerLabel="Total Value" footerValue={`₹${Math.floor(finance.totalValue).toLocaleString()}`} onClick={() => navigate('/po-master')} />
+                <MetricCard label="Received Items" value={purchase.count} icon={Truck} color="orange" footerLabel="Received Qty" footerValue={Math.floor(purchase.quantity).toLocaleString()} onClick={() => setReceivedOpen(true)} />
+                <MetricCard label="Inventory Alerts" value={alerts.outOfStock} icon={Warehouse} color="red" footerLabel="Low in Stock" footerValue={alerts.lowStock} onClick={() => navigate('/inventory')} />
+            </div>
 
-                <Card className="bg-gradient-to-br from-white to-green-50/50 border-green-100 shadow-sm transition-all hover:shadow-md">
-                    <CardContent className="pt-6">
-                        <div className="text-green-600 flex justify-between items-center mb-4">
-                            <p className="font-bold uppercase text-xs tracking-wider">PO Summary</p>
-                            <div className="bg-green-100 p-2 rounded-lg">
-                                <TrendingUp size={20} />
-                            </div>
-                        </div>
-                        <p className="text-4xl font-extrabold text-green-900 mb-2 tabular-nums">
-                            {finance.poCount}
-                        </p>
-                        <div className="flex justify-between items-end">
-                            <p className="text-sm text-green-600/80 font-medium tracking-tight">
-                                Total Value
-                            </p>
-                            <p className="font-semibold text-green-950 text-lg tabular-nums">
-                                ₹{Math.floor(finance.totalValue).toLocaleString()}
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card
-                    role="button"
-                    tabIndex={0}
-                    title="View received items"
-                    onClick={() => setReceivedOpen(true)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setReceivedOpen(true);
-                        }
-                    }}
-                    className="bg-gradient-to-br from-white to-orange-50/50 border-orange-100 shadow-sm transition-all hover:shadow-md cursor-pointer hover:border-orange-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
-                >
-                    <CardContent className="pt-6">
-                        <div className="text-orange-600 flex justify-between items-center mb-4">
-                            <p className="font-bold uppercase text-xs tracking-wider">
-                                Received Items
-                            </p>
-                            <div className="bg-orange-100 p-2 rounded-lg">
-                                <Truck size={20} />
-                            </div>
-                        </div>
-                        <p className="text-4xl font-extrabold text-orange-900 mb-2 tabular-nums">
-                            {purchase.count}
-                        </p>
-                        <div className="flex justify-between items-end">
-                            <p className="text-sm text-orange-600/80 font-medium tracking-tight">
-                                Received Qty
-                            </p>
-                            <p className="font-semibold text-orange-950 text-lg tabular-nums">
-                                {Math.floor(purchase.quantity)}
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-white to-red-50/50 border-red-100 shadow-sm transition-all hover:shadow-md">
-                    <CardContent className="pt-6">
-                        <div className="text-red-600 flex justify-between items-center mb-4">
-                            <p className="font-bold uppercase text-xs tracking-wider">
-                                Inventory Alerts
-                            </p>
-                            <div className="bg-red-100 p-2 rounded-lg">
-                                <Warehouse size={20} />
-                            </div>
-                        </div>
-                        <p className="text-4xl font-extrabold text-red-900 mb-2 tabular-nums">
-                            {alerts.outOfStock}
-                        </p>
-                        <div className="flex justify-between items-end">
-                            <p className="text-sm text-red-600/80 font-medium tracking-tight">
-                                Low in Stock
-                            </p>
-                            <p className="font-semibold text-red-950 text-lg tabular-nums">
-                                {alerts.lowStock}
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
+            <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                    Indent Types
+                </p>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {typeCards.map((c) => (
+                        <MetricCard
+                            key={c.key}
+                            label={c.label}
+                            value={c.records.length}
+                            icon={c.icon}
+                            color={c.color}
+                            footerLabel="Total Qty"
+                            footerValue={Math.floor(c.qty).toLocaleString()}
+                            onClick={() => setTypeDialog(c.key)}
+                        />
+                    ))}
+                </div>
             </div>
 
             {/* Visual Analytics Layer */}
             <div className="grid lg:grid-cols-5 gap-6">
-                <Card className="lg:col-span-3 shadow-sm border-slate-100">
-                    <CardHeader className="flex flex-row items-center justify-between border-b border-slate-50 mb-4 pb-4">
+                <Card className="lg:col-span-3 relative overflow-hidden rounded-2xl border-slate-200/70 shadow-sm">
+                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-500" />
+                    <CardHeader className="flex flex-row items-center gap-4 border-b border-slate-100 pb-4">
+                        <div className="size-11 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-700 text-white flex items-center justify-center shadow-lg shadow-indigo-500/40">
+                            <TrendingUp size={20} />
+                        </div>
                         <div>
-                            <CardTitle className="text-xl font-bold text-slate-800">
+                            <CardTitle className="text-xl font-extrabold text-slate-900">
                                 High Frequency Products
                             </CardTitle>
-                            <p className="text-sm text-slate-400 mt-1">
+                            <p className="text-sm text-slate-400 mt-0.5">
                                 Products prioritized by order frequency
                             </p>
                         </div>
-                        <div className="p-2 border rounded-full text-slate-400">
-                            <TrendingUp size={16} />
-                        </div>
+                        <span className="ml-auto rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold px-3 py-1.5">
+                            Top {chartData.length}
+                        </span>
                     </CardHeader>
-                    <CardContent>
-                        <ChartContainer className="h-[350px] w-full" config={chartConfig}>
-                            <BarChart
-                                accessibilityLayer
-                                data={chartData}
-                                layout="vertical"
-                                margin={{ right: 40, left: 20, top: 10, bottom: 10 }}
-                            >
-                                <defs>
-                                    <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
-                                        <stop
-                                            offset="0%"
-                                            stopColor="hsl(var(--primary))"
-                                            stopOpacity={0.6}
-                                        />
-                                        <stop offset="100%" stopColor="hsl(var(--primary))" />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid
-                                    horizontal={false}
-                                    strokeDasharray="3 3"
-                                    stroke="#f1f5f9"
-                                />
-                                <YAxis
-                                    dataKey="name"
-                                    type="category"
-                                    tickLine={false}
-                                    tickMargin={14}
-                                    axisLine={false}
-                                    width={190}
-                                    tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
-                                />
-                                <XAxis dataKey="frequency" type="number" hide />
-                                <ChartTooltip
-                                    cursor={{ fill: '#f8fafc', opacity: 0.4 }}
-                                    content={<CustomChartTooltipContent />}
-                                />
-                                <Bar
-                                    dataKey="frequency"
-                                    layout="vertical"
-                                    fill="url(#barGradient)"
-                                    radius={[0, 6, 6, 0]}
-                                    barSize={24}
-                                >
-                                    <LabelList
-                                        dataKey="frequency"
-                                        position="right"
-                                        offset={10}
-                                        className="fill-slate-600 font-bold"
-                                        fontSize={12}
-                                    />
-                                </Bar>
-                            </BarChart>
-                        </ChartContainer>
+                    <CardContent className="pt-4">
+                        {chartData.length > 0 ? (
+                            <div className="space-y-1">
+                                {chartData.map((p, i) => {
+                                    const max = Math.max(...chartData.map((d) => d.frequency), 1);
+                                    return (
+                                        <div
+                                            key={p.name}
+                                            title={`${p.name} · Qty ${Math.floor(p.quantity)}`}
+                                            className="flex items-center gap-3 py-2 rounded-lg hover:bg-slate-50 transition-colors"
+                                        >
+                                            <div
+                                                className={`size-6 shrink-0 rounded-lg text-xs font-bold flex items-center justify-center ${
+                                                    i < 3
+                                                        ? 'bg-gradient-to-br from-amber-400 to-amber-500 text-white'
+                                                        : 'bg-slate-100 text-slate-500'
+                                                }`}
+                                            >
+                                                {i + 1}
+                                            </div>
+                                            <p className="w-44 shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-600 leading-tight line-clamp-2">
+                                                {p.name}
+                                            </p>
+                                            <div className="flex-1 h-3.5 rounded-full bg-slate-100 overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full transition-all duration-700 ${
+                                                        p.frequency === max
+                                                            ? 'bg-gradient-to-r from-violet-300 via-violet-600 to-violet-800'
+                                                            : 'bg-gradient-to-r from-indigo-300 via-indigo-500 to-violet-600'
+                                                    }`}
+                                                    style={{ width: `${(p.frequency / max) * 100}%` }}
+                                                />
+                                            </div>
+                                            <span className="w-9 shrink-0 text-center text-xs font-extrabold text-indigo-900 bg-indigo-50 rounded-lg py-1 tabular-nums">
+                                                {p.frequency}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="text-center py-10 text-slate-400 italic">
+                                No product data available
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 
-                <Card className="lg:col-span-2 shadow-sm border-slate-100">
-                    <CardHeader className="border-b border-slate-50 mb-4 pb-4">
-                        <CardTitle className="text-xl font-bold text-slate-800">
-                            Strategic Vendors
-                        </CardTitle>
-                        <p className="text-sm text-slate-400 mt-1">
-                            Partners with highest business volume
-                        </p>
+                <Card className="lg:col-span-2 relative overflow-hidden rounded-2xl border-slate-200/70 shadow-sm">
+                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-500" />
+                    <CardHeader className="flex flex-row items-center gap-4 border-b border-slate-100 pb-4">
+                        <div className="size-11 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-500/40">
+                            <Star size={20} />
+                        </div>
+                        <div>
+                            <CardTitle className="text-xl font-extrabold text-slate-900">
+                                Strategic Vendors
+                            </CardTitle>
+                            <p className="text-sm text-slate-400 mt-0.5">
+                                Partners with highest business volume
+                            </p>
+                        </div>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="pt-4 space-y-3">
                         {topVendorsData.length > 0 ? (
-                            topVendorsData.map((vendor, i) => (
-                                <div
-                                    key={i}
-                                    className="flex items-center justify-between p-3 rounded-xl border border-slate-50 hover:bg-slate-100/50 transition-all hover:shadow-sm"
-                                >
-                                    <div className="flex items-center gap-3">
+                            topVendorsData.map((vendor, i) => {
+                                const maxValue = Math.max(...topVendorsData.map((v) => v.value), 1);
+                                const avatar = [
+                                    'bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-md shadow-amber-500/40',
+                                    'bg-gradient-to-br from-slate-300 to-slate-400 text-white',
+                                    'bg-gradient-to-br from-orange-300 to-orange-600 text-white',
+                                ][i] ?? 'bg-slate-100 text-slate-500';
+                                return (
+                                    <div
+                                        key={i}
+                                        className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all hover:shadow-md ${
+                                            i === 0
+                                                ? 'bg-gradient-to-br from-amber-50 to-white border-amber-200'
+                                                : 'border-slate-100 hover:bg-slate-50'
+                                        }`}
+                                    >
                                         <div
-                                            className={`size-10 rounded-full flex items-center justify-center font-bold text-xs uppercase tracking-tighter ${
-                                                i === 0
-                                                    ? 'bg-amber-100 text-amber-700'
-                                                    : i === 1
-                                                      ? 'bg-slate-200 text-slate-700'
-                                                      : i === 2
-                                                        ? 'bg-orange-100 text-orange-700'
-                                                        : 'bg-slate-100 text-slate-500'
-                                            }`}
+                                            className={`size-11 shrink-0 rounded-xl flex items-center justify-center font-extrabold text-xs uppercase ${avatar}`}
                                         >
                                             {vendor.name.slice(0, 2)}
                                         </div>
-                                        <div className="min-w-0">
-                                            <p
-                                                className="font-bold text-slate-800 truncate max-w-[140px] leading-tight"
-                                                title={vendor.name}
-                                            >
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-extrabold text-sm text-slate-900 truncate" title={vendor.name}>
                                                 {vendor.name}
                                             </p>
-                                            <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">
-                                                {vendor.orders} Orders
+                                            <div className="flex items-center gap-2 mt-1.5">
+                                                <span className="shrink-0 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5">
+                                                    {vendor.orders} {vendor.orders === 1 ? 'Order' : 'Orders'}
+                                                </span>
+                                                <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                                    <div
+                                                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600"
+                                                        style={{ width: `${(vendor.value / maxValue) * 100}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <p className="font-extrabold text-sm text-slate-900 tabular-nums">
+                                                ₹{Math.floor(vendor.value).toLocaleString('en-IN')}
+                                            </p>
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                                Value
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <p className="font-black text-slate-900 tracking-tight text-sm">
-                                            ₹{Math.floor(vendor.value).toLocaleString()}
-                                        </p>
-                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-0.5">
-                                            Value
-                                        </p>
-                                    </div>
-                                </div>
-                            ))
+                                );
+                            })
                         ) : (
                             <div className="text-center py-10 text-slate-400 italic">
                                 No vendor data available

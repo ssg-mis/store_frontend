@@ -152,8 +152,8 @@ export default ({ items, variant, collapsible }: { items: RouteAttributes[]; var
                                         const key = countKeyMap[item.path];
                                         const count = key ? (badgeCounts[key] ?? 0) : 0;
                                         return count > 0 ? (
-                                            <div className="ml-auto group-data-[collapsible=icon]:hidden bg-destructive text-secondary w-[1.3rem] h-[1.3rem] rounded-full text-xs grid place-items-center text-center">
-                                                {count}
+                                            <div className="ml-auto group-data-[collapsible=icon]:hidden shrink-0 bg-destructive text-secondary min-w-[1.4rem] h-[1.4rem] px-1.5 rounded-full text-[11px] font-semibold leading-none tabular-nums grid place-items-center text-center">
+                                                {count > 999 ? '999+' : count}
                                             </div>
                                         ) : null;
                                     })()}

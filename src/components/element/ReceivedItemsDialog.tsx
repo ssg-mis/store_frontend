@@ -324,6 +324,7 @@ export default function ReceivedItemsDialog({
     const [company, setCompany] = useState(ALL);
     const [poNumber, setPoNumber] = useState(ALL);
     const [product, setProduct] = useState(ALL);
+    const [query, setQuery] = useState('');
     const [page, setPage] = useState(1);
 
     const sorted = useMemo(
@@ -371,6 +372,8 @@ export default function ReceivedItemsDialog({
         [sorted, company, poNumber]
     );
 
+    const q = query.toLowerCase().replace(/\s+/g, '');
+
     const filtered = useMemo(
         () =>
             sorted.filter((r) => {
@@ -380,12 +383,18 @@ export default function ReceivedItemsDialog({
                 if (company !== ALL && r.firm !== company) return false;
                 if (poNumber !== ALL && r.poNumber !== poNumber) return false;
                 if (product !== ALL && r.product !== product) return false;
+                if (q) {
+                    const hay = `${r.grnNumber ?? ''} ${r.poNumber ?? ''} ${r.vendor ?? ''} ${r.product ?? ''}`
+                        .toLowerCase()
+                        .replace(/\s+/g, '');
+                    if (!hay.includes(q)) return false;
+                }
                 return true;
             }),
-        [sorted, fromDate, toDate, company, poNumber, product]
+        [sorted, fromDate, toDate, company, poNumber, product, q]
     );
 
-    useEffect(() => setPage(1), [fromDate, toDate, company, poNumber, product]);
+    useEffect(() => setPage(1), [fromDate, toDate, company, poNumber, product, q]);
 
     const totals = useMemo(
         () => ({
@@ -415,6 +424,7 @@ export default function ReceivedItemsDialog({
         company !== ALL,
         poNumber !== ALL,
         product !== ALL,
+        q,
     ].filter(Boolean).length;
     const clearFilters = () => {
         setFromDate('');
@@ -422,6 +432,7 @@ export default function ReceivedItemsDialog({
         setCompany(ALL);
         setPoNumber(ALL);
         setProduct(ALL);
+        setQuery('');
     };
 
     return (
@@ -472,7 +483,16 @@ export default function ReceivedItemsDialog({
                     </div>
 
                     {/* Filters */}
-                    <div className="grid grid-cols-2 items-end gap-3 rounded-xl border bg-background p-3 shadow-xs lg:grid-cols-[150px_150px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                    <div className="grid grid-cols-2 items-end gap-3 rounded-xl border bg-background p-3 shadow-xs lg:grid-cols-[minmax(0,1.2fr)_150px_150px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                        <div className="col-span-2 min-w-0 space-y-1.5 lg:col-span-1">
+                            <FieldLabel>Search GRN / PO</FieldLabel>
+                            <Input
+                                className="h-9"
+                                placeholder="GRN no, PO no, vendor..."
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                            />
+                        </div>
                         <div className="space-y-1.5">
                             <FieldLabel>From</FieldLabel>
                             <Input

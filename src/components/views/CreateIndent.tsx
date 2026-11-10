@@ -23,7 +23,7 @@ import { ClipboardList, Trash, Search, FileDown } from 'lucide-react';
 import { uploadFile } from '@/lib/fetchers';
 import type { IndentSheet } from '@/types';
 import { useSheets } from '@/context/SheetsContext';
-import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchProductSubCategories, fetchUsers } from '@/lib/fetchers';
+import { fetchIndentMasterData, postToSheet, fetchFromSupabasePaginated, fetchUOMs, fetchProductCategories, fetchProductSubCategories, fetchUsers, fetchContractors } from '@/lib/fetchers';
 import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
 import IndentPdf from '../element/IndentPdf';
@@ -60,6 +60,11 @@ export default () => {
     const [indentSheet, setIndentSheet] = useState<IndentSheet[]>([]);
     const [master, setMaster] = useState<any>(null);
     const [users, setUsers] = useState<{ id: number; name: string; username: string }[]>([]);
+    const [contractors, setContractors] = useState<{ id: number; name: string; isActive?: boolean }[]>([]);
+
+    useEffect(() => {
+        fetchContractors().then((rows: any[]) => setContractors((rows || []).filter((c) => c.isActive !== false)));
+    }, []);
     const [searchTerm, setSearchTerm] = useState('');
     const [searchTermDepartmentHead, setSearchTermDepartmentHead] = useState('');
     const [searchTermProductName, setSearchTermProductName] = useState('');
@@ -96,9 +101,10 @@ export default () => {
         firm: z.string().nonempty('Select a firm'),
         indenterName: z.string().nonempty(),
         indenterUserId: z.coerce.number().optional(),
-        indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return', 'Employee Loan Tracker'], { required_error: 'Select a status' }),
+        indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return', 'Contractor Loan Out', 'Contractor Loan In', 'Employee Loan Tracker'], { required_error: 'Select a status' }),
         validityDate: z.string().optional(),
         coolOffPeriod: z.string().optional(),
+        contractorName: z.string().optional(),
         products: z
             .array(
                 z.object({
@@ -127,6 +133,7 @@ export default () => {
             indentType: '' as any,
             validityDate: '',
             coolOffPeriod: '',
+            contractorName: '',
             products: [
                 {
                     attachment: undefined,
@@ -515,7 +522,12 @@ export default () => {
     }
 
     async function onSubmit(data: z.infer<typeof schema>) {
-        const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType);
+        const isContractorType = ['Contractor Loan Out', 'Contractor Loan In'].includes(data.indentType);
+        if (isContractorType && !data.contractorName) {
+            toast.error('Select a contractor');
+            return;
+        }
+        const isStoreOutType = ['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return', 'Contractor Loan Out'].includes(data.indentType);
         if (isStoreOutType) {
             const shortProducts = data.products
                 .filter(p => p.productName)
@@ -530,7 +542,7 @@ export default () => {
                     return `${p.productName} (Available: ${stock})`;
                 });
                 
-                if (data.indentType === 'Loan Out' || data.indentType === 'Loan Out Return') {
+                if (data.indentType === 'Loan Out' || data.indentType === 'Loan Out Return' || data.indentType === 'Contractor Loan Out') {
                     toast.info('Item Not in Stock', {
                         description: `Items out of stock cannot be issued for ${data.indentType}: ${messages.join(', ')}.`,
                     });
@@ -586,6 +598,7 @@ export default () => {
                     specifications: product.specifications || '',
                     indentType: data.indentType,
                     validityDate: (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType)) ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
+                    ...(isContractorType && data.contractorName ? { contractorName: data.contractorName } : {}),
                     coolOffPeriod: data.indentType === 'Loan Out' && data.coolOffPeriod ? new Date(data.coolOffPeriod).toISOString() : null,
                     planned: plannedStr, 
                 };
@@ -614,6 +627,10 @@ export default () => {
                 toast.success('Store Out executed successfully! Stock deducted.');
             } else if (data.indentType === 'Store Out Return') {
                 toast.success('Store Out Return executed successfully! Stock restored.');
+            } else if (data.indentType === 'Contractor Loan Out') {
+                toast.success('Contractor Loan Out executed successfully! Stock deducted.');
+            } else if (data.indentType === 'Contractor Loan In') {
+                toast.success('Contractor Loan In executed successfully! Stock restored.');
             } else {
                 toast.success('Indent created successfully');
             }
@@ -628,6 +645,7 @@ export default () => {
                 indentType: '' as any,
                 validityDate: '',
                 coolOffPeriod: '',
+                contractorName: '',
                 products: [
                     {
                         attachment: undefined,
@@ -804,12 +822,43 @@ export default () => {
                                             <SelectItem value="Store Out Return">Store Out Return</SelectItem>
                                             <SelectItem value="Loan Out">Loan Out</SelectItem>
                                             <SelectItem value="Loan Out Return">Loan Out Return</SelectItem>
+                                            <SelectItem value="Contractor Loan Out">Contractor Loan Out</SelectItem>
+                                            <SelectItem value="Contractor Loan In">Contractor Loan In</SelectItem>
                                             <SelectItem value="Employee Loan Tracker">Employee Loan Tracker</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </FormItem>
                             )}
                         />
+
+                        {(indentType === 'Contractor Loan Out' || indentType === 'Contractor Loan In') && (
+                            <FormField
+                                control={form.control}
+                                name="contractorName"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>
+                                            Contractor
+                                            <span className="text-destructive">*</span>
+                                        </FormLabel>
+                                        <Select onValueChange={field.onChange} value={field.value || ''}>
+                                            <FormControl>
+                                                <SelectTrigger className="w-full">
+                                                    <SelectValue placeholder="Select contractor" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SearchableSelectContent searchPlaceholder="Search contractors...">
+                                                {contractors.map((c) => (
+                                                    <SelectItem key={c.id} value={c.name}>
+                                                        {c.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SearchableSelectContent>
+                                        </Select>
+                                    </FormItem>
+                                )}
+                            />
+                        )}
 
                         <FormField
                             control={form.control}
