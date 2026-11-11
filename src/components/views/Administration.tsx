@@ -58,6 +58,7 @@ const permissionLabels: Record<(typeof allPermissionKeys)[number], string> = {
     quotation: 'Quotation',
     pendingIndentsView: 'Pending for PO',
     poApprovalView: 'Approval of PO',
+    poVerificationView: 'Verification of PO',
     ordersView: 'PO History',
     poMaster: 'PO Master',
     dashboard: 'Dashboard',

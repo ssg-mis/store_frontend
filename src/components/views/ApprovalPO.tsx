@@ -759,6 +759,65 @@ export default function ApprovalPO() {
                         </div>
                     </div>
 
+                    {/* ── Related Documents: everything the approver needs, in one place ── */}
+                    {viewGroup && (() => {
+                        const items: any[] = viewGroup.items || [];
+                        const indentCodes = Array.from(new Set(items.map(i => i.internalCode).filter(Boolean))) as string[];
+                        const products = Array.from(new Set(items.map(i => i.product).filter(Boolean))) as string[];
+                        // Quotation files, one per vendor (same vendor can repeat across items)
+                        const quotationLinks: { vendor: string; url: string }[] = [];
+                        items.forEach(it => ((it.vendorQuotes || []) as VendorQuote[]).forEach(q => {
+                            if (q.comparisonSheet && !quotationLinks.some(l => l.url === q.comparisonSheet)) {
+                                quotationLinks.push({ vendor: q.vendorName || `Vendor ${q.slot}`, url: q.comparisonSheet });
+                            }
+                        }));
+                        const linkCls = 'inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 hover:underline';
+                        const empty = <span className="text-xs text-muted-foreground">Not available</span>;
+                        return (
+                            <div className="rounded-md border overflow-hidden">
+                                <div className="bg-muted/40 px-4 py-2 border-b">
+                                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Related Documents</span>
+                                </div>
+                                <div className="divide-y text-xs">
+                                    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+                                        <span className="w-44 font-semibold text-muted-foreground">Indent</span>
+                                        {indentCodes.length ? indentCodes.map(code => (
+                                            <button key={code} type="button" className={linkCls}
+                                                onClick={(e) => { e.stopPropagation(); setHistoryIndentNumber(code); setHistoryIndentData([]); }}>
+                                                <FileText className="h-3 w-3" /> {code}
+                                            </button>
+                                        )) : empty}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+                                        <span className="w-44 font-semibold text-muted-foreground">Quotation</span>
+                                        {quotationLinks.length ? quotationLinks.map(l => (
+                                            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className={linkCls}
+                                                onClick={(e) => e.stopPropagation()}>
+                                                <FileText className="h-3 w-3" /> {l.vendor}
+                                            </a>
+                                        )) : empty}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+                                        <span className="w-44 font-semibold text-muted-foreground">Comparison Sheet</span>
+                                        <button type="button" className={linkCls} disabled={generatingComparison}
+                                            onClick={(e) => { e.stopPropagation(); handleViewComparisonPdf(viewGroup); }}>
+                                            <FileText className="h-3 w-3" /> {generatingComparison ? 'Generating...' : 'Comparison PDF'}
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+                                        <span className="w-44 font-semibold text-muted-foreground">Back Item Traceability</span>
+                                        {products.length ? products.map(p => (
+                                            <button key={p} type="button" className={linkCls}
+                                                onClick={(e) => { e.stopPropagation(); setHistoryProduct(p); setHistoryData([]); }}>
+                                                <History className="h-3 w-3" /> {p}
+                                            </button>
+                                        )) : empty}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {/* ── Vendor Rate Comparison Panel (Multi-Party) ── */}
                     {(() => {
                         // Deduplicate quotes across all PO line items (they share the same indent)
@@ -1012,7 +1071,7 @@ export default function ApprovalPO() {
                         </div>
                     ) : historyData.length === 0 ? (
                         <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-                            No purchase history found for this item
+                            No earlier approved purchase found for this item (first-time purchase)
                         </div>
                     ) : (
                         <div className="overflow-x-auto rounded-md border">

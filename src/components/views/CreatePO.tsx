@@ -1,5 +1,5 @@
 import { ChevronsRightLeft, FilePlus2, Pencil, Save, Send, Trash, X } from 'lucide-react';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -33,6 +33,7 @@ import { ClipLoader as Loader } from 'react-spinners';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '../ui/textarea';
 import { Checkbox } from '../ui/checkbox';
+import InventoryHistoryDialog from '../element/InventoryHistoryDialog';
 
 
 function generatePoNumber(poNumbers: string[], today = new Date(), firmAlias?: string): string {
@@ -125,6 +126,8 @@ export default () => {
     const [vendorsData, setVendorsData] = useState<any[]>([]);
     const [quotationHistoryData, setQuotationHistoryData] = useState<any[]>([]);
     const [inventoryData, setInventoryData] = useState<any[]>([]);
+    // Product Details popup opened from the Product name in the items table
+    const [productPopup, setProductPopup] = useState<{ name: string; qty: number; rate: number; unit: string; inventoryId: number | null } | null>(null);
     const [users, setUsers] = useState<any[]>([]);
     const [firms, setFirms] = useState<any[]>([]);
     const [readOnly, setReadOnly] = useState(-1);
@@ -1797,7 +1800,31 @@ export default () => {
                                                     <TableCell className="px-2 py-1">{index + 1}</TableCell>
                                                     <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.subIndentNumber || indent?.indentNumber || indent?.indent_number || indent?.internalCode || indent?.internal_code || value.indentNumber}</TableCell>
                                                     <TableCell className="px-2 py-1 whitespace-nowrap" title={indent?.firm}>{formatFirmName(indent?.firm || 'N/A')}</TableCell>
-                                                    <TableCell className="px-2 py-1 whitespace-nowrap">{indent?.productName || indent?.product_name || indent?.product}</TableCell>
+                                                    <TableCell className="px-2 py-1 whitespace-nowrap">
+                                                        {(() => {
+                                                            const name = indent?.productName || indent?.product_name || indent?.product || '';
+                                                            if (!name) return null;
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    title="View product details, stock and purchase history"
+                                                                    className="font-medium text-blue-600 underline-offset-2 hover:underline"
+                                                                    onClick={() => {
+                                                                        const match = inventoryData.find(i => i.itemName?.toLowerCase().trim() === name.toLowerCase().trim());
+                                                                        setProductPopup({
+                                                                            name,
+                                                                            qty: Number(value?.quantity) || 0,
+                                                                            rate: Number(value?.rate) || 0,
+                                                                            unit: indent?.uom || indent?.unit || '',
+                                                                            inventoryId: match ? (match.inventoryId ?? match.id ?? null) : null,
+                                                                        });
+                                                                    }}
+                                                                >
+                                                                    {name}
+                                                                </button>
+                                                            );
+                                                        })()}
+                                                    </TableCell>
                                                     <TableCell className="px-2 py-1 max-w-[160px] truncate">
                                                         {indent?.specifications || indent?.description || (
                                                             <span className="text-muted-foreground">—</span>
@@ -2379,6 +2406,34 @@ export default () => {
                     </form>
                 </Form>
             </div>
+
+            {/* Product Details: full stock / purchase / indent history of the clicked product */}
+            <InventoryHistoryDialog
+                inventoryId={productPopup?.inventoryId ?? null}
+                initialScope="all"
+                poContext={productPopup ? { qty: productPopup.qty, unit: productPopup.unit, rate: productPopup.rate } : undefined}
+                onClose={() => setProductPopup(null)}
+            />
+            {/* Product with no inventory record yet (never indented/purchased into stock) */}
+            <Dialog open={!!productPopup && productPopup.inventoryId == null} onOpenChange={(o) => { if (!o) setProductPopup(null); }}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{productPopup?.name}</DialogTitle>
+                        <DialogDescription>No history yet. This product has no stock, purchase or indent record.</DialogDescription>
+                    </DialogHeader>
+                    {productPopup && (
+                        <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-blue-700">In this PO</p>
+                            <p className="mt-1 text-lg font-bold">
+                                {productPopup.qty} {productPopup.unit} <span className="font-normal text-muted-foreground">×</span> ₹{productPopup.rate.toLocaleString('en-IN')}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                = <span className="font-semibold text-foreground">₹{(productPopup.qty * productPopup.rate).toLocaleString('en-IN')}</span>
+                            </p>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

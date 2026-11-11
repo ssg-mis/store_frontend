@@ -46,6 +46,7 @@ import Loading from './components/views/Loading';
 import Setting from './components/views/Setting';
 import CreatePO from './components/views/CreatePO';
 import ApprovalPO from './components/views/ApprovalPO';
+import VerificationPO from './components/views/VerificationPO';
 import PendingPOs from './components/views/PendingPOs';
 import Order from './components/views/Order';
 import Inventory from './components/views/Inventory';
@@ -229,6 +230,14 @@ const routes: RouteAttributes[] = [
         name: 'Create PO',
         icon: <FilePlus2 size={20} />,
         element: <CreatePO />,
+        notifications: () => 0,
+    },
+    {
+        path: 'verification-po',
+        gateKey: 'poVerificationView',
+        name: 'Verification of PO',
+        icon: <ClipboardCheck size={20} />,
+        element: <VerificationPO />,
         notifications: () => 0,
     },
     {
