@@ -151,16 +151,189 @@ function SummaryCard({ label, value, sub, tone }: { label: string; value: string
     );
 }
 
-export default function InventoryHistoryDialog({ inventoryId, onClose }: { inventoryId: number | null; onClose: () => void }) {
-    const [scope, setScope] = useState<'row' | 'all'>('row');
+
+const monthKey = (d?: string | null) => (d ? new Date(d).toISOString().slice(0, 7) : '');
+const monthLabel = (k: string) => new Date(`${k}-01`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+
+function Field({ label, value }: { label: string; value: ReactNode }) {
+    return (
+        <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+            <p className="text-sm font-medium break-words">{value || '—'}</p>
+        </div>
+    );
+}
+
+function Panel({ title, children }: { title: string; children: ReactNode }) {
+    return (
+        <div className="rounded-lg border">
+            <div className="border-b bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
+            <div className="p-4">{children}</div>
+        </div>
+    );
+}
+
+function Bars({ rows, fmt }: { rows: { label: string; value: number; sub?: string }[]; fmt: (n: number) => string }) {
+    const max = Math.max(...rows.map(r => r.value), 1);
+    if (rows.length === 0) return <p className="text-xs text-muted-foreground">No data yet.</p>;
+    return (
+        <div className="space-y-1.5">
+            {rows.map((r, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs" title={r.sub}>
+                    <span className="w-28 shrink-0 truncate text-muted-foreground">{r.label}</span>
+                    <div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${(r.value / max) * 100}%` }} />
+                    </div>
+                    <span className="w-24 shrink-0 text-right font-semibold tabular-nums">{fmt(r.value)}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function Overview({ data }: { data: H }) {
+    const { item, summary, rates } = data;
+    const lastIndent = data.indents[0];
+    const lastReceipt = data.received[0];
+    const lastPo = data.purchaseOrders[0];
+    const lastOut = data.storeOut[0];
+    const lastLoan = data.loans[0];
+
+    // Monthly: received (OK qty) vs store out, last 6 months with activity
+    const monthly = new Map<string, { inQty: number; outQty: number }>();
+    data.received.forEach(r => { const k = monthKey(r.date); if (k) monthly.set(k, { inQty: (monthly.get(k)?.inQty || 0) + Number(r.okQuantity || 0), outQty: monthly.get(k)?.outQty || 0 }); });
+    data.storeOut.forEach(r => { const k = monthKey(r.date); if (k) monthly.set(k, { inQty: monthly.get(k)?.inQty || 0, outQty: (monthly.get(k)?.outQty || 0) + Number(r.quantity || 0) }); });
+    const months = [...monthly.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-6);
+
+    // Rate trend (oldest -> newest, last 8 POs)
+    const rateTrend = [...data.purchaseOrders].filter(p => p.rate > 0).reverse().slice(-8)
+        .map(p => ({ label: showDate(p.date), value: Number(p.rate), sub: `${p.vendor} • ${p.poNumber}` }));
+
+    // Vendor share by PO value
+    const vendorMap = new Map<string, number>();
+    data.purchaseOrders.forEach(p => vendorMap.set(p.vendor || '—', (vendorMap.get(p.vendor || '—') || 0) + Number(p.amount || 0)));
+    const vendors = [...vendorMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([label, value]) => ({ label, value }));
+
+    return (
+        <div className="space-y-4">
+            <Panel title="Material Description">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                    <Field label="Item Name" value={item.itemName} />
+                    <Field label="Category" value={item.category} />
+                    <Field label="Sub Category" value={item.subCategory} />
+                    <Field label="UOM" value={item.uom} />
+                    <Field label="Specifications" value={item.specifications} />
+                    <Field label="Product Groups" value={item.productGroups?.map(g => g.name).filter(Boolean).join(', ')} />
+                    <Field label="Other UOMs" value={item.additionalUoms?.map(u => `${u.uomName}${u.conversionToBase ? ` (${u.conversionToBase})` : ''}`).join(', ')} />
+                    <Field label="Firm" value={item.firm} />
+                    <Field label="Department" value={item.department} />
+                    <Field label="Department Head" value={item.departmentHead} />
+                    <Field label="Added On" value={showDate(item.createdAt)} />
+                    <Field label="Current Stock" value={`${showNum(summary.current)} ${item.uom}`} />
+                </div>
+            </Panel>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <Panel title="Last Purchase">
+                    <div className="space-y-2">
+                        <Field label="Date" value={showDate(lastReceipt?.date || lastPo?.date)} />
+                        <Field label="Qty" value={lastReceipt ? `${showNum(lastReceipt.okQuantity)} ${lastReceipt.uom || item.uom}` : lastPo ? `${showNum(lastPo.quantity)} ${lastPo.unit} (ordered)` : null} />
+                        <Field label="Vendor" value={rates.last?.vendor || lastReceipt?.vendor} />
+                        <Field label="Rate" value={rates.last ? showMoney(rates.last.rate) : null} />
+                        <Field label="PO / GRN" value={[lastPo?.poNumber, lastReceipt?.grnNumber].filter(Boolean).join(' • ')} />
+                    </div>
+                </Panel>
+                <Panel title="Last Indent">
+                    <div className="space-y-2">
+                        <Field label="Date" value={showDate(lastIndent?.date)} />
+                        <Field label="Qty" value={lastIndent ? `${showNum(lastIndent.quantity)} ${lastIndent.uom || ''}` : null} />
+                        <Field label="Indent" value={lastIndent?.productCode || lastIndent?.indentNumber} />
+                        <Field label="Indenter" value={lastIndent ? `${lastIndent.indenter || '—'}${lastIndent.department ? ` (${lastIndent.department})` : ''}` : null} />
+                        <Field label="Stage" value={lastIndent?.stage} />
+                    </div>
+                </Panel>
+                <Panel title="Last Store Out / Loan">
+                    <div className="space-y-2">
+                        <Field label="Store Out Date" value={showDate(lastOut?.date)} />
+                        <Field label="Store Out Qty" value={lastOut ? showNum(lastOut.quantity) : null} />
+                        <Field label="Issued To" value={lastOut?.indenter} />
+                        <Field label="Last Loan" value={lastLoan ? `${showNum(lastLoan.quantity)} • ${showDate(lastLoan.date)}` : null} />
+                    </div>
+                </Panel>
+                <Panel title="Rates">
+                    <div className="space-y-2">
+                        <Field label="Last Rate" value={showMoney(rates.last?.rate)} />
+                        <Field label="Average Rate" value={showMoney(rates.average)} />
+                        <Field label="Lowest / Highest" value={rates.purchaseCount ? `${showMoney(rates.lowest)} / ${showMoney(rates.highest)}` : null} />
+                        <Field label="Total Purchases" value={String(rates.purchaseCount)} />
+                        <Field label="Pending Receipt" value={showNum(summary.onOrder)} />
+                    </div>
+                </Panel>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+                <Panel title="Monthly Received (last 6 months)">
+                    <Bars rows={months.map(([k, v]) => ({ label: monthLabel(k), value: v.inQty }))} fmt={showNum} />
+                </Panel>
+                <Panel title="Monthly Store Out (last 6 months)">
+                    <Bars rows={months.map(([k, v]) => ({ label: monthLabel(k), value: v.outQty }))} fmt={showNum} />
+                </Panel>
+                <Panel title="Rate Trend (recent POs)">
+                    <Bars rows={rateTrend} fmt={showMoney} />
+                </Panel>
+            </div>
+
+            <Panel title="Vendor-wise Purchase Value">
+                <Bars rows={vendors} fmt={showMoney} />
+            </Panel>
+        </div>
+    );
+}
+
+export type PoContext = { qty: number; unit?: string; rate: number };
+
+// Banner used when the dialog is opened from Create PO: how this PO's rate compares with history.
+function PoContextBanner({ ctx, data }: { ctx: PoContext; data: H }) {
+    const { last, average, lowest, highest } = data.rates;
+    const diff = (base?: number | null) => (base && base > 0 ? ((ctx.rate - base) / base) * 100 : null);
+    const Chip = ({ label, base }: { label: string; base?: number | null }) => {
+        const d = diff(base);
+        if (d == null) return null;
+        const tone = d > 0.5 ? 'bg-red-100 text-red-700' : d < -0.5 ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600';
+        return (
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+                {label} {showMoney(base)} · {d > 0 ? '+' : ''}{d.toFixed(1)}%
+            </span>
+        );
+    };
+    const beyond = highest != null && ctx.rate > highest ? 'Higher than any earlier purchase' : lowest != null && ctx.rate < lowest ? 'Lower than any earlier purchase' : null;
+    return (
+        <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-blue-700">In this PO</p>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-6 gap-y-1">
+                <p className="text-lg font-bold">{showNum(ctx.qty)} {ctx.unit || data.item.uom} <span className="font-normal text-muted-foreground">×</span> {showMoney(ctx.rate)}</p>
+                <p className="text-sm text-muted-foreground">= <span className="font-semibold text-foreground">{showMoney(ctx.qty * ctx.rate)}</span></p>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+                <Chip label="vs last" base={last?.rate} />
+                <Chip label="vs average" base={average} />
+                {beyond && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">{beyond}</span>}
+                {!last && <span className="text-xs text-muted-foreground">No earlier purchase to compare with.</span>}
+            </div>
+        </div>
+    );
+}
+
+export default function InventoryHistoryDialog({ inventoryId, onClose, initialScope = 'row', poContext }: { inventoryId: number | null; onClose: () => void; initialScope?: 'row' | 'all'; poContext?: PoContext }) {
+    const [scope, setScope] = useState<'row' | 'all'>(initialScope);
     const [data, setData] = useState<InventoryHistory | null>(null);
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState('po');
+    const [activeTab, setActiveTab] = useState('overview');
 
     useEffect(() => {
         if (inventoryId == null) {
             setData(null);
-            setScope('row');
+            setScope(initialScope);
             return;
         }
         let cancelled = false;
@@ -206,6 +379,7 @@ export default function InventoryHistoryDialog({ inventoryId, onClose }: { inven
     }
 
     const tabs = data ? [
+        { key: 'overview', label: 'Overview', count: null as number | null, body: <Overview data={data} /> },
         { key: 'po', label: 'Purchase Orders', count: data.purchaseOrders.length, body: <HistoryTable rows={data.purchaseOrders} columns={poColumns} empty="No purchase orders for this product." /> },
         { key: 'in', label: 'Store In', count: data.received.length, body: <HistoryTable rows={data.received} columns={receivedColumns} empty="Nothing received yet." /> },
         { key: 'out', label: 'Store Out', count: data.storeOut.length, body: <HistoryTable rows={data.storeOut} columns={storeOutColumns} empty="No store out yet." /> },
@@ -247,6 +421,8 @@ export default function InventoryHistoryDialog({ inventoryId, onClose }: { inven
                     </Button>
                 </div>
 
+                {poContext && data && <PoContextBanner ctx={poContext} data={data} />}
+
                 {loading || !data ? (
                     <div className="flex justify-center py-16"><Loader size={40} color="#3b82f6" /></div>
                 ) : (
@@ -287,7 +463,7 @@ export default function InventoryHistoryDialog({ inventoryId, onClose }: { inven
                                     className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${activeTab === t.key ? 'border-primary bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted'}`}
                                 >
                                     {t.label}
-                                    <span className={`rounded-full px-1.5 text-[10px] ${activeTab === t.key ? 'bg-white/25' : 'bg-muted'}`}>{t.count}</span>
+                                    {t.count != null && <span className={`rounded-full px-1.5 text-[10px] ${activeTab === t.key ? 'bg-white/25' : 'bg-muted'}`}>{t.count}</span>}
                                 </button>
                             ))}
                         </div>

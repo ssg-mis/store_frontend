@@ -9,6 +9,7 @@ import DataTable from '../element/DataTable';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { toast } from 'sonner';
+import InventoryHistoryDialog from '../element/InventoryHistoryDialog';
 import { fetchInventoryAuditLogs, type InventoryAuditLog } from '@/lib/fetchers';
 
 interface InventoryTable {
@@ -34,6 +35,7 @@ export default () => {
     const { inventorySheet, inventoryLoading, updateInventorySheet } = useSheets();
 
     const [tableData, setTableData] = useState<InventoryTable[]>([]);
+    const [historyInventoryId, setHistoryInventoryId] = useState<number | null>(null);
     const [viewOpen, setViewOpen] = useState(false);
     const [viewRow, setViewRow] = useState<InventoryTable | null>(null);
     const [viewMovement, setViewMovement] = useState<{ field: 'purchaseQuantity' | 'storeOut' | 'loanOut' | 'stockIn'; label: string } | null>(null);
@@ -130,7 +132,8 @@ export default () => {
                     variant="outline"
                     size="sm"
                     className="h-7 text-xs"
-                    onClick={() => openViewDialog(row.original)}
+                    disabled={row.original.inventoryId == null}
+                    onClick={() => setHistoryInventoryId(row.original.inventoryId)}
                 >
                     View
                 </Button>
@@ -195,6 +198,7 @@ export default () => {
 
     return (
         <div>
+            <InventoryHistoryDialog inventoryId={historyInventoryId} onClose={() => setHistoryInventoryId(null)} />
             <Heading heading="Inventory" subtext="View inventory">
                 <Store size={50} className="text-primary" />
             </Heading>

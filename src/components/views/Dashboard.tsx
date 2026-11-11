@@ -18,15 +18,22 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSheets } from '@/context/SheetsContext';
 import { analyzeData } from '@/lib/filter';
+import { fetchFirms } from '@/lib/fetchers';
+import { Building2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import StoreOutApproval from './StoreOutApproval';
 import AccessoryTracking from './AccessoryTracking';
 import ContractorLoan from './ContractorLoan';
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
+import IndentsDialog from '../element/IndentsDialog';
 import ReceivedItemsDialog, { type ReceivedRecord } from '../element/ReceivedItemsDialog';
+
+const ALL_FIRMS = '__all__';
+const FIRM_STORAGE_KEY = 'dashboardFirm';
 
 const THEMES = {
     blue: { grad: 'from-sky-500 to-blue-700', glow: 'bg-blue-400/20', chip: 'bg-blue-50 text-blue-700', ring: 'hover:ring-blue-200', shadow: 'shadow-blue-500/30' },
@@ -110,7 +117,43 @@ function MetricCard({
 }
 
 export default function Dashboard() {
-    const { receivedSheet, indentSheet, poMasterSheet, inventorySheet } = useSheets();
+    const { receivedSheet: allReceived, indentSheet: allIndent, poMasterSheet: allPoMaster, inventorySheet: allInventory } = useSheets();
+
+    // Firm selection: asked once, then remembered. Everything below is scoped to it.
+    const [firmRows, setFirmRows] = useState<any[]>([]);
+    const firms = useMemo(() => firmRows.map((f) => f.firm_name as string).filter(Boolean), [firmRows]);
+    const [firmsLoaded, setFirmsLoaded] = useState(false);
+    const [selectedFirm, setSelectedFirm] = useState<string | null>(() => {
+        try { return localStorage.getItem(FIRM_STORAGE_KEY); } catch { return null; }
+    });
+
+    useEffect(() => {
+        fetchFirms()
+            .then((rows: any[]) => setFirmRows(Array.isArray(rows) ? rows : []))
+            .catch(() => setFirmRows([]))
+            .finally(() => setFirmsLoaded(true));
+    }, []);
+
+    const chooseFirm = (value: string) => {
+        setSelectedFirm(value);
+        try { localStorage.setItem(FIRM_STORAGE_KEY, value); } catch { /* storage optional */ }
+    };
+
+    // Forget a saved firm that this user can no longer see.
+    useEffect(() => {
+        if (firmsLoaded && selectedFirm && selectedFirm !== ALL_FIRMS && !firms.includes(selectedFirm)) {
+            setSelectedFirm(null);
+            try { localStorage.removeItem(FIRM_STORAGE_KEY); } catch { /* ignore */ }
+        }
+    }, [firmsLoaded, firms, selectedFirm]);
+
+    const byFirm = <T,>(rows: T[], getFirm: (r: T) => string | null | undefined) =>
+        !selectedFirm || selectedFirm === ALL_FIRMS ? rows : rows.filter((r) => getFirm(r) === selectedFirm);
+
+    const indentSheet = useMemo(() => byFirm(allIndent, (r) => r.firm), [allIndent, selectedFirm]); // eslint-disable-line react-hooks/exhaustive-deps
+    const receivedSheet = useMemo(() => byFirm(allReceived, (r: any) => r.firm), [allReceived, selectedFirm]); // eslint-disable-line react-hooks/exhaustive-deps
+    const poMasterSheet = useMemo(() => byFirm(allPoMaster, (r: any) => r.firm), [allPoMaster, selectedFirm]); // eslint-disable-line react-hooks/exhaustive-deps
+    const inventorySheet = useMemo(() => byFirm(allInventory, (r: any) => r.firmName), [allInventory, selectedFirm]); // eslint-disable-line react-hooks/exhaustive-deps
     const [chartData, setChartData] = useState<
         {
             name: string;
@@ -135,6 +178,7 @@ export default function Dashboard() {
     const [alerts, setAlerts] = useState({ lowStock: 0, outOfStock: 0 });
     const navigate = useNavigate();
     const [receivedOpen, setReceivedOpen] = useState(false);
+    const [indentsOpen, setIndentsOpen] = useState(false);
     const [typeDialog, setTypeDialog] = useState<string | null>(null);
 
     const typeCards = [
@@ -169,8 +213,57 @@ export default function Dashboard() {
         setAlerts({ lowStock: stats.lowStock, outOfStock: stats.outOfStock });
     }, [indentSheet, receivedSheet, poMasterSheet, inventorySheet]);
 
+    // First visit: pick a firm before any card is shown.
+    if (!selectedFirm) {
+        return (
+            <div className="p-4 space-y-6">
+                <Heading heading="Insights & Analytics" subtext="Select a firm to view its dashboard.">
+                    <LayoutDashboard size={48} className="text-primary opacity-80" />
+                </Heading>
+                <div className="max-w-3xl mx-auto pt-6">
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Select Firm</p>
+                    {!firmsLoaded ? (
+                        <p className="text-sm text-muted-foreground">Loading firms...</p>
+                    ) : (
+                        <div className="grid sm:grid-cols-2 gap-3">
+                            {firms.map((f) => (
+                                <button
+                                    key={f}
+                                    type="button"
+                                    onClick={() => chooseFirm(f)}
+                                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg hover:border-primary"
+                                >
+                                    <span className="size-10 shrink-0 rounded-xl bg-gradient-to-br from-sky-500 to-blue-700 text-white flex items-center justify-center">
+                                        <Building2 size={20} />
+                                    </span>
+                                    <span className="text-sm font-semibold text-slate-900">{f}</span>
+                                </button>
+                            ))}
+                            {firms.length > 1 && (
+                                <button
+                                    type="button"
+                                    onClick={() => chooseFirm(ALL_FIRMS)}
+                                    className="flex items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-left transition-all hover:border-primary hover:shadow-lg"
+                                >
+                                    <span className="size-10 shrink-0 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center">
+                                        <Building2 size={20} />
+                                    </span>
+                                    <span className="text-sm font-semibold text-slate-900">All Firms</span>
+                                </button>
+                            )}
+                            {firms.length === 0 && (
+                                <p className="text-sm text-muted-foreground">No firms available for your account.</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="p-4 space-y-6">
+            <IndentsDialog open={indentsOpen} onOpenChange={setIndentsOpen} records={indentSheet} />
             <ReceivedItemsDialog
                 open={receivedOpen}
                 onOpenChange={setReceivedOpen}
@@ -193,9 +286,65 @@ export default function Dashboard() {
                 <LayoutDashboard size={48} className="text-primary opacity-80" />
             </Heading>
 
+            {/* Company banner for the selected firm (details come from Firm Master) */}
+            {(() => {
+                const firm = selectedFirm === ALL_FIRMS ? null : firmRows.find((f) => f.firm_name === selectedFirm);
+                const address = firm
+                    ? [firm.firm_address, [firm.state, firm.pin_code].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+                    : '';
+                const chips = firm
+                    ? ([['GSTIN', firm.firm_gstin], ['PAN', firm.pan_number], ['Email', firm.firm_email], ['Contact', firm.contact_person]] as const).filter(([, v]) => v)
+                    : [];
+                return (
+                    <div className="relative overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-blue-50 p-4 sm:p-5 shadow-sm">
+                        <div className="flex flex-wrap items-center gap-4">
+                            <img src="/logo.png" alt="Company Logo" className="size-16 sm:size-20 shrink-0 object-contain" />
+                            <div className="min-w-0 flex-1 text-center sm:text-left">
+                                <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                                    {firm ? firm.firm_name : `All Firms${firms.length ? ` (${firms.length})` : ''}`}
+                                </h2>
+                                {firm ? (
+                                    <>
+                                        {address && <p className="text-sm text-slate-600">{address}</p>}
+                                        {firm.mobile && <p className="text-sm text-slate-600">Phone No: {firm.mobile}</p>}
+                                    </>
+                                ) : (
+                                    <p className="text-sm text-slate-600">Combined view of every firm you have access to.</p>
+                                )}
+                                {chips.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap justify-center gap-2 sm:justify-start">
+                                        {chips.map(([label, value]) => (
+                                            <span key={label} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200">
+                                                <span className="font-semibold text-slate-400">{label}:</span> {value}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="w-full sm:w-72 space-y-1">
+                                <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    <Building2 size={12} /> Change Firm
+                                </p>
+                                <Select value={selectedFirm} onValueChange={chooseFirm}>
+                                    <SelectTrigger className="w-full bg-white">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {firms.length > 1 && <SelectItem value={ALL_FIRMS}>All Firms</SelectItem>}
+                                        {firms.map((f) => (
+                                            <SelectItem key={f} value={f}>{f}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Primary Metrics Layer */}
             <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <MetricCard label="Total Indents" value={indent.count} icon={ClipboardList} color="blue" footerLabel="Indented Vol." footerValue={Math.floor(indent.quantity).toLocaleString()} onClick={() => navigate('/create-indent')} />
+                <MetricCard label="Total Indents" value={indent.count} icon={ClipboardList} color="blue" footerLabel="Indented Vol." footerValue={Math.floor(indent.quantity).toLocaleString()} onClick={() => setIndentsOpen(true)} />
                 <MetricCard label="PO Summary" value={finance.poCount} icon={TrendingUp} color="green" footerLabel="Total Value" footerValue={`₹${Math.floor(finance.totalValue).toLocaleString()}`} onClick={() => navigate('/po-master')} />
                 <MetricCard label="Received Items" value={purchase.count} icon={Truck} color="orange" footerLabel="Received Qty" footerValue={Math.floor(purchase.quantity).toLocaleString()} onClick={() => setReceivedOpen(true)} />
                 <MetricCard label="Inventory Alerts" value={alerts.outOfStock} icon={Warehouse} color="red" footerLabel="Low in Stock" footerValue={alerts.lowStock} onClick={() => navigate('/inventory')} />

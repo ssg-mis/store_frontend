@@ -668,7 +668,7 @@ export interface InventoryAuditLog {
 }
 
 export interface InventoryHistory {
-    item: { id: number; itemName: string; uom: string; department: string; departmentHead: string; firm: string | null };
+    item: { id: number; itemName: string; uom: string; department: string; departmentHead: string; firm: string | null; category?: string | null; subCategory?: string | null; specifications?: string | null; productGroups?: { id?: number; name?: string }[]; additionalUoms?: { uomName?: string; conversionToBase?: number }[]; createdAt?: string };
     scope: 'row' | 'all';
     summary: { indented: number; approved: number; purchased: number; stockIn: number; storeOut: number; loanOut: number; current: number; onOrder: number };
     rates: {
@@ -1801,6 +1801,37 @@ export async function fetchPOApprovals(status: 'Pending' | 'Rejected' | 'Approve
         return [];
     }
 }
+
+export async function fetchPOVerifications(status: 'Pending' | 'Verified' | 'Rejected' = 'Pending') {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-verifications?status=${encodeURIComponent(status)}`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching PO verifications:', error);
+        return [];
+    }
+}
+
+async function postVerification(path: string, body: Record<string, unknown>, fallback: string) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/po-verifications/${path}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || fallback);
+        }
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message as string };
+    }
+}
+
+export const verifyPOApi = (poNumber: string) => postVerification('verify', { poNumber }, 'Failed to verify PO');
+export const sendBackPOApi = (poNumber: string, reason: string) => postVerification('reject', { poNumber, reason }, 'Failed to send PO back');
 
 export async function fetchPOByNumber(poNumber: string) {
     try {

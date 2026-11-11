@@ -140,6 +140,7 @@ export type InventorySheet = {
     stockByDepartment?: { department: string; qty: number }[];
     totalPrice: number;
     colorCode: string;
+    firmName?: string | null;
 };
 
 export type PoMasterSheet = {
@@ -276,6 +277,7 @@ export type UserPermissions = {
     quotation: boolean;
     pendingIndentsView: boolean;
     poApprovalView: boolean;
+    poVerificationView: boolean;
     ordersView: boolean;
     poMaster: boolean;
 
@@ -307,6 +309,7 @@ export const allPermissionKeys = [
     "quotation",
     "pendingIndentsView",
     "poApprovalView",
+    "poVerificationView",
     "ordersView",
     "poMaster",
     "dashboard",
