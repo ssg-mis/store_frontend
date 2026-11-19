@@ -31,6 +31,8 @@ import Heading from '../element/Heading';
 import { formatDate, debounce, formatFirmName, isWeightUom } from '@/lib/utils';
 import { useSheets } from '@/context/SheetsContext';
 import { Pill } from '../ui/pill';
+import { IndentLink, POLink, VendorLink } from '../element/EntityLinks';
+import { QtyStatusChip, fmtQ, qtyBalance } from '../element/QtyCompare';
 
 interface RecieveItemsData {
     id: number;
@@ -54,6 +56,8 @@ interface RecieveItemsData {
     approvedActualTime?: number | null;
     leadTime?: string | null;
     indentQuantity?: number;
+    indentUom?: string;
+    receivedBefore?: number;
     orderedWeight?: number | null;
 }
 
@@ -71,6 +75,8 @@ interface HistoryData {
     purchaseReturn: number;
     damagedQuantity: number;
     remainingQty?: number;
+    indentQuantity?: number;
+    indentUom?: string;
     createdAtRaw?: string;
     grnNumber?: string;
     photoOfProduct: string;
@@ -206,6 +212,8 @@ const ReceiveItems = () => {
                         approvedActualTime: indent.approvedActualTime ?? null,
                         leadTime: po.leadTime || po.lead_time || null,
                         indentQuantity: Number(indent.quantity) || 0,
+                        indentUom: indent.uom || '',
+                        receivedBefore: totalReceived,
                         orderedWeight: indent.orderedWeight ?? null,
                     };
                 });
@@ -256,6 +264,8 @@ const ReceiveItems = () => {
                         uom: receivedRecord.uom || '',
                         firm: receivedRecord.indent?.firm || 'N/A',
                         orderQuantity: Number(receivedRecord.orderQuantity) || 0,
+                        indentQuantity: Number(receivedRecord.indent?.quantity) || 0,
+                        indentUom: receivedRecord.indent?.uom || '',
                         createdAtRaw: receivedRecord.createdAt || '',
                         receivedDate: receivedRecord.createdAt ? formatDate(new Date(receivedRecord.createdAt)) : '',
                         receivedQuantity: Number(receivedRecord.receivedQuantity) || 0,
@@ -581,7 +591,7 @@ const ReceiveItems = () => {
                 </Button>
             ),
         },
-        { accessorKey: 'poNumber', header: 'PO Number' },
+        { accessorKey: 'poNumber', header: 'PO Number', cell: ({ getValue }: any) => <POLink value={getValue()} /> },
         {
             header: 'GRN Number',
             cell: ({ row }) => {
@@ -591,7 +601,7 @@ const ReceiveItems = () => {
                     : <span className="text-muted-foreground text-xs">—</span>;
             }
         },
-        { accessorKey: 'vendor', header: 'Vendor' },
+        { accessorKey: 'vendor', header: 'Vendor', cell: ({ getValue }: any) => <VendorLink value={getValue()} /> },
         { accessorKey: 'receivedDate', header: 'Date' },
         {
             header: 'Items',
@@ -655,6 +665,9 @@ const ReceiveItems = () => {
         error?: string;
     };
     const [itemRows, setItemRows] = useState<ItemRow[]>([]);
+    // Confirmation step: shows Indent vs PO vs Received before anything is saved.
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmData, setConfirmData] = useState<{ values: z.infer<typeof schema>; itemsToReceive: ItemRow[] } | null>(null);
 
     // Weight check for one row: expected vs actual kg and whether a reason is needed.
     const getWeightCheck = (row: ItemRow) => {
@@ -794,6 +807,15 @@ const ReceiveItems = () => {
             }
         }
 
+        // Everything is valid: show the Indent / PO / Received comparison and wait for confirmation.
+        setConfirmData({ values, itemsToReceive });
+        setConfirmOpen(true);
+    }
+
+    async function performSubmit() {
+        if (!confirmData) return;
+        const { values, itemsToReceive } = confirmData;
+        setConfirmOpen(false);
         try {
             setLoading(true);
 
@@ -968,8 +990,8 @@ const ReceiveItems = () => {
                                                             </Button>
                                                         </TableCell>
                                                     )}
-                                                    <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNumber}</TableCell>
-                                                    <TableCell className="text-xs sm:text-sm">{group.poNumber}</TableCell>
+                                                    <TableCell className="font-medium text-xs sm:text-sm"><IndentLink value={group.indentNumber} /></TableCell>
+                                                    <TableCell className="text-xs sm:text-sm"><POLink value={group.poNumber} /></TableCell>
                                                     <TableCell className="text-xs sm:text-sm">{group.vendor}</TableCell>
                                                     <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                     <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
@@ -1052,7 +1074,7 @@ const ReceiveItems = () => {
                 </Tabs>
 
                 {selectedIndent && (
-                    <DialogContent className="w-full max-w-[95vw] sm:max-w-3xl lg:max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="w-full max-w-[95vw] sm:max-w-3xl lg:max-w-6xl max-h-[90vh] overflow-y-auto">
                         <Form {...form}>
                             <form
                                 onSubmit={form.handleSubmit(onSubmit, onError)}
@@ -1149,17 +1171,21 @@ const ReceiveItems = () => {
                                     </div>
 
                                     <div className="overflow-x-auto">
-                                        <table className="w-full text-sm">
+                                        <table className="w-full min-w-[1180px] text-sm">
                                             <thead className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider">
                                                 <tr>
-                                                    <th className="px-4 py-2 text-left">Product Code</th>
-                                                    <th className="px-4 py-2 text-left">Item Name</th>
-                                                    <th className="px-4 py-2 text-center">UOM</th>
-                                                    <th className="px-4 py-2 text-center">Pending</th>
-                                                    <th className="px-4 py-2 text-center w-[110px]">Receive Qty</th>
-                                                    <th className="px-4 py-2 text-center w-[120px]">Purchase Return</th>
-                                                    <th className="px-4 py-2 text-center w-[110px]">Damaged Qty</th>
-                                                    <th className="px-4 py-2 text-center w-[90px]">Okay Qty</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-left">Product Code</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-left">Item Name</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center">UOM</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center">Indent Qty</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center">PO Qty</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center">Received Before</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center">Pending</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center min-w-[110px]">Receive Qty</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center min-w-[120px]">Purchase Return</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center min-w-[110px]">Damaged Qty</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center min-w-[80px]">Okay Qty</th>
+                                                    <th className="px-2 py-2 whitespace-nowrap text-center">vs PO</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
@@ -1170,15 +1196,20 @@ const ReceiveItems = () => {
                                                     return (
                                                         <Fragment key={indent.id}>
                                                         <tr className="hover:bg-muted/30 transition-colors">
-                                                            <td className="px-4 py-3 text-xs text-muted-foreground">{indent.productCode || '-'}</td>
-                                                            <td className="px-4 py-3 max-w-[180px] truncate">{indent.product}</td>
-                                                            <td className="px-4 py-3 text-center text-xs">{indent.uom}</td>
-                                                            <td className="px-4 py-3 text-center font-medium text-blue-600">{indent.remainingQty}</td>
-                                                            <td className="px-3 py-3">
+                                                            <td className="px-2 py-3 text-xs text-muted-foreground">{indent.productCode || '-'}</td>
+                                                            <td className="px-2 py-3 min-w-[140px] max-w-[200px] truncate" title={indent.product}>{indent.product}</td>
+                                                            <td className="px-2 py-3 text-center text-xs">{indent.uom}</td>
+                                                            <td className="px-2 py-3 text-center text-xs font-medium whitespace-nowrap">
+                                                                {fmtQ(indent.indentQuantity)} {indent.indentUom}
+                                                            </td>
+                                                            <td className="px-2 py-3 text-center text-xs font-medium whitespace-nowrap">{fmtQ(indent.quantity)} {indent.uom}</td>
+                                                            <td className="px-2 py-3 text-center text-xs text-muted-foreground whitespace-nowrap">{fmtQ(indent.receivedBefore)}</td>
+                                                            <td className="px-2 py-3 text-center font-medium text-blue-600">{indent.remainingQty}</td>
+                                                            <td className="px-2 py-3">
                                                                 <Input
                                                                     type="number"
                                                                     step="any"
-                                                                    className="h-8 w-full text-center font-semibold"
+                                                                    className="h-8 w-full min-w-[90px] text-center font-semibold"
                                                                     max={watchedReceiveType === 'Full' ? undefined : indent.remainingQty}
                                                                     min={0}
                                                                     value={row.quantity}
@@ -1187,11 +1218,11 @@ const ReceiveItems = () => {
                                                                     onChange={e => updateItemRow(indent.id, 'quantity', Number(e.target.value) || 0)}
                                                                 />
                                                             </td>
-                                                            <td className="px-3 py-3">
+                                                            <td className="px-2 py-3">
                                                                 <Input
                                                                     type="number"
                                                                     step="any"
-                                                                    className="h-8 w-full text-center text-orange-700"
+                                                                    className="h-8 w-full min-w-[90px] text-center text-orange-700"
                                                                     min={0}
                                                                     value={row.purchaseReturn}
 
@@ -1199,11 +1230,11 @@ const ReceiveItems = () => {
                                                                     onChange={e => updateItemRow(indent.id, 'purchaseReturn', Number(e.target.value) || 0)}
                                                                 />
                                                             </td>
-                                                            <td className="px-3 py-3">
+                                                            <td className="px-2 py-3">
                                                                 <Input
                                                                     type="number"
                                                                     step="any"
-                                                                    className={`h-8 w-full text-center ${row.error ? 'border-red-500' : ''}`}
+                                                                    className={`h-8 w-full min-w-[90px] text-center ${row.error ? 'border-red-500' : ''}`}
                                                                     min={0}
                                                                     value={row.damagedQuantity}
 
@@ -1212,13 +1243,16 @@ const ReceiveItems = () => {
                                                                 />
                                                                 {row.error && <p className="text-[10px] text-red-500 text-center mt-0.5 leading-tight">{row.error}</p>}
                                                             </td>
-                                                            <td className="px-4 py-3 text-center font-semibold text-green-700">
+                                                            <td className="px-2 py-3 text-center font-semibold text-green-700">
                                                                 {Math.max(0, row.quantity - row.purchaseReturn - row.damagedQuantity)}
+                                                            </td>
+                                                            <td className="px-2 py-3 text-center">
+                                                                <QtyStatusChip balance={qtyBalance(indent.quantity, indent.receivedBefore || 0, row.quantity)} uom={indent.uom} />
                                                             </td>
                                                         </tr>
                                                         {weightCheck && (
                                                             <tr className="bg-muted/20">
-                                                                <td colSpan={8} className="px-4 pb-3 pt-1">
+                                                                <td colSpan={12} className="px-4 pb-3 pt-1">
                                                                     <div className="grid grid-cols-1 sm:grid-cols-[auto_180px_auto_1fr] gap-3 items-end">
                                                                         <div className="text-xs">
                                                                             <div className="text-muted-foreground">Ordered Weight</div>
@@ -1643,6 +1677,7 @@ const ReceiveItems = () => {
                                     <TableRow className="bg-muted/20">
                                         <TableHead className="text-xs">Product Code</TableHead>
                                         <TableHead className="text-xs">Product</TableHead>
+                                        <TableHead className="text-xs text-right">Indent Qty</TableHead>
                                         <TableHead className="text-xs text-right">PO Qty</TableHead>
                                         <TableHead className="text-xs">UOM</TableHead>
                                         <TableHead className="text-xs text-right">Received Qty</TableHead>
@@ -1650,6 +1685,7 @@ const ReceiveItems = () => {
                                         <TableHead className="text-xs text-right">Damaged Qty</TableHead>
                                         <TableHead className="text-xs text-right">Okay Qty</TableHead>
                                         <TableHead className="text-xs text-right text-orange-600 font-semibold">Remaining Qty</TableHead>
+                                        <TableHead className="text-xs">vs PO</TableHead>
                                         <TableHead className="text-xs">Receive Type</TableHead>
                                         <TableHead className="text-xs">Remark</TableHead>
                                         <TableHead className="text-xs text-right">Ordered Wt</TableHead>
@@ -1678,6 +1714,9 @@ const ReceiveItems = () => {
                                             // Remaining = PO Qty − (gross received + purchase return), matching pending view formula
                                             runningTotals[code] = (runningTotals[code] || 0) + grossReceived + (item.purchaseReturn || 0);
                                             
+                                            // Extra/short against the PO, measured before a "Full" receipt closes the item.
+                                            const balanceVsPo = qtyBalance(item.orderQuantity, runningTotals[code] - grossReceived - (item.purchaseReturn || 0), grossReceived + (item.purchaseReturn || 0));
+
                                             // A "Full" receipt closes the item, so nothing remains after it.
                                             if (item.receiveType === 'Full') runningTotals[code] = Math.max(runningTotals[code], item.orderQuantity);
                                             const remainingQty = Math.max(0, item.orderQuantity - runningTotals[code]);
@@ -1686,6 +1725,7 @@ const ReceiveItems = () => {
                                                 <TableRow key={i}>
                                                     <TableCell className="text-xs font-mono">{item.productCode || '—'}</TableCell>
                                                     <TableCell className="text-xs font-medium max-w-[200px]">{item.product}</TableCell>
+                                                    <TableCell className="text-xs text-right">{item.indentQuantity ? `${fmtQ(item.indentQuantity)} ${item.indentUom || ''}` : '—'}</TableCell>
                                                     <TableCell className="text-xs text-right font-medium">{item.orderQuantity || '—'}</TableCell>
                                                     <TableCell className="text-xs">{item.uom}</TableCell>
                                                     <TableCell className="text-xs text-right">{grossReceived}</TableCell>
@@ -1697,6 +1737,7 @@ const ReceiveItems = () => {
                                                     <TableCell className="text-xs text-right font-semibold text-orange-600">
                                                         {remainingQty}
                                                     </TableCell>
+                                                    <TableCell className="text-xs">{item.orderQuantity ? <QtyStatusChip balance={balanceVsPo} uom={item.uom} /> : '—'}</TableCell>
                                                     <TableCell className="text-xs">
                                                         {item.receiveType === 'Full' ? 'Fully' : item.receiveType === 'Partial' ? 'Partially' : '—'}
                                                     </TableCell>
@@ -1715,6 +1756,106 @@ const ReceiveItems = () => {
                             </Table>
                         </div>
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* ── Confirmation: Indent vs PO vs Received (read-only check before saving) ── */}
+            <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <DialogContent className="w-full max-w-[95vw] lg:max-w-6xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Confirm Receipt — PO {selectedIndent?.poNumber}</DialogTitle>
+                        <DialogDescription>
+                            Check how much was indented, ordered and what you are receiving now. Nothing is saved until you confirm.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {confirmData && (() => {
+                        const isFull = confirmData.values.receiveType === 'Full';
+                        const rows = confirmData.itemsToReceive.map((item) => {
+                            const m = matchingIndents.find(i => i.id === item.indentId);
+                            const poQty = m?.quantity || 0;
+                            const before = m?.receivedBefore || 0;
+                            const balance = qtyBalance(poQty, before, item.quantity);
+                            const okay = Math.max(0, item.quantity - item.purchaseReturn - item.damagedQuantity);
+                            return { item, m, poQty, before, balance, okay, weight: getWeightCheck(item) };
+                        });
+                        const shortRows = rows.filter(r => r.balance > 0);
+                        const extraRows = rows.filter(r => r.balance < 0);
+                        return (
+                            <div className="space-y-4">
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    <span className="rounded-full bg-muted px-3 py-1 font-semibold">Receive type: {isFull ? 'Full (closes the items)' : 'Partial'}</span>
+                                    <span className="rounded-full bg-muted px-3 py-1">Vendor: <b>{selectedIndent?.vendor}</b></span>
+                                    {extraRows.length > 0 && <span className="rounded-full bg-red-50 px-3 py-1 font-semibold text-red-700 ring-1 ring-red-200">{extraRows.length} item(s) with EXTRA qty</span>}
+                                    {shortRows.length > 0 && <span className="rounded-full bg-amber-50 px-3 py-1 font-semibold text-amber-700 ring-1 ring-amber-200">{shortRows.length} item(s) SHORT</span>}
+                                    {shortRows.length === 0 && extraRows.length === 0 && <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 ring-1 ring-emerald-200">Everything matches the PO</span>}
+                                </div>
+
+                                <div className="overflow-x-auto rounded-md border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-muted/30">
+                                                <TableHead className="text-xs">Product</TableHead>
+                                                <TableHead className="text-xs text-right">Indent Qty</TableHead>
+                                                <TableHead className="text-xs text-right">PO Qty</TableHead>
+                                                <TableHead className="text-xs text-right">Received Before</TableHead>
+                                                <TableHead className="text-xs text-right font-bold">Receiving Now</TableHead>
+                                                <TableHead className="text-xs text-right text-orange-600">Return</TableHead>
+                                                <TableHead className="text-xs text-right">Damaged</TableHead>
+                                                <TableHead className="text-xs text-right text-green-700">Okay Qty</TableHead>
+                                                <TableHead className="text-xs text-right">Balance After</TableHead>
+                                                <TableHead className="text-xs">Extra / Short</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {rows.map(({ item, m, poQty, before, balance, okay, weight }) => (
+                                                <Fragment key={item.indentId}>
+                                                    <TableRow>
+                                                        <TableCell className="text-xs font-medium max-w-[200px] whitespace-normal">{m?.product}</TableCell>
+                                                        <TableCell className="text-xs text-right">{fmtQ(m?.indentQuantity)} {m?.indentUom}</TableCell>
+                                                        <TableCell className="text-xs text-right font-medium">{fmtQ(poQty)} {m?.uom}</TableCell>
+                                                        <TableCell className="text-xs text-right text-muted-foreground">{fmtQ(before)}</TableCell>
+                                                        <TableCell className="text-sm text-right font-bold">{fmtQ(item.quantity)} {m?.uom}</TableCell>
+                                                        <TableCell className="text-xs text-right text-orange-600">{fmtQ(item.purchaseReturn)}</TableCell>
+                                                        <TableCell className="text-xs text-right">{fmtQ(item.damagedQuantity)}</TableCell>
+                                                        <TableCell className="text-xs text-right font-semibold text-green-700">{fmtQ(okay)}</TableCell>
+                                                        <TableCell className="text-xs text-right">{balance > 0 ? fmtQ(balance) : 0}</TableCell>
+                                                        <TableCell><QtyStatusChip balance={balance} uom={m?.uom} /></TableCell>
+                                                    </TableRow>
+                                                    {(balance !== 0 || weight) && (
+                                                        <TableRow className="bg-muted/20 hover:bg-muted/20">
+                                                            <TableCell colSpan={10} className="py-2 text-xs">
+                                                                {balance > 0 && (
+                                                                    <p className={isFull ? 'text-amber-700' : 'text-muted-foreground'}>
+                                                                        {isFull
+                                                                            ? `Short by ${fmtQ(balance)} ${m?.uom || ''}: receive type is Full, so this item will be CLOSED with this shortfall.`
+                                                                            : `${fmtQ(balance)} ${m?.uom || ''} will remain pending on this PO.`}
+                                                                    </p>
+                                                                )}
+                                                                {balance < 0 && <p className="text-red-700">{fmtQ(Math.abs(balance))} {m?.uom || ''} more than the PO quantity is being received.</p>}
+                                                                {weight && (
+                                                                    <p className="mt-0.5">
+                                                                        Weight: ordered <b>{fmtQ(weight.expected)} kg</b>, actual <b>{weight.actual != null ? `${fmtQ(weight.actual)} kg` : '—'}</b>
+                                                                        {weight.variance != null && (
+                                                                            <span className={weight.outOfTolerance ? 'font-semibold text-red-600' : 'text-green-700'}> ({formatVariance(weight.variance, weight.percent)})</span>
+                                                                        )}
+                                                                        {weight.outOfTolerance && item.varianceReason.trim() && <span className="text-muted-foreground"> · Reason: {item.varianceReason.trim()}</span>}
+                                                                    </p>
+                                                                )}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    )}
+                                                </Fragment>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                    <DialogFooter className="gap-2">
+                        <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>Go Back &amp; Edit</Button>
+                        <Button type="button" onClick={performSubmit} disabled={loading}>Confirm &amp; Submit</Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

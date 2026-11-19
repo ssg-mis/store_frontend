@@ -19,6 +19,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
+import { POLink, VendorLink } from '../element/EntityLinks';
+import { FileText as FileTextIcon } from 'lucide-react';
 
 interface VendorQuote {
     slot: number;
@@ -679,8 +681,8 @@ export default function ApprovalPO() {
                                                             View
                                                         </Button>
                                                     </TableCell>
-                                                    <TableCell className="font-medium text-xs sm:text-sm text-primary whitespace-nowrap">{group.poNumber}</TableCell>
-                                                    <TableCell className="text-xs sm:text-sm">{group.partyName}</TableCell>
+                                                    <TableCell className="font-medium text-xs sm:text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}><POLink value={group.poNumber} /></TableCell>
+                                                    <TableCell className="text-xs sm:text-sm" onClick={(e) => e.stopPropagation()}><VendorLink value={group.partyName} /></TableCell>
                                                     <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                     <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.createdAt ? formatDate(new Date(group.createdAt)) : '—'}</TableCell>
                                                     <TableCell className="text-xs sm:text-sm">{group.preparedBy}</TableCell>
@@ -1095,17 +1097,15 @@ export default function ApprovalPO() {
                                         <TableRow key={row.poNumber + idx}>
                                             <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                                             <TableCell className="text-xs font-medium whitespace-nowrap">
-                                                <button
+                                                <span className="inline-flex items-center gap-1.5"><POLink value={row.poNumber} /><button
                                                     type="button"
                                                     disabled={historyPOLoading === row.poNumber}
                                                     className="text-primary hover:underline flex items-center gap-1 text-left disabled:opacity-50"
                                                     onClick={() => handleViewHistoricalPO(row.poNumber)}
-                                                >
-                                                    {row.poNumber}
-                                                </button>
+                                                ><FileTextIcon className="h-3.5 w-3.5 text-muted-foreground" /></button></span>
                                             </TableCell>
                                             <TableCell className="text-xs whitespace-nowrap">{row.poDate ? formatDate(new Date(row.poDate)) : '—'}</TableCell>
-                                            <TableCell className="text-xs">{row.vendor}</TableCell>
+                                            <TableCell className="text-xs"><VendorLink value={row.vendor} /></TableCell>
                                             <TableCell className="text-xs">{row.quantity}</TableCell>
                                             <TableCell className="text-xs">{row.unit}</TableCell>
                                             <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.rate || 0).toLocaleString()}</TableCell>
@@ -1240,7 +1240,7 @@ export default function ApprovalPO() {
                                                         <div className="space-y-1">
                                                             {poList.map((po: any, pIdx: number) => (
                                                                 <div key={pIdx} className="whitespace-nowrap">
-                                                                    <div className="font-medium">{po.poNumber} <span className="text-muted-foreground font-normal ml-0.5">({po.quantity} {po.unit})</span></div>
+                                                                    <div className="font-medium"><POLink value={po.poNumber} /> <span className="text-muted-foreground font-normal ml-0.5">({po.quantity} {po.unit})</span></div>
                                                                     <div className="text-[10px] text-muted-foreground">{po.createdAt ? formatDate(new Date(po.createdAt)) : ''}</div>
                                                                 </div>
                                                             ))}

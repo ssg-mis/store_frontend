@@ -31,6 +31,7 @@ import { Pill } from '../ui/pill';
 import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { pdf } from '@react-pdf/renderer';
 import ComparisonPdf from '../element/ComparisonPdf';
+import { IndentLink } from '../element/EntityLinks';
 
 
 
@@ -879,6 +880,7 @@ export default () => {
         {
             accessorKey: 'indentNo',
             header: 'Indent No.',
+            cell: ({ getValue }: any) => <IndentLink value={getValue()} />,
         },
         {
             accessorKey: 'firm',
@@ -1265,7 +1267,7 @@ export default () => {
                                                         onChange={(e) => handleIndentSelect(group.groupKey, e.target.checked)}
                                                     />
                                                 </TableCell>
-                                                <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
+                                                <TableCell className="font-medium text-xs sm:text-sm"><IndentLink value={group.indentNo} /></TableCell>
                                                 <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
@@ -1335,7 +1337,7 @@ export default () => {
                     }
                 }}
             >
-                <DialogContent className="max-w-[95vw] sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
+                <DialogContent className="w-screen h-dvh max-w-none sm:max-w-none max-h-dvh rounded-none border-0 content-start overflow-y-auto px-6 md:px-10">
                     {!selectedGroup && !selectedHistory ? (
                         <>
                             <DialogHeader>
@@ -1351,7 +1353,7 @@ export default () => {
                                             {/* ── Indent title bar ── */}
                                             <div className="bg-primary px-4 py-2 flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-bold text-primary-foreground tracking-wide">{group.indentNo}</span>
+                                                    <span className="text-sm font-bold tracking-wide"><IndentLink value={group.indentNo} className="text-primary-foreground decoration-primary-foreground/60 hover:text-primary-foreground/80" /></span>
                                                     <Pill variant={group.vendorType === 'Three Party' ? 'secondary' : 'primary'}>
                                                         {group.vendorType === 'Three Party' ? 'Multi-Party' : group.vendorType}
                                                     </Pill>

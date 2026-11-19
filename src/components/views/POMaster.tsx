@@ -14,6 +14,8 @@ import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/POPdf';
 import { toast } from 'sonner';
 import { ClipLoader as Loader } from 'react-spinners';
+import { POLink } from '../element/EntityLinks';
+import { FileText as FileTextIcon } from 'lucide-react';
 
 interface POMasterItem {
     id: number;
@@ -534,14 +536,18 @@ export default () => {
                                                         : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm">
-                                                    <button
-                                                        type="button"
-                                                        className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
-                                                        disabled={generatingPdf === group.poNumber}
-                                                        onClick={(e) => { e.stopPropagation(); handleViewPdf(group.poNumber, group.items, group.pdf); }}
-                                                    >
-                                                        {group.poNumber}
-                                                    </button>
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <POLink value={group.poNumber} />
+                                                        <button
+                                                            type="button"
+                                                            title="Open PO PDF"
+                                                            className="text-muted-foreground hover:text-primary disabled:opacity-50"
+                                                            disabled={generatingPdf === group.poNumber}
+                                                            onClick={(e) => { e.stopPropagation(); handleViewPdf(group.poNumber, group.items, group.pdf); }}
+                                                        >
+                                                            <FileTextIcon className="h-3.5 w-3.5" />
+                                                        </button>
+                                                    </span>
                                                 </TableCell>
                                                 <TableCell className="text-xs sm:text-sm" onClick={(e) => e.stopPropagation()}>
                                                     <button
@@ -562,14 +568,12 @@ export default () => {
                                                 <TableRow key={`rev-${ver.poNumber}`} className="bg-primary/5">
                                                     <TableCell />
                                                     <TableCell className="text-xs font-medium">
-                                                        <button
+                                                        <span className="inline-flex items-center gap-1.5"><POLink value={ver.poNumber} /><button
                                                             type="button"
                                                             className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
                                                             disabled={generatingPdf === ver.poNumber}
                                                             onClick={(e) => { e.stopPropagation(); handleViewPdf(ver.poNumber, ver.items, ver.items[0]?.pdf); }}
-                                                        >
-                                                            {ver.poNumber}
-                                                        </button>
+                                                        ><FileTextIcon className="h-3.5 w-3.5 text-muted-foreground" /></button></span>
                                                     </TableCell>
                                                     <TableCell colSpan={4} className="text-xs text-muted-foreground">
                                                         {ver.revision === group.versions[0].revision ? 'Latest' : ver.revision === 0 ? 'Original' : `Revision ${ver.revision}`}

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { toast } from 'sonner';
 import InventoryHistoryDialog from '../element/InventoryHistoryDialog';
 import { fetchInventoryAuditLogs, type InventoryAuditLog } from '@/lib/fetchers';
+import { ProductLink } from '../element/EntityLinks';
 
 interface InventoryTable {
     inventoryId: number | null;
@@ -143,7 +144,7 @@ export default () => {
             accessorKey: 'itemName',
             header: 'Item',
             cell: ({ row }) => (
-                <div className="text-wrap max-w-40 text-center">{row.original.itemName}</div>
+                <div className="text-wrap max-w-40 text-center"><ProductLink value={row.original.itemName} /></div>
             ),
         },
         { accessorKey: 'uom', header: 'UOM' },

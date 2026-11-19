@@ -31,6 +31,7 @@ import ContractorLoan from './ContractorLoan';
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
 import IndentsDialog from '../element/IndentsDialog';
 import ReceivedItemsDialog, { type ReceivedRecord } from '../element/ReceivedItemsDialog';
+import { VendorLink } from '../element/EntityLinks';
 
 const ALL_FIRMS = '__all__';
 const FIRM_STORAGE_KEY = 'dashboardFirm';
@@ -478,7 +479,7 @@ export default function Dashboard() {
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <p className="font-extrabold text-sm text-slate-900 truncate" title={vendor.name}>
-                                                {vendor.name}
+                                                <VendorLink value={vendor.name} className="text-slate-900" />
                                             </p>
                                             <div className="flex items-center gap-2 mt-1.5">
                                                 <span className="shrink-0 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5">

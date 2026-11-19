@@ -52,6 +52,10 @@ import Order from './components/views/Order';
 import Inventory from './components/views/Inventory';
 import POMaster from './components/views/POMaster';
 import ViewOnlyGuard from './components/element/ViewOnlyGuard';
+import IndentDetailPage from './components/detail/IndentDetailPage';
+import PODetailPage from './components/detail/PODetailPage';
+import VendorDetailPage from './components/detail/VendorDetailPage';
+import ProductDetailPage from './components/detail/ProductDetailPage';
 import StatusOfPO from './components/views/StatusOfPO';
 import AccessoryTracking from './components/views/AccessoryTracking';
 import CreateAccessoryIssue from './components/views/CreateAccessoryIssue';
@@ -433,6 +437,11 @@ window.__reactRoot.render(
                                 }
                             />;
                         })}
+                        {/* Full-page drill-down views (opened by clicking an Indent / PO / Vendor / Product anywhere) */}
+                        <Route path="indent/:indentNumber" element={<IndentDetailPage />} />
+                        <Route path="po/:poNumber" element={<PODetailPage />} />
+                        <Route path="vendor/:vendorName" element={<VendorDetailPage />} />
+                        <Route path="product/:productName" element={<ProductDetailPage />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>
                 </Routes>

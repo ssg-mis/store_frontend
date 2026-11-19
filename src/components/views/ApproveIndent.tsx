@@ -5,7 +5,9 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { DownloadOutlined } from "@ant-design/icons";
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet, approveIndent, fetchVendors } from '@/lib/fetchers';
+import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet, approveIndent, fetchVendors, fetchStockForProducts, type ProductStock } from '@/lib/fetchers';
+import { IndentLink, ProductLink } from '../element/EntityLinks';
+import { StockChip } from '../detail/DetailKit';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
@@ -82,8 +84,8 @@ const ProductDropdownCell = ({ items }: { items: any[] }) => {
     if (items.length === 1) {
         const name = getProductName(items[0]);
         return (
-            <span className="text-xs font-semibold text-foreground max-w-[260px] truncate block" title={name}>
-                {name}
+            <span className="text-xs max-w-[260px] truncate block" title={name}>
+                <ProductLink value={name} />
             </span>
         );
     }
@@ -652,6 +654,19 @@ export default () => {
         });
     }, [filteredTableData]);
 
+    // Live stock for every product shown on the pending list (so approvers see stock before approving)
+    const [stockMap, setStockMap] = useState<Record<string, ProductStock>>({});
+    const pendingProductKey = useMemo(
+        () => Array.from(new Set(filteredTableData.map(i => (i.product || '').trim()).filter(Boolean))).sort().join('|'),
+        [filteredTableData]
+    );
+    useEffect(() => {
+        if (!pendingProductKey) return;
+        let alive = true;
+        fetchStockForProducts(pendingProductKey.split('|')).then(map => { if (alive) setStockMap(prev => ({ ...prev, ...map })); });
+        return () => { alive = false; };
+    }, [pendingProductKey]);
+
     const groupedHistoryData = useMemo(() => {
         const groups = new Map<string, HistoryData[]>();
         filteredHistoryData.forEach(item => {
@@ -717,7 +732,7 @@ export default () => {
                 </Button>
             ),
         },
-        { accessorKey: 'indentNo', header: 'Indent No' },
+        { accessorKey: 'indentNo', header: 'Indent No', cell: ({ getValue }: any) => <IndentLink value={getValue()} /> },
         { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
@@ -812,6 +827,7 @@ export default () => {
                                             <TableHead>Date</TableHead>
                                             <TableHead>Products</TableHead>
                                             <TableHead>Product Name</TableHead>
+                                            <TableHead>Stock Available</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -828,7 +844,7 @@ export default () => {
                                                         onChange={(e) => handleIndentSelect(group.indentNo, e.target.checked)}
                                                     />
                                                 </TableCell>
-                                                <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
+                                                <TableCell className="font-medium text-xs sm:text-sm"><IndentLink value={group.indentNo} /></TableCell>
                                                 <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                                 <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
@@ -840,6 +856,17 @@ export default () => {
                                                 </TableCell>
                                                 <TableCell>
                                                     <ProductDropdownCell items={group.items} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex flex-col gap-1">
+                                                        {group.items.slice(0, 3).map(it => (
+                                                            <div key={it.id} className="flex items-center gap-2 text-[11px]">
+                                                                {group.items.length > 1 && <span className="max-w-[110px] truncate text-muted-foreground" title={it.product}>{it.product}</span>}
+                                                                <StockChip stock={stockMap[(it.product || '').trim()]} requested={it.quantity} />
+                                                            </div>
+                                                        ))}
+                                                        {group.items.length > 3 && <span className="text-[10px] text-muted-foreground">+{group.items.length - 3} more (select to review)</span>}
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -897,7 +924,7 @@ export default () => {
 
                                     {/* ── Indent title bar ── */}
                                     <div className="bg-primary px-4 py-2 flex items-center justify-between">
-                                        <span className="text-sm font-bold text-primary-foreground tracking-wide">{group.indentNo}</span>
+                                        <span className="text-sm font-bold tracking-wide"><IndentLink value={group.indentNo} className="text-primary-foreground decoration-primary-foreground/60 hover:text-primary-foreground/80" /></span>
                                         {group.indentType && (
                                             <span className="text-[11px] bg-primary-foreground/20 text-primary-foreground rounded-full px-2 py-0.5 font-medium">
                                                 {group.indentType}
@@ -936,6 +963,7 @@ export default () => {
                                                     <TableHead className="text-xs">Category</TableHead>
                                                     <TableHead className="text-xs">Qty</TableHead>
                                                     <TableHead className="text-xs">UOM</TableHead>
+                                                    <TableHead className="text-xs">Available Stock</TableHead>
                                                     <TableHead className="text-xs">Specifications</TableHead>
                                                     <TableHead className="text-xs">Attachment</TableHead>
                                                     {group.indentType === 'Purchase' && <TableHead className="text-xs">Vendor Type</TableHead>}
@@ -954,7 +982,7 @@ export default () => {
                                                                     : <span className="text-muted-foreground text-xs">—</span>
                                                                 }
                                                             </TableCell>
-                                                            <TableCell className="text-xs font-medium max-w-[160px]">{item.product}</TableCell>
+                                                            <TableCell className="text-xs max-w-[160px]"><ProductLink value={item.product} /></TableCell>
                                                             <TableCell className="text-xs text-muted-foreground">{item.productCategory || '—'}</TableCell>
                                                             <TableCell>
                                                                 <Input
@@ -968,6 +996,7 @@ export default () => {
                                                                 />
                                                             </TableCell>
                                                             <TableCell className="text-xs">{item.uom}</TableCell>
+                                                            <TableCell><StockChip stock={stockMap[(item.product || '').trim()]} requested={Number(currentQty) || item.quantity} /></TableCell>
                                                             <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
                                                                 {item.specifications || '—'}
                                                             </TableCell>
