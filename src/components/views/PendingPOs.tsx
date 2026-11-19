@@ -2,11 +2,13 @@ import { ListTodo, Search } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatDate, debounce, formatFirmName } from '@/lib/utils';
-import { fetchFromSupabasePaginated } from '@/lib/fetchers';
+import { fetchFromSupabasePaginated, fetchStockForProducts, type ProductStock } from '@/lib/fetchers';
+import { StockChip, fmtQty } from '../detail/DetailKit';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { IndentLink, VendorLink, ProductLink } from '../element/EntityLinks';
 
 interface PendingIndentsData {
     date: string;
@@ -39,6 +41,9 @@ export default () => {
     const [page, setPage] = useState(1);
     const [search, setSearch] = useState('');
     const abortRef = useRef<AbortController | null>(null);
+    // Live stock for the products of the indent being viewed
+    const [stockMap, setStockMap] = useState<Record<string, ProductStock>>({});
+    const [stockLoading, setStockLoading] = useState(false);
     const [viewGroup, setViewGroup] = useState<{
         indentNo: string; firm: string; indenter: string; department: string;
         areaOfUse: string; departmentHead: string; indentApprovedBy: string;
@@ -113,6 +118,16 @@ export default () => {
         }, 500),
         [fetchData]
     );
+
+    useEffect(() => {
+        if (!viewGroup) return;
+        let alive = true;
+        setStockLoading(true);
+        fetchStockForProducts(viewGroup.items.map(i => i.product)).then(map => {
+            if (alive) { setStockMap(prev => ({ ...prev, ...map })); setStockLoading(false); }
+        });
+        return () => { alive = false; };
+    }, [viewGroup]);
 
     const groupedData = useMemo(() => {
         const groups = new Map<string, PendingIndentsData[]>();
@@ -208,12 +223,12 @@ export default () => {
                                                 View
                                             </Button>
                                         </TableCell>
-                                        <TableCell className="font-medium text-xs sm:text-sm text-primary">{group.indentNo}</TableCell>
+                                        <TableCell className="font-medium text-xs sm:text-sm"><IndentLink value={group.indentNo} /></TableCell>
                                         <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
                                         <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
                                         <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
                                         <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.date}</TableCell>
-                                        <TableCell className="text-xs sm:text-sm">{group.vendorName}</TableCell>
+                                        <TableCell className="text-xs sm:text-sm"><VendorLink value={group.vendorName} /></TableCell>
                                         <TableCell className="text-xs sm:text-sm">&#8377;{group.rate}</TableCell>
                                         <TableCell className="text-xs sm:text-sm">{group.paymentTerm}</TableCell>
                                         <TableCell>
@@ -251,9 +266,9 @@ export default () => {
         </div>
 
         <Dialog open={!!viewGroup} onOpenChange={(open) => { if (!open) setViewGroup(null); }}>
-            <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-screen h-dvh max-w-none sm:max-w-none max-h-dvh rounded-none border-0 content-start overflow-y-auto px-6 md:px-10">
                 <DialogHeader>
-                    <DialogTitle>Indent Details — {viewGroup?.indentNo}</DialogTitle>
+                    <DialogTitle>Indent Details — <IndentLink value={viewGroup?.indentNo} /></DialogTitle>
                 </DialogHeader>
 
                 {/* ── Details grid ── */}
@@ -297,6 +312,9 @@ export default () => {
                                 <TableHead className="text-xs">Qty</TableHead>
                                 <TableHead className="text-xs">UOM</TableHead>
                                 <TableHead className="text-xs">Rate</TableHead>
+                                <TableHead className="text-xs">Stock Now</TableHead>
+                                <TableHead className="text-xs">Incoming (open POs)</TableHead>
+                                <TableHead className="text-xs">After This Indent Arrives</TableHead>
                                 <TableHead className="text-xs">Specifications</TableHead>
                                 <TableHead className="text-xs">Attachment</TableHead>
                             </TableRow>
@@ -311,10 +329,22 @@ export default () => {
                                             : <span className="text-muted-foreground text-xs">—</span>
                                         }
                                     </TableCell>
-                                    <TableCell className="text-xs font-medium">{item.product}</TableCell>
+                                    <TableCell className="text-xs"><ProductLink value={item.product} /></TableCell>
                                     <TableCell className="text-xs">{item.quantity}</TableCell>
                                     <TableCell className="text-xs">{item.uom}</TableCell>
                                     <TableCell className="text-xs font-semibold">&#8377;{item.rate.toLocaleString()}</TableCell>
+                                    {(() => {
+                                        const st = stockMap[(item.product || '').trim()];
+                                        if (!st) return <><TableCell className="text-xs text-muted-foreground" colSpan={3}>{stockLoading ? 'Loading stock…' : '—'}</TableCell></>;
+                                        const after = st.current + st.incoming + (Number(item.quantity) || 0);
+                                        return (
+                                            <>
+                                                <TableCell><StockChip stock={{ ...st, incoming: 0 }} requested={Number(item.quantity) || 0} /></TableCell>
+                                                <TableCell className="text-xs tabular-nums text-blue-600">{fmtQty(st.incoming)} {item.uom}</TableCell>
+                                                <TableCell className="text-xs font-semibold tabular-nums text-emerald-700">{fmtQty(after)} {item.uom}</TableCell>
+                                            </>
+                                        );
+                                    })()}
                                     <TableCell className="text-xs text-muted-foreground max-w-[180px] break-words whitespace-normal">{item.specifications || '—'}</TableCell>
                                     <TableCell className="text-xs">
                                         {item.attachment

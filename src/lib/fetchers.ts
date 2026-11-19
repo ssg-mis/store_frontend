@@ -2166,3 +2166,32 @@ export async function returnAccessoryItem(issueId: number, itemId: number, data:
     return response.json();
 }
 
+
+// ── Detail pages (full-page drill-down views) ────────────────────────────────
+async function getDetail<T = any>(path: string): Promise<T> {
+    const response = await apiFetch(`${API_BASE_URL}${path}`);
+    if (!response.ok) {
+        let message = `Request failed (${response.status})`;
+        try { const body = await response.json(); if (body?.error) message = body.error; } catch { /* ignore */ }
+        throw new Error(message);
+    }
+    return response.json();
+}
+
+export const fetchIndentDetail = (indentNumber: string) => getDetail(`/details/indent/${encodeURIComponent(indentNumber)}`);
+export const fetchPODetail = (poNumber: string) => getDetail(`/details/po/${encodeURIComponent(poNumber)}`);
+export const fetchVendorDetail = (name: string) => getDetail(`/details/vendor?name=${encodeURIComponent(name)}`);
+export const fetchProductDetail = (name: string) => getDetail(`/details/product?name=${encodeURIComponent(name)}`);
+
+export interface ProductStock { current: number; indented: number; approved: number; incoming: number; found: boolean }
+export async function fetchStockForProducts(names: string[]): Promise<Record<string, ProductStock>> {
+    const unique = Array.from(new Set(names.map((n) => (n || '').trim()).filter(Boolean)));
+    if (!unique.length) return {};
+    try {
+        const data = await getDetail<{ stock: Record<string, ProductStock> }>(`/details/stock?names=${encodeURIComponent(unique.join('|'))}`);
+        return data.stock || {};
+    } catch (error) {
+        console.error('Error fetching stock:', error);
+        return {};
+    }
+}

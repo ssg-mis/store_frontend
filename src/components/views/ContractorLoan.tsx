@@ -6,6 +6,7 @@ import DataTable from '../element/DataTable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 import { debounce, formatDate, formatFirmName } from '@/lib/utils';
+import { IndentLink, ProductLink } from '../element/EntityLinks';
 
 interface Row {
     id: number;
@@ -99,13 +100,13 @@ function ContractorTable({ tab }: { tab: TabKey }) {
     );
 
     const columns: ColumnDef<Row>[] = [
-        { accessorKey: 'indentNo', header: 'Indent No.' },
+        { accessorKey: 'indentNo', header: 'Indent No.', cell: ({ getValue }: any) => <IndentLink value={getValue()} /> },
         { accessorKey: 'date', header: 'Date' },
         { accessorKey: 'contractor', header: 'Contractor', cell: ({ getValue }: any) => getValue() || '-' },
         { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'indenter', header: 'Indenter' },
-        { accessorKey: 'product', header: 'Product' },
+        { accessorKey: 'product', header: 'Product', cell: ({ getValue }: any) => <ProductLink value={getValue()} /> },
         { accessorKey: 'quantity', header: cfg.qtyHeader },
         { accessorKey: 'uom', header: 'UOM' },
     ];

@@ -7,6 +7,7 @@ import { Button } from '../ui/button';
 import { SearchableSelectContent } from './SearchableSelectContent';
 import { cn, formatDate, formatFirmName } from '@/lib/utils';
 import type { IndentSheet } from '@/types';
+import { IndentLink, POLink, ProductLink } from './EntityLinks';
 
 const ALL = '__all__';
 const PAGE_SIZE = 100;
@@ -63,20 +64,20 @@ type Row = IndentSheet & { _date: string; _stage: string };
 type Column = { header: string; align?: 'right'; className?: string; cell: (r: Row) => ReactNode };
 
 const BASE_COLUMNS: Column[] = [
-    { header: 'Indent No', className: 'font-mono text-[11px] font-semibold text-slate-700', cell: (r) => r.indentNumber },
+    { header: 'Indent No', className: 'font-mono text-[11px] font-semibold', cell: (r) => <IndentLink value={r.indentNumber} /> },
     { header: 'Date', cell: (r) => showDate(r._date) },
     { header: 'Stage', cell: (r) => (
         <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset', STAGE_TONE[r._stage] || 'bg-slate-50 text-slate-600 ring-slate-200')}>{r._stage}</span>
     ) },
     { header: 'Department', cell: (r) => text(r.department) },
     { header: 'Indenter', cell: (r) => text(r.indenterName) },
-    { header: 'Product', className: 'max-w-[240px] truncate font-medium text-slate-900', cell: (r) => <span title={r.productName}>{text(r.productName)}</span> },
+    { header: 'Product', className: 'max-w-[240px] truncate font-medium text-slate-900', cell: (r) => <span title={r.productName}><ProductLink value={r.productName} /></span> },
     { header: 'Qty', align: 'right', cell: (r) => num(r.quantity).toLocaleString('en-IN') },
     { header: 'UOM', cell: (r) => text(r.uom) },
     { header: 'Approved Qty', align: 'right', cell: (r) => ((r as any).approvedIndents?.[0] ? num((r as any).approvedIndents[0].approvedQuantity).toLocaleString('en-IN') : '—') },
     { header: 'Indent Type', cell: (r) => text(r.indentType) },
     { header: 'Vendor Type', cell: (r) => { const v = (r as any).approvedIndents?.[0]?.vendorType; return v === 'Three Party' ? 'Multi-Party' : text(v); } },
-    { header: 'PO Number', cell: (r) => { const pos = ((r as any).poMasters || []).map((p: any) => p.poNumber).filter(Boolean); return pos.length ? Array.from(new Set(pos)).join(', ') : '—'; } },
+    { header: 'PO Number', cell: (r) => { const pos = ((r as any).poMasters || []).map((p: any) => p.poNumber).filter(Boolean); return pos.length ? <span className="inline-flex flex-wrap gap-x-2">{Array.from(new Set<string>(pos)).map((p) => <POLink key={p} value={p} />)}</span> : '—'; } },
     { header: 'Area of Use', cell: (r) => text(r.areaOfUse) },
     { header: 'Specifications', className: 'max-w-[220px] truncate', cell: (r) => <span title={r.specifications}>{text(r.specifications)}</span> },
 ];

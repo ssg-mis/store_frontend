@@ -31,6 +31,7 @@ import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
 import POComparisonPdf, { type POComparisonPdfProps, type ComparisonItem, type ComparisonQuote } from '../element/POComparisonPdf';
+import { IndentLink } from '../element/EntityLinks';
 
 interface RateApprovalProduct {
     id: number;
@@ -618,7 +619,7 @@ export default () => {
                 );
             },
         },
-        { accessorKey: 'indentNo', header: 'Indent No.' },
+        { accessorKey: 'indentNo', header: 'Indent No.', cell: ({ getValue }: any) => <IndentLink value={getValue()} /> },
         { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
@@ -681,7 +682,7 @@ export default () => {
     ];
 
     const historyColumns: ColumnDef<GroupedHistoryData>[] = [
-        { accessorKey: 'indentNo', header: 'Indent No.' },
+        { accessorKey: 'indentNo', header: 'Indent No.', cell: ({ getValue }: any) => <IndentLink value={getValue()} /> },
         { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },

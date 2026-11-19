@@ -39,6 +39,7 @@ import { DownloadOutlined } from "@ant-design/icons";
 import * as XLSX from 'xlsx';
 import { EditOutlined, SaveOutlined } from "@ant-design/icons";
 import { postToSheet } from '@/lib/fetchers';
+import { IndentLink, ProductLink } from '../element/EntityLinks';
 
 interface StoreOutTableData {
     id: number;
@@ -449,11 +450,11 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
                 },
             ]
             : []),
-        { accessorKey: 'indentNo', header: 'Indent No.' },
+        { accessorKey: 'indentNo', header: 'Indent No.', cell: ({ getValue }: any) => <IndentLink value={getValue()} /> },
         { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
-        { accessorKey: 'product', header: 'Product' },
+        { accessorKey: 'product', header: 'Product', cell: ({ getValue }: any) => <ProductLink value={getValue()} /> },
         { accessorKey: 'quantity', header: 'Quantity' },
         { accessorKey: 'date', header: 'Date' },
         { accessorKey: 'specifications', header: 'Specifications' },

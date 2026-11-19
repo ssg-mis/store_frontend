@@ -11,6 +11,7 @@ import { Pill } from '../ui/pill';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { toast } from 'sonner';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
+import { POLink, VendorLink } from '../element/EntityLinks';
 
 type TabKey = 'Pending' | 'Verified' | 'Rejected';
 
@@ -187,10 +188,10 @@ export default function VerificationPO() {
                         ) : groups.map(g => (
                             <TableRow key={g.poNumber}>
                                 <TableCell className="text-xs">
-                                    <div className="font-semibold">{g.poNumber}</div>
+                                    <div className="font-semibold"><POLink value={g.poNumber} /></div>
                                     <div className="max-w-64 truncate text-[10px] text-muted-foreground" title={g.first.firm}>{g.first.firm}</div>
                                 </TableCell>
-                                <TableCell className="text-xs">{g.first.partyName}</TableCell>
+                                <TableCell className="text-xs"><VendorLink value={g.first.partyName} /></TableCell>
                                 <TableCell className="text-xs whitespace-nowrap">
                                     <div>{g.first.preparedBy || '—'}</div>
                                     <div className="text-[10px] text-muted-foreground">{g.first.createdAt ? formatDate(new Date(g.first.createdAt)) : '—'}</div>

@@ -24,6 +24,7 @@ import { Textarea } from '../ui/textarea';
 import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/QuotationPdf';
 import { Checkbox } from '../ui/checkbox';
+import { IndentLink, ProductLink } from '../element/EntityLinks';
 import { Search as SearchIcon } from 'lucide-react'; // Added icons
 
 
@@ -948,9 +949,9 @@ export default function QuotationPage() {
                                 />
                               </TableCell>
                               <TableCell>{index + 1}</TableCell>
-                              <TableCell>{item.indentNumber}</TableCell>
+                              <TableCell><IndentLink value={item.indentNumber} /></TableCell>
                               <TableCell title={item.firm}>{formatFirmName(item.firm || 'N/A')}</TableCell>
-                              <TableCell>{item.productName}</TableCell>
+                              <TableCell><ProductLink value={item.productName} /></TableCell>
                               <TableCell>{item.specifications || <span className="text-muted-foreground">No Description</span>}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
                               <TableCell>{item.uom}</TableCell>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Phone, ClipboardList, Search, RefreshCw, CheckCircle2, AlertTriangle, Clock, Calendar } from 'lucide-react';
+import { Phone, ClipboardList, Search, RefreshCw, CheckCircle2, AlertTriangle, Clock, Calendar, FileText, FilterX, History as HistoryIcon } from 'lucide-react';
 import Heading from '../element/Heading';
 import { fetchPendingPODetails, fetchPOStatusDetails, completePOTracking, addPOVendorUpdate, fetchPOVendorUpdates } from '@/lib/fetchers';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -13,6 +13,38 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useAuth } from '@/context/AuthContext';
 import { pdf } from '@react-pdf/renderer';
 import POStatusPdf from '../element/POStatusPdf';
+import { POLink, VendorLink } from '../element/EntityLinks';
+import { Progress, fmtMoney, fmtQty } from '../detail/DetailKit';
+import { cn } from '@/lib/utils';
+
+const ALL = '__all__';
+type Tab = 'active' | 'history';
+type Period = 'all' | 'today' | '7d' | '30d' | 'month' | 'custom';
+const PERIODS: { value: Period; label: string }[] = [
+    { value: 'all', label: 'All time' },
+    { value: 'today', label: 'Today' },
+    { value: '7d', label: 'Last 7 days' },
+    { value: '30d', label: 'Last 30 days' },
+    { value: 'month', label: 'This month' },
+    { value: 'custom', label: 'Custom range' },
+];
+const dayKey = (v: string | Date) => {
+    const d = new Date(v);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+function periodRange(period: Period, from: string, to: string): [string, string] {
+    const now = new Date();
+    const today = dayKey(now);
+    if (period === 'today') return [today, today];
+    if (period === '7d' || period === '30d') {
+        const start = new Date(now);
+        start.setDate(start.getDate() - (period === '7d' ? 6 : 29));
+        return [dayKey(start), today];
+    }
+    if (period === 'month') return [dayKey(new Date(now.getFullYear(), now.getMonth(), 1)), today];
+    if (period === 'custom') return [from, to];
+    return ['', ''];
+}
 
 interface VendorUpdate {
     id: number;
@@ -81,6 +113,13 @@ export default function StatusOfPO() {
     const [pendingPOs, setPendingPOs] = useState<PendingPO[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [tab, setTab] = useState<Tab>('active');
+    const [period, setPeriod] = useState<Period>('all');
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
+    const [poFilter, setPoFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState(ALL);
+    const [vendorFilter, setVendorFilter] = useState(ALL);
     const [generatingPdfFor, setGeneratingPdfFor] = useState<string | null>(null);
 
     const [completeDialogPo, setCompleteDialogPo] = useState<string | null>(null);
@@ -172,7 +211,14 @@ export default function StatusOfPO() {
                 items.flatMap(item => (item.grnNumber || '').split(',').map(g => g.trim()).filter(Boolean))
             ));
 
+            const ordered = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+            const received = items.reduce((sum, i) => sum + Math.min(Number(i.receivedQuantity) || 0, Number(i.quantity) || 0), 0);
+            const percent = ordered > 0 ? Math.round((received / ordered) * 100) : 0;
+            const amount = items.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+            // 100% received (or admin-completed) POs are moved to History
+            const isDone = first.status === 'Completed' || (ordered > 0 && received >= ordered);
             return {
+                ordered, received, percent, amount, isDone,
                 poNumber,
                 partyName: first.partyName,
                 poDate: first.poDate,
@@ -186,10 +232,36 @@ export default function StatusOfPO() {
         });
     }, [pendingPOs]);
 
+    const activeCount = useMemo(() => groupedPOs.filter(g => !g.isDone).length, [groupedPOs]);
+    const historyCount = groupedPOs.length - activeCount;
+    const vendorOptions = useMemo(() => Array.from(new Set(groupedPOs.map(g => g.partyName).filter(Boolean))).sort(), [groupedPOs]);
+    const vendorStatusOptions = useMemo(() => Array.from(new Set(groupedPOs.map(g => g.vendorUpdate?.vendorStatus).filter(Boolean) as string[])).sort(), [groupedPOs]);
+
+    const hasFilters = period !== 'all' || !!poFilter || statusFilter !== ALL || vendorFilter !== ALL || !!searchTerm;
+    function clearFilters() {
+        setPeriod('all'); setFromDate(''); setToDate(''); setPoFilter(''); setStatusFilter(ALL); setVendorFilter(ALL); setSearchTerm('');
+    }
+
     const filteredPOs = useMemo(() => {
+        const norm = (v: string) => (v || '').toLowerCase().replace(/\s+/g, '');
+        const term = norm(searchTerm);
+        const poTerm = norm(poFilter);
+        const [from, to] = periodRange(period, fromDate, toDate);
         return groupedPOs.filter(group => {
-            const norm = (v: string) => (v || '').toLowerCase().replace(/\s+/g, '');
-            const term = norm(searchTerm);
+            if (tab === 'active' ? group.isDone : !group.isDone) return false;
+            if (poTerm && !norm(group.poNumber).includes(poTerm)) return false;
+            if (vendorFilter !== ALL && group.partyName !== vendorFilter) return false;
+            if (statusFilter !== ALL) {
+                const vs = group.vendorUpdate?.vendorStatus;
+                if (statusFilter === 'Pending' || statusFilter === 'Completed') {
+                    if (group.status !== statusFilter) return false;
+                } else if (statusFilter === '__noupdate__') {
+                    if (vs) return false;
+                } else if (vs !== statusFilter) return false;
+            }
+            const key = dayKey(group.poDate);
+            if (from && key < from) return false;
+            if (to && key > to) return false;
             if (!term) return true;
             return (
                 norm(group.poNumber).includes(term) ||
@@ -199,7 +271,7 @@ export default function StatusOfPO() {
                 norm(group.vendorUpdate?.vendorStatus || '').includes(term)
             );
         });
-    }, [groupedPOs, searchTerm]);
+    }, [groupedPOs, searchTerm, tab, period, fromDate, toDate, poFilter, statusFilter, vendorFilter]);
 
     async function handleViewPdf(poNumber: string) {
         setGeneratingPdfFor(poNumber);
@@ -247,11 +319,11 @@ export default function StatusOfPO() {
     }
 
     return (
-        <div className="w-full space-y-6 p-6">
+        <div className="w-full space-y-5 p-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <Heading
                     heading="Status of PO"
-                    subtext="View POs that already have a GRN generated: pending ones and completed ones."
+                    subtext="Track every PO that has a GRN. Fully received POs move to History."
                 >
                     <ClipboardList size={40} className="text-primary animate-pulse" />
                 </Heading>
@@ -277,6 +349,75 @@ export default function StatusOfPO() {
                 </div>
             </div>
 
+            {/* Active / History */}
+            <div className="flex items-center gap-2">
+                {([
+                    { key: 'active' as Tab, label: 'Active', count: activeCount, icon: <Clock className="h-4 w-4" /> },
+                    { key: 'history' as Tab, label: 'History', count: historyCount, icon: <HistoryIcon className="h-4 w-4" /> },
+                ]).map(t => (
+                    <button
+                        key={t.key}
+                        onClick={() => setTab(t.key)}
+                        className={cn(
+                            'inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition-colors',
+                            tab === t.key ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'bg-background text-slate-600 hover:bg-muted'
+                        )}
+                    >
+                        {t.icon} {t.label}
+                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] tabular-nums', tab === t.key ? 'bg-white/20' : 'bg-muted')}>{t.count}</span>
+                    </button>
+                ))}
+            </div>
+
+            {/* Filters */}
+            <div className="grid grid-cols-2 items-end gap-3 rounded-xl border bg-background p-3 shadow-xs md:grid-cols-4 xl:grid-cols-7">
+                <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Period</label>
+                    <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
+                        <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>{PERIODS.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">From</label>
+                    <Input type="date" className="h-9" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPeriod('custom'); }} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">To</label>
+                    <Input type="date" className="h-9" value={toDate} onChange={(e) => { setToDate(e.target.value); setPeriod('custom'); }} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">PO No</label>
+                    <Input className="h-9" placeholder="e.g. PO-102" value={poFilter} onChange={(e) => setPoFilter(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value={ALL}>All statuses</SelectItem>
+                            <SelectItem value="Pending">PO: Pending</SelectItem>
+                            <SelectItem value="Completed">PO: Completed</SelectItem>
+                            <SelectItem value="__noupdate__">Vendor: No update yet</SelectItem>
+                            {vendorStatusOptions.map(v => <SelectItem key={v} value={v}>Vendor: {v}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Vendor</label>
+                    <Select value={vendorFilter} onValueChange={setVendorFilter}>
+                        <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value={ALL}>All vendors</SelectItem>
+                            {vendorOptions.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <Button variant="outline" className="h-9 gap-1" disabled={!hasFilters} onClick={clearFilters}>
+                    <FilterX className="h-4 w-4" /> Clear
+                </Button>
+            </div>
+
             <div className="rounded-2xl border border-primary/10 bg-card/60 backdrop-blur-md shadow-xl overflow-hidden">
                 <div className="overflow-x-auto">
                     <Table>
@@ -286,6 +427,9 @@ export default function StatusOfPO() {
                                 <TableHead className="font-semibold py-4">PO No</TableHead>
                                 <TableHead className="font-semibold py-4">GRN No</TableHead>
                                 <TableHead className="font-semibold py-4">Vendor Name</TableHead>
+                                <TableHead className="font-semibold py-4 text-right">Amount</TableHead>
+                                <TableHead className="font-semibold py-4">Received</TableHead>
+                                <TableHead className="font-semibold py-4 text-right">Balance Qty</TableHead>
                                 <TableHead className="font-semibold py-4">Delivery Date</TableHead>
                                 <TableHead className="font-semibold py-4">Status</TableHead>
                                 <TableHead className="font-semibold py-4">Vendor Update</TableHead>
@@ -295,7 +439,7 @@ export default function StatusOfPO() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="text-center py-12">
+                                    <TableCell colSpan={11} className="text-center py-12">
                                         <div className="flex flex-col items-center justify-center space-y-2">
                                             <Clock className="h-8 w-8 animate-spin text-primary" />
                                             <span className="text-sm text-muted-foreground font-medium">Fetching PO details...</span>
@@ -304,43 +448,45 @@ export default function StatusOfPO() {
                                 </TableRow>
                             ) : filteredPOs.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="text-center py-12">
+                                    <TableCell colSpan={11} className="text-center py-12">
                                         <div className="flex flex-col items-center justify-center space-y-2">
                                             <AlertTriangle className="h-8 w-8 text-amber-500" />
-                                            <span className="text-sm text-muted-foreground font-medium">{searchTerm ? 'No matching PO/GRN found. Fully received POs that were never partial are not listed here.' : 'No partially received POs with outstanding quantities found.'}</span>
+                                            <span className="text-sm text-muted-foreground font-medium">
+                                                {hasFilters ? 'No PO matches the current filters.' : tab === 'active' ? 'No active POs. Fully received POs are in History.' : 'No completed POs yet.'}
+                                            </span>
                                         </div>
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                filteredPOs.map((po, index) => (
-                                    <TableRow key={index} className="hover:bg-muted/30 transition-colors duration-200">
-                                        <TableCell className="py-4 text-muted-foreground">{formatDate(new Date(po.poDate))}</TableCell>
-                                        <TableCell className="py-4 font-semibold text-primary">
-                                            <button
-                                                onClick={() => handleViewPdf(po.poNumber)}
-                                                disabled={generatingPdfFor === po.poNumber}
-                                                className="underline decoration-dotted decoration-2 underline-offset-4 hover:text-primary/80 disabled:opacity-50"
-                                            >
-                                                {generatingPdfFor === po.poNumber ? 'Generating...' : po.poNumber}
-                                            </button>
+                                filteredPOs.map((po) => (
+                                    <TableRow key={po.poNumber} className="hover:bg-muted/30 transition-colors duration-200">
+                                        <TableCell className="py-4 text-muted-foreground whitespace-nowrap">{formatDate(new Date(po.poDate))}</TableCell>
+                                        <TableCell className="py-4">
+                                            <div className="flex items-center gap-1.5">
+                                                <POLink value={po.poNumber} />
+                                                <button
+                                                    onClick={() => handleViewPdf(po.poNumber)}
+                                                    disabled={generatingPdfFor === po.poNumber}
+                                                    title="Open PO status PDF"
+                                                    className="text-muted-foreground hover:text-primary disabled:opacity-50"
+                                                >
+                                                    {generatingPdfFor === po.poNumber ? <Clock className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                                                </button>
+                                            </div>
                                         </TableCell>
                                         <TableCell className="py-4 font-medium text-foreground">
                                             {po.grnNumber ? (
-                                                <div className="flex flex-col items-start gap-0.5">
-                                                    {po.grnNumber.split(',').map((g) => g.trim()).filter(Boolean).map((g) => (
-                                                        <button
-                                                            key={g}
-                                                            onClick={() => handleViewPdf(po.poNumber)}
-                                                            title="View PO status"
-                                                            className="text-primary underline decoration-dotted decoration-2 underline-offset-4 hover:text-primary/80"
-                                                        >
-                                                            {g}
-                                                        </button>
-                                                    ))}
+                                                <div className="flex flex-col items-start gap-0.5 text-xs font-mono">
+                                                    {po.grnNumber.split(',').map((g) => g.trim()).filter(Boolean).map((g) => (<span key={g}>{g}</span>))}
                                                 </div>
                                             ) : '-'}
                                         </TableCell>
-                                        <TableCell className="font-medium py-4 text-foreground">{po.partyName}</TableCell>
+                                        <TableCell className="py-4"><VendorLink value={po.partyName} /></TableCell>
+                                        <TableCell className="py-4 text-right tabular-nums">{fmtMoney(po.amount)}</TableCell>
+                                        <TableCell className="py-4"><Progress percent={po.percent} /></TableCell>
+                                        <TableCell className="py-4 text-right tabular-nums">
+                                            {po.ordered - po.received > 0 ? <span className="font-semibold text-amber-600">{fmtQty(po.ordered - po.received)}</span> : <span className="text-emerald-600">0</span>}
+                                        </TableCell>
                                         <TableCell className="py-4">
                                             <div className="flex items-center gap-1.5 text-foreground font-medium">
                                                 <Calendar className="w-4 h-4 text-primary/70" />
@@ -355,10 +501,18 @@ export default function StatusOfPO() {
                                                 >
                                                     <CheckCircle2 className="w-3.5 h-3.5" /> Completed
                                                 </span>
+                                            ) : po.isDone ? (
+                                                <span
+                                                    onClick={() => isAdmin && setCompleteDialogPo(po.poNumber)}
+                                                    className={`inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-full shadow-sm border bg-green-50 text-green-700 border-green-200 ${isAdmin ? 'cursor-pointer hover:bg-green-100' : ''}`}
+                                                    title={isAdmin ? 'Fully received. Click to mark as completed' : 'Fully received'}
+                                                >
+                                                    <CheckCircle2 className="w-3.5 h-3.5" /> Fully Received
+                                                </span>
                                             ) : (
                                                 <span
                                                     onClick={() => isAdmin && setCompleteDialogPo(po.poNumber)}
-                                                    className={`text-xs font-semibold px-3 py-1.5 rounded-full shadow-sm border bg-blue-50 text-blue-700 border-blue-200 ${isAdmin ? 'cursor-pointer hover:shadow-md transition-all duration-300' : ''}`}
+                                                    className={`text-xs font-semibold px-3 py-1.5 rounded-full shadow-sm border bg-blue-50 text-blue-700 border-blue-200 ${isAdmin ? 'cursor-pointer hover:bg-blue-100' : ''}`}
                                                     title={isAdmin ? 'Click to mark as completed' : undefined}
                                                 >
                                                     Pending

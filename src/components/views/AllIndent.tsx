@@ -13,6 +13,7 @@ import { useAuth } from '@/context/AuthContext';
 import Heading from '../element/Heading';
 import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
 import { useSheets } from '@/context/SheetsContext';
+import { IndentLink } from '../element/EntityLinks';
 
 interface AllIndentTableData {
     id: string;
@@ -298,7 +299,7 @@ export default () => {
             header: 'Indent No.',
             cell: ({ getValue }) => (
                 <div className="font-medium text-xs sm:text-sm">
-                    {getValue() as string}
+                    <IndentLink value={getValue() as string} />
                 </div>
             ),
             size: 100,
