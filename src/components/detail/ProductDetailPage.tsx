@@ -53,7 +53,7 @@ export default function ProductDetailPage() {
                         )}
                     </Section>
 
-                    <div className="grid gap-5 xl:grid-cols-2">
+                    <div className="grid gap-5">
                         <Section title={`Indents (${data.indents.length})`} flush>
                             <div className="max-h-[460px] overflow-auto">
                                 <Table>
@@ -76,28 +76,6 @@ export default function ProductDetailPage() {
                             </div>
                         </Section>
 
-                        <Section title={`Purchase Orders (${data.pos.length})`} flush>
-                            <div className="max-h-[460px] overflow-auto">
-                                <Table>
-                                    <TableHeader className="sticky top-0 bg-muted"><TableRow>
-                                        <TableHead>PO</TableHead><TableHead>Date</TableHead><TableHead>Vendor</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Rate</TableHead><TableHead className="text-right">Received</TableHead><TableHead>Status</TableHead>
-                                    </TableRow></TableHeader>
-                                    <TableBody>
-                                        {data.pos.map((p: any, k: number) => (
-                                            <TableRow key={k}>
-                                                <TableCell><POLink value={p.poNumber} /></TableCell>
-                                                <TableCell className="whitespace-nowrap">{fmtDate(p.poDate)}</TableCell>
-                                                <TableCell><VendorLink value={p.vendor} /></TableCell>
-                                                <TableCell className="text-right tabular-nums">{fmtQty(p.quantity)} {p.unit}</TableCell>
-                                                <TableCell className="text-right tabular-nums">{fmtMoney(p.rate)}</TableCell>
-                                                <TableCell className="text-right tabular-nums">{fmtQty(p.receivedQuantity)}</TableCell>
-                                                <TableCell><StatusBadge status={p.status} /></TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        </Section>
                     </div>
 
                     {data.receipts.length > 0 && (

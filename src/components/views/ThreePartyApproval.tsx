@@ -1,3 +1,4 @@
+import { ImageViewerDialog } from '../element/AttachmentPreview';
 import type { ColumnDef, Row } from '@tanstack/react-table';
 import {
     Dialog,
@@ -1395,25 +1396,7 @@ export default () => {
                             </form>
                         </Form>
 
-                        <Dialog open={!!previewFile} onOpenChange={(open) => { if (!open) setPreviewFile(null); }}>
-                            <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-4xl p-3 gap-2">
-                                <DialogHeader className="px-1">
-                                    <DialogTitle className="flex items-center gap-2 text-sm">
-                                        <ImageIcon className="h-4 w-4" />
-                                        {previewFile ? fileNameFromUrl(previewFile) : 'Preview'}
-                                    </DialogTitle>
-                                    <DialogDescription className="sr-only">Uploaded image preview</DialogDescription>
-                                </DialogHeader>
-                                {previewFile && (
-                                    <div className="flex flex-col items-center gap-2">
-                                        <img src={previewFile} alt="Uploaded file" className="max-h-[75vh] w-auto rounded-md object-contain bg-muted" />
-                                        <a href={previewFile} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                                            Open original <ExternalLink className="h-3 w-3" />
-                                        </a>
-                                    </div>
-                                )}
-                            </DialogContent>
-                        </Dialog>
+                        <ImageViewerDialog url={previewFile} onClose={() => setPreviewFile(null)} />
                     </DialogContent>
                 )}
             </Dialog>

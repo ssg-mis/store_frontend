@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pill } from '../ui/pill';
-import { Store } from 'lucide-react';
+import { Store, PackagePlus } from 'lucide-react';
+import StockInView from '../element/StockInView';
 import DataTable from '../element/DataTable';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -35,6 +36,7 @@ interface InventoryTable {
 export default () => {
     const { inventorySheet, inventoryLoading, updateInventorySheet } = useSheets();
 
+    const [view, setView] = useState<'inventory' | 'stockin'>('inventory');
     const [tableData, setTableData] = useState<InventoryTable[]>([]);
     const [historyInventoryId, setHistoryInventoryId] = useState<number | null>(null);
     const [viewOpen, setViewOpen] = useState(false);
@@ -200,17 +202,33 @@ export default () => {
     return (
         <div>
             <InventoryHistoryDialog inventoryId={historyInventoryId} onClose={() => setHistoryInventoryId(null)} />
-            <Heading heading="Inventory" subtext="View inventory">
-                <Store size={50} className="text-primary" />
-            </Heading>
+            <div className="relative">
+                <Heading heading={view === 'stockin' ? 'Stock In' : 'Inventory'} subtext={view === 'stockin' ? 'All stock received (GRN) and added manually' : 'View inventory'}>
+                    <Store size={50} className="text-primary" />
+                </Heading>
+                <div className="absolute right-16 top-1/2 -translate-y-1/2 inline-flex rounded-md border bg-background p-0.5 text-xs shadow-sm">
+                    <button type="button" onClick={() => setView('inventory')}
+                        className={`rounded px-3 py-1.5 font-medium ${view === 'inventory' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>
+                        Inventory
+                    </button>
+                    <button type="button" onClick={() => setView('stockin')}
+                        className={`inline-flex items-center gap-1 rounded px-3 py-1.5 font-medium ${view === 'stockin' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>
+                        <PackagePlus size={13} /> Stock In
+                    </button>
+                </div>
+            </div>
 
-            <DataTable
-                data={tableData}
-                columns={columns}
-                dataLoading={inventoryLoading}
-                searchFields={['itemName', 'departmentHead', 'department', 'uom', 'status']}
-                className="h-[80dvh]"
-            />
+            {view === 'stockin' ? (
+                <StockInView />
+            ) : (
+                <DataTable
+                    data={tableData}
+                    columns={columns}
+                    dataLoading={inventoryLoading}
+                    searchFields={['itemName', 'departmentHead', 'department', 'uom', 'status']}
+                    className="h-[80dvh]"
+                />
+            )}
 
             <Dialog open={viewOpen} onOpenChange={(open) => {
                 setViewOpen(open);

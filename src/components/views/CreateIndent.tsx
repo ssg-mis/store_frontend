@@ -1,4 +1,5 @@
 
+import { PRIORITIES } from '../element/PriorityBadge';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -101,6 +102,7 @@ export default () => {
         firm: z.string().nonempty('Select a firm'),
         indenterName: z.string().nonempty(),
         indenterUserId: z.coerce.number().optional(),
+        priority: z.enum(['Normal', 'Urgent', 'Very Urgent']).default('Normal'),
         indentType: z.enum(['Purchase', 'Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return', 'Contractor Loan Out', 'Contractor Loan In', 'Employee Loan Tracker'], { required_error: 'Select a status' }),
         validityDate: z.string().optional(),
         coolOffPeriod: z.string().optional(),
@@ -131,6 +133,7 @@ export default () => {
             indenterName: isAdmin ? '' : ((user as any)?.name || ''),
             indenterUserId: isAdmin ? undefined : (user as any)?.id,
             indentType: '' as any,
+            priority: 'Normal',
             validityDate: '',
             coolOffPeriod: '',
             contractorName: '',
@@ -597,6 +600,7 @@ export default () => {
                     ...(showsWeight(data.indentType, product.uom) && product.orderedWeight ? { orderedWeight: product.orderedWeight } : {}),
                     specifications: product.specifications || '',
                     indentType: data.indentType,
+                    priority: data.priority || 'Normal',
                     validityDate: (['Store Out', 'Store Out Return', 'Loan Out', 'Loan Out Return'].includes(data.indentType)) ? (data.validityDate ? new Date(data.validityDate).toISOString() : null) : null,
                     ...(isContractorType && data.contractorName ? { contractorName: data.contractorName } : {}),
                     coolOffPeriod: data.indentType === 'Loan Out' && data.coolOffPeriod ? new Date(data.coolOffPeriod).toISOString() : null,
@@ -643,6 +647,7 @@ export default () => {
                 indenterName: isAdmin ? '' : ((user as any)?.name || ''),
                 indenterUserId: isAdmin ? undefined : (user as any)?.id,
                 indentType: '' as any,
+                priority: 'Normal',
                 validityDate: '',
                 coolOffPeriod: '',
                 contractorName: '',
@@ -825,6 +830,31 @@ export default () => {
                                             <SelectItem value="Contractor Loan Out">Contractor Loan Out</SelectItem>
                                             <SelectItem value="Contractor Loan In">Contractor Loan In</SelectItem>
                                             <SelectItem value="Employee Loan Tracker">Employee Loan Tracker</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </FormItem>
+                            )}
+                        />
+
+                        <FormField
+                            control={form.control}
+                            name="priority"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>
+                                        Priority
+                                        <span className="text-destructive">*</span>
+                                    </FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder="Select priority" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {PRIORITIES.map(p => (
+                                                <SelectItem key={p} value={p}>{p === 'Normal' ? 'NORMAL' : p === 'Urgent' ? 'URGENT' : 'VERY URGENT'}</SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 </FormItem>

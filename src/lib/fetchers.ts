@@ -681,7 +681,7 @@ export interface InventoryHistory {
     priceList: { vendor: string | null; price: number | null; uom: string | null; validFrom: string | null; validUpto: string | null; valid: boolean }[];
     purchaseOrders: { poNumber: string; indentNumber: string; date: string; vendor: string; quantity: number; unit: string; rate: number; gstPercent: number | null; amount: number; pdf: string | null }[];
     received: { grnNumber: string | null; poNumber: string; indentNumber: string; date: string; vendor: string; okQuantity: number; damagedQuantity: number; purchaseReturn: number; uom: string; billNumber: string | null; billStatus: string | null; receiveType: string | null; remark: string | null; billPhoto: string | null; itemPhoto: string | null }[];
-    storeOut: { indentNumber: string; date: string; quantity: number; approvedBy: string; status: string; department: string; indenter: string }[];
+    storeOut: { id: number; indentNumber: string; date: string; quantity: number; approvedBy: string; status: string; department: string; indenter: string; product: string; uom: string; firm: string | null; areaOfUse: string | null; departmentHead: string | null; specifications: string | null }[];
     loans: { indentNumber: string; date: string; quantity: number; approvedBy: string; status: string; user: string | null }[];
     activity: { date: string; action: string; quantity: number; user: string | null; indentNumber: string | null; department: string | null; departmentHead: string | null }[];
 }
@@ -2183,7 +2183,7 @@ export const fetchPODetail = (poNumber: string) => getDetail(`/details/po/${enco
 export const fetchVendorDetail = (name: string) => getDetail(`/details/vendor?name=${encodeURIComponent(name)}`);
 export const fetchProductDetail = (name: string) => getDetail(`/details/product?name=${encodeURIComponent(name)}`);
 
-export interface ProductStock { current: number; indented: number; approved: number; incoming: number; found: boolean }
+export interface ProductStock { current: number; indented: number; approved: number; incoming: number; found: boolean; inventoryId?: number | null }
 export async function fetchStockForProducts(names: string[]): Promise<Record<string, ProductStock>> {
     const unique = Array.from(new Set(names.map((n) => (n || '').trim()).filter(Boolean)));
     if (!unique.length) return {};
@@ -2192,6 +2192,46 @@ export async function fetchStockForProducts(names: string[]): Promise<Record<str
         return data.stock || {};
     } catch (error) {
         console.error('Error fetching stock:', error);
+        return {};
+    }
+}
+
+export interface StockInRow {
+    type: 'GRN' | 'Manual';
+    date: string;
+    item: string;
+    quantity: number;
+    uom: string | null;
+    department: string | null;
+    firm: string | null;
+    grnNumber: string | null;
+    poNumber: string | null;
+    indentNumber: string | null;
+    vendor: string | null;
+    billNumber: string | null;
+    remark: string | null;
+    by: string | null;
+}
+
+// All stock-in entries (GRN receipts + manual stock in), newest first.
+export async function fetchStockInList(): Promise<StockInRow[]> {
+    const response = await apiFetch(`${API_BASE_URL}/inventory/stock-in`);
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+}
+
+// Current workflow stage of each indent line: { [indentId]: "Indent Created" | "RFQ Sent – …" | … }
+export async function fetchIndentStages(ids: number[]): Promise<Record<number, string>> {
+    const unique = Array.from(new Set(ids.filter(Boolean)));
+    if (!unique.length) return {};
+    try {
+        const data = await getDetail<{ stages: Record<number, string> }>(`/details/stages?ids=${unique.join(',')}`);
+        return data.stages || {};
+    } catch (error) {
+        console.error('Error fetching stages:', error);
         return {};
     }
 }

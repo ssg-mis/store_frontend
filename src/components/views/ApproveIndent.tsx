@@ -5,9 +5,12 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { DownloadOutlined } from "@ant-design/icons";
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet, approveIndent, fetchVendors, fetchStockForProducts, type ProductStock } from '@/lib/fetchers';
+import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet, approveIndent, fetchVendors, fetchStockForProducts, fetchIndentStages, type ProductStock } from '@/lib/fetchers';
 import { IndentLink, ProductLink } from '../element/EntityLinks';
-import { StockChip } from '../detail/DetailKit';
+import { StockChip, StatusBadge } from '../detail/DetailKit';
+import { AttachmentThumb } from '../element/AttachmentPreview';
+import LedgerLink from '../element/LedgerLink';
+import PriorityBadge, { highestPriority } from '../element/PriorityBadge';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { toast } from 'sonner';
 import { PuffLoader as Loader } from 'react-spinners';
@@ -53,12 +56,14 @@ interface ApproveTableData {
     date: string;
     validityDate: string;
     attachment: string;
+    priority?: string;
     specifications: string;
     status: 'Pending' | 'Approved';
     plannedDate: string | null;
 }
 
 interface HistoryData {
+    id: number;
     indentNo: string;
     firm: string;
     indenter: string;
@@ -73,6 +78,7 @@ interface HistoryData {
     delay?: string;
     specifications: string;
     attachment: string;
+    priority?: string;
     lastUpdated?: string;
 }
 
@@ -202,6 +208,7 @@ export default () => {
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                     validityDate: record.validityDate ? formatDate(new Date(record.validityDate)) : '',
                     attachment: record.attachment || '',
+                    priority: record.priority || 'Normal',
                     status: 'Pending',
                     plannedDate: record.plannedDate,
                     approvedQuantity: record.approvedQuantity,
@@ -260,6 +267,7 @@ export default () => {
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                     approvedDate: record.plannedDate ? formatDate(new Date(record.plannedDate)) : (record.createdAt ? formatDate(new Date(record.createdAt)) : ''),
                     attachment: record.attachment || '',
+                    priority: record.priority || 'Normal',
                     approvedQuantity: record.approvedQuantity || record.quantity,
                     delay: (record.delay && !record.delay.includes('NaN')) ? record.delay : 'No delay'
                 }));
@@ -667,6 +675,41 @@ export default () => {
         return () => { alive = false; };
     }, [pendingProductKey]);
 
+    // Current workflow stage of every indent line shown (Created → RFQ → Rate → PO → Received …)
+    const [stageMap, setStageMap] = useState<Record<number, string>>({});
+    const stageIdsKey = useMemo(
+        () => [...filteredTableData, ...filteredHistoryData].map(i => i.id).filter(Boolean).sort((a, b) => a - b).join(','),
+        [filteredTableData, filteredHistoryData]
+    );
+    useEffect(() => {
+        if (!stageIdsKey) return;
+        let alive = true;
+        fetchIndentStages(stageIdsKey.split(',').map(Number)).then(map => { if (alive) setStageMap(prev => ({ ...prev, ...map })); });
+        return () => { alive = false; };
+    }, [stageIdsKey]);
+
+    const StageCell = ({ items }: { items: { id: number }[] }) => {
+        const stages = Array.from(new Set(items.map(it => stageMap[it.id]).filter(Boolean)));
+        if (stages.length === 0) return <span className="text-xs text-muted-foreground">…</span>;
+        return (
+            <div className="flex flex-col items-start gap-1">
+                {stages.slice(0, 2).map(st => <StatusBadge key={st} status={st} />)}
+                {stages.length > 2 && <span className="text-[10px] text-muted-foreground">+{stages.length - 2} more</span>}
+            </div>
+        );
+    };
+
+    const historyProductKey = useMemo(
+        () => Array.from(new Set(filteredHistoryData.map(i => (i.product || '').trim()).filter(Boolean))).sort().join('|'),
+        [filteredHistoryData]
+    );
+    useEffect(() => {
+        if (!historyProductKey) return;
+        let alive = true;
+        fetchStockForProducts(historyProductKey.split('|')).then(map => { if (alive) setStockMap(prev => ({ ...prev, ...map })); });
+        return () => { alive = false; };
+    }, [historyProductKey]);
+
     const groupedHistoryData = useMemo(() => {
         const groups = new Map<string, HistoryData[]>();
         filteredHistoryData.forEach(item => {
@@ -747,6 +790,27 @@ export default () => {
             header: 'Product Name',
             cell: ({ row }) => <ProductDropdownCell items={row.original.items} />,
         },
+        {
+            header: 'Priority',
+            cell: ({ row }) => <PriorityBadge priority={highestPriority(row.original.items.map((it: any) => it.priority))} />,
+        },
+        {
+            header: 'Stage',
+            cell: ({ row }) => <StageCell items={row.original.items} />,
+        },
+        {
+            header: 'Attachment',
+            cell: ({ row }) => {
+                const withFile = row.original.items.filter(it => it.attachment);
+                if (withFile.length === 0) return <span className="text-muted-foreground">—</span>;
+                return (
+                    <div className="flex items-center gap-1">
+                        {withFile.slice(0, 3).map(it => <AttachmentThumb key={it.id} url={it.attachment} size="sm" />)}
+                        {withFile.length > 3 && <span className="text-[10px] text-muted-foreground">+{withFile.length - 3}</span>}
+                    </div>
+                );
+            },
+        },
         { accessorKey: 'date', header: 'Request Date' },
         { accessorKey: 'approvedDate', header: 'Approval Date' },
         {
@@ -809,7 +873,7 @@ export default () => {
                             </div>
                         ) : (
                             <div className="rounded-md border overflow-x-auto">
-                                <Table>
+                                <Table className="[&_th]:!text-left [&_td]:!text-left">
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead className="w-10">
@@ -827,7 +891,9 @@ export default () => {
                                             <TableHead>Date</TableHead>
                                             <TableHead>Products</TableHead>
                                             <TableHead>Product Name</TableHead>
-                                            <TableHead>Stock Available</TableHead>
+                                            <TableHead>Priority</TableHead>
+                                            <TableHead>Status</TableHead>
+                                            <TableHead>Attachment</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -857,16 +923,19 @@ export default () => {
                                                 <TableCell>
                                                     <ProductDropdownCell items={group.items} />
                                                 </TableCell>
+                                                <TableCell><PriorityBadge priority={highestPriority(group.items.map(it => it.priority))} /></TableCell>
+                                                <TableCell><StageCell items={group.items} /></TableCell>
                                                 <TableCell>
-                                                    <div className="flex flex-col gap-1">
-                                                        {group.items.slice(0, 3).map(it => (
-                                                            <div key={it.id} className="flex items-center gap-2 text-[11px]">
-                                                                {group.items.length > 1 && <span className="max-w-[110px] truncate text-muted-foreground" title={it.product}>{it.product}</span>}
-                                                                <StockChip stock={stockMap[(it.product || '').trim()]} requested={it.quantity} />
+                                                    {(() => {
+                                                        const withFile = group.items.filter(it => it.attachment);
+                                                        if (withFile.length === 0) return <span className="text-muted-foreground">—</span>;
+                                                        return (
+                                                            <div className="flex items-center gap-1">
+                                                                {withFile.slice(0, 3).map(it => <AttachmentThumb key={it.id} url={it.attachment} />)}
+                                                                {withFile.length > 3 && <span className="text-[10px] text-muted-foreground">+{withFile.length - 3}</span>}
                                                             </div>
-                                                        ))}
-                                                        {group.items.length > 3 && <span className="text-[10px] text-muted-foreground">+{group.items.length - 3} more (select to review)</span>}
-                                                    </div>
+                                                        );
+                                                    })()}
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -898,6 +967,7 @@ export default () => {
                     <DataTable
                         data={groupedHistoryData}
                         columns={historyColumns}
+                        className="[&_th]:!text-left [&_td]:!text-left"
                         searchFields={['indentNo', 'firm', 'department', 'indenter']}
                         dataLoading={historyInitialLoading}
                         isSearching={historySearching}
@@ -955,7 +1025,7 @@ export default () => {
 
                                     {/* ── Products table ── */}
                                     <div className="overflow-x-auto">
-                                        <Table>
+                                        <Table className="[&_th]:!text-left [&_td]:!text-left">
                                             <TableHeader>
                                                 <TableRow className="bg-muted/20">
                                                     <TableHead className="w-28 text-xs">Product Code</TableHead>
@@ -964,8 +1034,10 @@ export default () => {
                                                     <TableHead className="text-xs">Qty</TableHead>
                                                     <TableHead className="text-xs">UOM</TableHead>
                                                     <TableHead className="text-xs">Available Stock</TableHead>
+                                                    <TableHead className="text-xs">Priority</TableHead>
                                                     <TableHead className="text-xs">Specifications</TableHead>
                                                     <TableHead className="text-xs">Attachment</TableHead>
+                                                    <TableHead className="text-xs">Item Ledger</TableHead>
                                                     {group.indentType === 'Purchase' && <TableHead className="text-xs">Vendor Type</TableHead>}
                                                     <TableHead className="text-xs">Firm</TableHead>
                                                 </TableRow>
@@ -997,15 +1069,15 @@ export default () => {
                                                             </TableCell>
                                                             <TableCell className="text-xs">{item.uom}</TableCell>
                                                             <TableCell><StockChip stock={stockMap[(item.product || '').trim()]} requested={Number(currentQty) || item.quantity} /></TableCell>
-                                                            <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
+                                                            <TableCell><PriorityBadge priority={item.priority} /></TableCell>
+                                                            <TableCell><PriorityBadge priority={item.priority} /></TableCell>
+                                            <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
                                                                 {item.specifications || '—'}
                                                             </TableCell>
                                                             <TableCell className="text-xs">
-                                                                {item.attachment
-                                                                    ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
-                                                                    : <span className="text-muted-foreground">—</span>
-                                                                }
+                                                                <AttachmentThumb url={item.attachment} size="sm" />
                                                             </TableCell>
+                                                            <TableCell><LedgerLink inventoryId={stockMap[(item.product || '').trim()]?.inventoryId} /></TableCell>
                                                             {group.indentType === 'Purchase' && (
                                                                 <TableCell>
                                                                     <Select
@@ -1148,7 +1220,7 @@ export default () => {
                         </div>
 
                         <div className="rounded-md border">
-                            <Table>
+                            <Table className="[&_th]:!text-left [&_td]:!text-left">
                                 <TableHeader>
                                     <TableRow className="bg-muted/20">
                                         <TableHead className="text-xs">Product Code</TableHead>
@@ -1156,8 +1228,10 @@ export default () => {
                                         <TableHead className="text-xs">Quantity</TableHead>
                                         <TableHead className="text-xs">UOM</TableHead>
                                         <TableHead className="text-xs">Status</TableHead>
-                                        <TableHead className="text-xs">Specifications</TableHead>
+                                        <TableHead className="text-xs">Priority</TableHead>
+                                                    <TableHead className="text-xs">Specifications</TableHead>
                                         <TableHead className="text-xs text-right">Attachment</TableHead>
+                                        <TableHead className="text-xs">Item Ledger</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1181,11 +1255,9 @@ export default () => {
                                                 {item.specifications || '—'}
                                             </TableCell>
                                             <TableCell className="text-xs text-right">
-                                                {item.attachment 
-                                                    ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
-                                                    : <span className="text-muted-foreground">—</span>
-                                                }
+                                                <AttachmentThumb url={item.attachment} size="sm" />
                                             </TableCell>
+                                            <TableCell><LedgerLink inventoryId={stockMap[(item.product || '').trim()]?.inventoryId} /></TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
