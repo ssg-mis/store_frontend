@@ -1,15 +1,22 @@
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { fetchIndentDetail } from '@/lib/fetchers';
+import { fetchIndentDetail, fetchStockForProducts, type ProductStock } from '@/lib/fetchers';
 import { POLink, ProductLink, VendorLink } from '../element/EntityLinks';
 import { Badge, DetailPage, Field, FieldGrid, Section, Stat, StatusBadge, StockChip, dash, fmtDate, fmtMoney, fmtQty, useDetail } from './DetailKit';
-import POTable from './POTable';
+import LedgerLink from '../element/LedgerLink';
+import PriorityBadge, { highestPriority } from '../element/PriorityBadge';
 import { formatFirmName } from '@/lib/utils';
 
 export default function IndentDetailPage() {
     const { indentNumber = '' } = useParams();
     const { data, loading, error } = useDetail<any>(() => fetchIndentDetail(indentNumber), [indentNumber]);
     const items: any[] = data?.items || [];
+    const [invMap, setInvMap] = useState<Record<string, ProductStock>>({});
+    const namesKey = items.map((i) => i.productName).join('|');
+    useEffect(() => {
+        if (namesKey) fetchStockForProducts(namesKey.split('|')).then(setInvMap);
+    }, [namesKey]);
     const done = items.filter((i) => ['Received', 'Issued'].includes(i.stage)).length;
 
     return (
@@ -18,15 +25,13 @@ export default function IndentDetailPage() {
             title={indentNumber}
             loading={loading}
             error={error}
-            subtitle={data && <><Badge tone="blue">{data.indentType}</Badge><span>{formatFirmName(data.firm || '')}</span><span>· {fmtDate(data.createdAt)}</span></>}
+            subtitle={data && <><Badge tone="blue">{data.indentType}</Badge><PriorityBadge priority={highestPriority(items.map((i) => i.priority))} /><span>{formatFirmName(data.firm || '')}</span><span>· {fmtDate(data.createdAt)}</span></>}
         >
             {data && (
                 <>
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <Stat label="Products" value={items.length} />
                         <Stat label="Completed" value={`${done} / ${items.length}`} tone={done === items.length ? 'green' : 'amber'} />
-                        <Stat label="Purchase Orders" value={data.pos.length} />
-                        <Stat label="Total PO Value" value={fmtMoney(data.pos.reduce((s: number, p: any) => s + p.totalAmount, 0))} />
                     </div>
 
                     <Section title="Indent Details">
@@ -52,12 +57,14 @@ export default function IndentDetailPage() {
                                         <TableHead className="text-right">Qty</TableHead>
                                         <TableHead className="text-right">Approved</TableHead>
                                         <TableHead>Available Stock</TableHead>
+                                        <TableHead>Priority</TableHead>
                                         <TableHead>Stage</TableHead>
                                         <TableHead>PO No</TableHead>
                                         <TableHead>Vendor</TableHead>
                                         <TableHead className="text-right">Received</TableHead>
                                         <TableHead className="text-right">Issued</TableHead>
                                         <TableHead>Specifications</TableHead>
+                                        <TableHead>Item Ledger</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -71,12 +78,14 @@ export default function IndentDetailPage() {
                                             <TableCell className="whitespace-nowrap text-right tabular-nums">{fmtQty(it.quantity)} {it.uom}</TableCell>
                                             <TableCell className="text-right tabular-nums">{it.approvedQuantity != null ? fmtQty(it.approvedQuantity) : '—'}</TableCell>
                                             <TableCell><StockChip stock={{ ...it.stock, found: true }} requested={it.approvedQuantity ?? it.quantity} /></TableCell>
+                                            <TableCell><PriorityBadge priority={it.priority} /></TableCell>
                                             <TableCell><StatusBadge status={it.stage} /></TableCell>
                                             <TableCell>{it.poNumbers.length ? <span className="flex flex-col">{it.poNumbers.map((p: string) => <POLink key={p} value={p} />)}</span> : '—'}</TableCell>
                                             <TableCell>{it.vendors.length ? <span className="flex flex-col">{it.vendors.map((v: string) => <VendorLink key={v} value={v} />)}</span> : '—'}</TableCell>
                                             <TableCell className="text-right tabular-nums">{fmtQty(it.receivedQuantity)}</TableCell>
                                             <TableCell className="text-right tabular-nums">{fmtQty(it.issuedQuantity)}</TableCell>
                                             <TableCell className="max-w-[220px] whitespace-normal text-xs text-muted-foreground">{dash(it.specifications)}</TableCell>
+                                            <TableCell><LedgerLink inventoryId={invMap[(it.productName || '').trim()]?.inventoryId} /></TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -143,8 +152,6 @@ export default function IndentDetailPage() {
                             </div>
                         </Section>
                     )}
-
-                    <Section title="Purchase Orders" flush><POTable pos={data.pos} /></Section>
                 </>
             )}
         </DetailPage>

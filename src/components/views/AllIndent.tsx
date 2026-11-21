@@ -1,3 +1,5 @@
+import { AttachmentThumb } from '../element/AttachmentPreview';
+import PriorityBadge from '../element/PriorityBadge';
 import { type ColumnDef, type Row } from '@tanstack/react-table';
 import DataTable from '../element/DataTable';
 import { useEffect, useState } from 'react';
@@ -31,6 +33,7 @@ interface AllIndentTableData {
     areaOfUse: string;
     specifications: string;
     attachment: string;
+    priority?: string;
     vendorType: string;
 }
 
@@ -91,6 +94,7 @@ export default () => {
                     areaOfUse: record.areaOfUse || record.area_of_use || '',
                     specifications: record.specifications || '',
                     attachment: record.attachment || '',
+                    priority: record.priority || 'Normal',
                     vendorType: record.vendorType || record.vendor_type || '',
                 }));
 
@@ -588,22 +592,15 @@ export default () => {
             size: 180,
         },
         {
+            accessorKey: 'priority',
+            header: 'Priority',
+            cell: ({ row }) => <PriorityBadge priority={row.original.priority} />,
+        },
+        {
             accessorKey: 'attachment',
             header: 'Attachment',
             cell: ({ row }) => {
-                const attachment = row.original.attachment;
-                return attachment ? (
-                    <a
-                        href={attachment}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 text-xs sm:text-sm underline"
-                    >
-                        View
-                    </a>
-                ) : (
-                    <span className="text-gray-400 text-xs sm:text-sm">-</span>
-                );
+                return <AttachmentThumb url={row.original.attachment} size="sm" />;
             },
             size: 80,
         },

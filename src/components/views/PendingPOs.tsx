@@ -1,3 +1,5 @@
+import { AttachmentThumb } from '../element/AttachmentPreview';
+import PriorityBadge from '../element/PriorityBadge';
 import { ListTodo, Search } from 'lucide-react';
 import Heading from '../element/Heading';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
@@ -30,6 +32,7 @@ interface PendingIndentsData {
     approvedActualTime: number | null;
     specifications: string;
     attachment: string;
+    priority?: string;
     remarks: string;
 }
 
@@ -89,6 +92,7 @@ export default () => {
                     approvedActualTime: record.approvedActualTime ?? null,
                     specifications: record.specifications || '',
                     attachment: record.attachment || '',
+                    priority: record.priority || 'Normal',
                     remarks: record.remarks || '',
                 }));
                 setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
@@ -316,6 +320,7 @@ export default () => {
                                 <TableHead className="text-xs">Incoming (open POs)</TableHead>
                                 <TableHead className="text-xs">After This Indent Arrives</TableHead>
                                 <TableHead className="text-xs">Specifications</TableHead>
+                                <TableHead className="text-xs">Priority</TableHead>
                                 <TableHead className="text-xs">Attachment</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -346,11 +351,9 @@ export default () => {
                                         );
                                     })()}
                                     <TableCell className="text-xs text-muted-foreground max-w-[180px] break-words whitespace-normal">{item.specifications || '—'}</TableCell>
+                                    <TableCell><PriorityBadge priority={item.priority} /></TableCell>
                                     <TableCell className="text-xs">
-                                        {item.attachment
-                                            ? <a href={item.attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
-                                            : <span className="text-muted-foreground">—</span>
-                                        }
+                                        <AttachmentThumb url={item.attachment} size="sm" />
                                     </TableCell>
                                 </TableRow>
                             ))}

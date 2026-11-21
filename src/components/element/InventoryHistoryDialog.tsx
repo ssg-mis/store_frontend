@@ -9,6 +9,7 @@ import { Button } from '../ui/button';
 import { Pill } from '../ui/pill';
 import { fetchInventoryHistory, type InventoryHistory } from '@/lib/fetchers';
 import { formatDate } from '@/lib/utils';
+import ItemLedger from './ItemLedger';
 
 // `value` renders the cell; `excel` (optional) is the plain value used in the Excel export.
 type Column<T> = { header: string; value: (row: T) => ReactNode; excel?: (row: T) => string | number | null | undefined; align?: 'right' };
@@ -324,15 +325,16 @@ function PoContextBanner({ ctx, data }: { ctx: PoContext; data: H }) {
     );
 }
 
-export default function InventoryHistoryDialog({ inventoryId, onClose, initialScope = 'row', poContext }: { inventoryId: number | null; onClose: () => void; initialScope?: 'row' | 'all'; poContext?: PoContext }) {
+export default function InventoryHistoryDialog({ inventoryId, onClose, initialScope = 'row', poContext, initialTab = 'overview' }: { inventoryId: number | null; onClose: () => void; initialScope?: 'row' | 'all'; poContext?: PoContext; initialTab?: string }) {
     const [scope, setScope] = useState<'row' | 'all'>(initialScope);
     const [data, setData] = useState<InventoryHistory | null>(null);
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState('overview');
+    const [activeTab, setActiveTab] = useState(initialTab);
 
     useEffect(() => {
         if (inventoryId == null) {
             setData(null);
+            setActiveTab(initialTab);
             setScope(initialScope);
             return;
         }
@@ -381,8 +383,7 @@ export default function InventoryHistoryDialog({ inventoryId, onClose, initialSc
     const tabs = data ? [
         { key: 'overview', label: 'Overview', count: null as number | null, body: <Overview data={data} /> },
         { key: 'po', label: 'Purchase Orders', count: data.purchaseOrders.length, body: <HistoryTable rows={data.purchaseOrders} columns={poColumns} empty="No purchase orders for this product." /> },
-        { key: 'in', label: 'Store In', count: data.received.length, body: <HistoryTable rows={data.received} columns={receivedColumns} empty="Nothing received yet." /> },
-        { key: 'out', label: 'Store Out', count: data.storeOut.length, body: <HistoryTable rows={data.storeOut} columns={storeOutColumns} empty="No store out yet." /> },
+        { key: 'ledger', label: 'Item Ledger (IN / OUT)', count: data.received.length + data.storeOut.length, body: <ItemLedger data={data} /> },
         { key: 'loan', label: 'Loans', count: data.loans.length, body: <HistoryTable rows={data.loans} columns={loanColumns} empty="No loans for this product." /> },
         { key: 'indent', label: 'Indents', count: data.indents.length, body: <HistoryTable rows={data.indents} columns={indentColumns} empty="No indents for this product." /> },
         { key: 'quote', label: 'Vendor Quotes', count: data.quotes.length, body: <HistoryTable rows={data.quotes} columns={quoteColumns} empty="No vendor quotes yet." /> },
