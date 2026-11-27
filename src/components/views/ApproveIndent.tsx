@@ -10,6 +10,8 @@ import { IndentLink, ProductLink } from '../element/EntityLinks';
 import { StockChip, StatusBadge } from '../detail/DetailKit';
 import { AttachmentThumb } from '../element/AttachmentPreview';
 import LedgerLink from '../element/LedgerLink';
+import MakeText from '../element/MakeText';
+import IndentPdfActions from '../element/IndentPdfActions';
 import PriorityBadge, { highestPriority } from '../element/PriorityBadge';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { toast } from 'sonner';
@@ -31,6 +33,7 @@ import {
     DialogFooter,
 } from "../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import UomText from '../element/UomText';
 
 const statuses = ['Select', 'Reject', 'Three Party', 'Regular'];
 // Vendors picked at approval for a Multi-Party product (autofilled later in Vendor Rate Update).
@@ -48,6 +51,7 @@ interface ApproveTableData {
     departmentHead: string;
     indentApprovedBy: string;
     product: string;
+    make?: string;
     productCode: string | null;
     productCategory: string;
     quantity: number;
@@ -69,6 +73,7 @@ interface HistoryData {
     indenter: string;
     department: string;
     product: string;
+    make?: string;
     productCode: string | null;
     uom: string;
     approvedQuantity: number;
@@ -92,6 +97,7 @@ const ProductDropdownCell = ({ items }: { items: any[] }) => {
         return (
             <span className="text-xs max-w-[260px] truncate block" title={name}>
                 <ProductLink value={name} />
+                <MakeText make={items[0].make} />
             </span>
         );
     }
@@ -199,6 +205,7 @@ export default () => {
                     departmentHead: record.departmentHead || '',
                     indentApprovedBy: record.indentApprovedBy || '',
                     product: record.productName || '',
+                    make: record.make || '',
                     productCode: record.productCode || null,
                     productCategory: record.productCategory || '',
                     quantity: record.quantity || 0,
@@ -259,6 +266,7 @@ export default () => {
                     indenter: record.indenterName,
                     department: record.department || '',
                     product: record.productName,
+                    make: record.make || '',
                     productCode: record.productCode || null,
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
@@ -811,6 +819,11 @@ export default () => {
                 );
             },
         },
+        {
+            id: 'indentPdf',
+            header: 'Indent PDF',
+            cell: ({ row }) => <IndentPdfActions indentNo={row.original.indentNo} />,
+        },
         { accessorKey: 'date', header: 'Request Date' },
         { accessorKey: 'approvedDate', header: 'Approval Date' },
         {
@@ -894,6 +907,7 @@ export default () => {
                                             <TableHead>Priority</TableHead>
                                             <TableHead>Status</TableHead>
                                             <TableHead>Attachment</TableHead>
+                                            <TableHead>Indent PDF</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -937,6 +951,7 @@ export default () => {
                                                         );
                                                     })()}
                                                 </TableCell>
+                                                <TableCell><IndentPdfActions indentNo={group.indentNo} /></TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -1054,7 +1069,7 @@ export default () => {
                                                                     : <span className="text-muted-foreground text-xs">—</span>
                                                                 }
                                                             </TableCell>
-                                                            <TableCell className="text-xs max-w-[160px]"><ProductLink value={item.product} /></TableCell>
+                                                            <TableCell className="text-xs max-w-[160px]"><ProductLink value={item.product} /><MakeText make={item.make} /></TableCell>
                                                             <TableCell className="text-xs text-muted-foreground">{item.productCategory || '—'}</TableCell>
                                                             <TableCell>
                                                                 <Input
@@ -1067,7 +1082,7 @@ export default () => {
                                                                     className="w-20 text-xs h-8"
                                                                 />
                                                             </TableCell>
-                                                            <TableCell className="text-xs">{item.uom}</TableCell>
+                                                            <TableCell className="text-xs"><UomText uom={item.uom} /></TableCell>
                                                             <TableCell><StockChip stock={stockMap[(item.product || '').trim()]} requested={Number(currentQty) || item.quantity} /></TableCell>
                                                             <TableCell><PriorityBadge priority={item.priority} /></TableCell>
                                                             <TableCell><PriorityBadge priority={item.priority} /></TableCell>
@@ -1243,9 +1258,9 @@ export default () => {
                                                     : <span className="text-muted-foreground text-xs">—</span>
                                                 }
                                             </TableCell>
-                                            <TableCell className="text-xs font-medium">{item.product}</TableCell>
+                                            <TableCell className="text-xs font-medium">{item.product}<MakeText make={item.make} /></TableCell>
                                             <TableCell className="text-xs">{item.approvedQuantity}</TableCell>
-                                            <TableCell className="text-xs">{item.uom}</TableCell>
+                                            <TableCell className="text-xs"><UomText uom={item.uom} /></TableCell>
                                             <TableCell>
                                                 <Pill variant={item.vendorType === 'Reject' ? 'reject' : item.vendorType === 'Regular' ? 'primary' : 'secondary'}>
                                                     {item.vendorType}

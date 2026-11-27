@@ -1,5 +1,6 @@
 import { ListTodo, Search, ChevronDown, ChevronRight, History, Building2, PackageCheck, LogOut, ExternalLink, Image as ImageIcon, CheckCircle2, IndianRupee } from 'lucide-react';
 import Heading from '../element/Heading';
+import UomText from '../element/UomText';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { fetchFromSupabasePaginated, fetchVendors, fetchFirms, uploadFile, updatePOMasterPdf, fetchPartyCompletedHistory, type PartyCompletedHistory } from '@/lib/fetchers';
@@ -15,6 +16,7 @@ import POPdf, { type POPdfProps } from '../element/POPdf';
 import { toast } from 'sonner';
 import { ClipLoader as Loader } from 'react-spinners';
 import { POLink } from '../element/EntityLinks';
+import MakeText from '../element/MakeText';
 import { FileText as FileTextIcon } from 'lucide-react';
 
 interface POMasterItem {
@@ -44,6 +46,7 @@ interface POMasterItem {
     terms: string[];
     pdf: string;
     make: string;
+    indentMake?: string;
 }
 
 const parseGSTPercent = (value: any): number => {
@@ -155,6 +158,7 @@ export default () => {
                     ].filter(Boolean),
                     pdf: sheet.pdf || '',
                     make: sheet.make || '',
+                    indentMake: sheet.indent?.make || '',
                 }));
                 setTableData(prev => append ? [...prev, ...mappedData] : mappedData);
                 setTotal(data.total);
@@ -310,6 +314,7 @@ export default () => {
                 ].filter(Boolean),
                 pdf: sheet.pdf || '',
                 make: sheet.make || '',
+                indentMake: sheet.indent?.make || '',
             }));
 
             const groups = new Map<string, POMasterItem[]>();
@@ -586,6 +591,7 @@ export default () => {
                                                     <TableCell className="text-xs">
                                                         {item.product}
                                                         {item.make ? <span className="ml-1 text-muted-foreground">(Make: {item.make})</span> : null}
+                                                        <MakeText make={item.indentMake !== item.make ? item.indentMake : ''} />
                                                     </TableCell>
                                                     <TableCell className="text-xs">{item.description || '-'}</TableCell>
                                                     <TableCell className="text-xs">{item.quantity} {item.unit}</TableCell>
@@ -754,6 +760,7 @@ export default () => {
                                                             <TableCell className="text-xs font-semibold text-primary text-left whitespace-nowrap">{item.poNumber || '—'}</TableCell>
                                                             <TableCell className="text-xs font-medium text-left max-w-[280px] whitespace-normal break-words">
                                                                 <div className="font-semibold text-foreground">{item.product}</div>
+                                                                <MakeText make={item.make} />
                                                                 {item.department && item.department !== 'N/A' && (
                                                                     <div className="text-[10px] text-muted-foreground mt-0.5">{item.department}</div>
                                                                 )}
@@ -762,7 +769,7 @@ export default () => {
                                                             <TableCell className="text-xs text-muted-foreground text-left max-w-[180px] whitespace-normal break-words" title={item.firm}>{formatFirmName(item.firm)}</TableCell>
                                                             <TableCell className="text-xs text-left whitespace-nowrap">
                                                                 <span className="font-bold text-green-600 dark:text-green-400">
-                                                                    {item.receivedQuantity} {item.uom}
+                                                                    {item.receivedQuantity} <UomText uom={item.uom} inline />
                                                                 </span>
                                                                 {item.damagedQuantity ? (
                                                                     <div className="text-[10px] text-red-500 font-medium">Damaged: {item.damagedQuantity}</div>
@@ -847,10 +854,11 @@ export default () => {
                                                             <TableCell className="text-xs font-semibold text-primary text-left whitespace-nowrap">{item.indentNumber || '—'}</TableCell>
                                                             <TableCell className="text-xs font-medium text-left max-w-[280px] whitespace-normal break-words">
                                                                 <span className="font-semibold text-foreground">{item.product}</span>
+                                                                <MakeText make={item.make} />
                                                             </TableCell>
                                                             <TableCell className="text-xs text-left whitespace-nowrap">
                                                                 <span className="font-bold text-purple-600 dark:text-purple-400">
-                                                                    {item.issuedQuantity} {item.uom}
+                                                                    {item.issuedQuantity} <UomText uom={item.uom} inline />
                                                                 </span>
                                                             </TableCell>
                                                             <TableCell className="text-xs text-muted-foreground text-left max-w-[160px] whitespace-normal break-words">{item.areaOfUse || '—'}</TableCell>

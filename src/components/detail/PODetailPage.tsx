@@ -6,6 +6,8 @@ import { fetchPODetail } from '@/lib/fetchers';
 import { IndentLink, ProductLink, VendorLink } from '../element/EntityLinks';
 import { Badge, DetailPage, Field, FieldGrid, Progress, Section, Stat, StatusBadge, StockChip, dash, fmtDate, fmtDateTime, fmtMoney, fmtQty, useDetail } from './DetailKit';
 import { formatFirmName } from '@/lib/utils';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 
 const API = import.meta.env.VITE_API_BASE_URL;
 
@@ -98,6 +100,7 @@ export default function PODetailPage() {
                                             <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
                                             <TableCell className="max-w-[260px] whitespace-normal">
                                                 <ProductLink value={it.product} />
+                                                <MakeText make={it.indentMake && it.indentMake !== it.make ? it.indentMake : ''} />
                                                 {it.description && <p className="text-[11px] text-muted-foreground">{it.description}</p>}
                                             </TableCell>
                                             <TableCell>{it.indentNumber ? <IndentLink value={it.indentNumber} /> : '—'}</TableCell>
@@ -131,7 +134,7 @@ export default function PODetailPage() {
                                                     <TableCell className="whitespace-nowrap">{fmtDate(r.createdAt)}</TableCell>
                                                     <TableCell className="font-mono text-xs">{dash(r.grnNumber)}</TableCell>
                                                     <TableCell>{r.product}</TableCell>
-                                                    <TableCell className="text-right tabular-nums">{fmtQty(r.receivedQuantity)} {r.uom}{r.damagedQuantity ? <span className="text-red-600"> (−{fmtQty(r.damagedQuantity)} dmg)</span> : null}</TableCell>
+                                                    <TableCell className="text-right tabular-nums">{fmtQty(r.receivedQuantity)} <UomText uom={r.uom} inline />{r.damagedQuantity ? <span className="text-red-600"> (−{fmtQty(r.damagedQuantity)} dmg)</span> : null}</TableCell>
                                                     <TableCell><StatusBadge status={r.status} /></TableCell>
                                                     <TableCell className="text-xs">{dash(r.billNumber)}{r.billAmount != null ? ` · ${fmtMoney(r.billAmount)}` : ''}</TableCell>
                                                 </TableRow>

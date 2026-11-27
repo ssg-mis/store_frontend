@@ -40,6 +40,9 @@ import * as XLSX from 'xlsx';
 import { EditOutlined, SaveOutlined } from "@ant-design/icons";
 import { postToSheet } from '@/lib/fetchers';
 import { IndentLink, ProductLink } from '../element/EntityLinks';
+import IndentPdfActions from '../element/IndentPdfActions';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 
 interface StoreOutTableData {
     id: number;
@@ -47,6 +50,7 @@ interface StoreOutTableData {
     firm: string;
     department: string;
     product: string;
+    make?: string;
     date: string;
     planned: string;
     indenter: string;
@@ -64,6 +68,7 @@ interface HistoryData {
     firm: string;
     department: string;
     product: string;
+    make?: string;
     date: string;
     indenter: string;
     areaOfUse: string;
@@ -168,6 +173,7 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     product: record.productName || '',
+                    make: record.make || '',
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                     planned: record.planned || '',
                     areaOfUse: record.areaOfUse || '',
@@ -231,6 +237,7 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
                     indenter: record.indenterName || '',
                     department: record.department || '',
                     product: record.productName || '',
+                    make: record.make || '',
                     date: record.createdAt ? formatDate(new Date(record.createdAt)) : '',
                     planned: record.planned || '',
                     areaOfUse: record.areaOfUse || '',
@@ -454,7 +461,7 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
         { accessorKey: 'firm', header: 'Firm', cell: ({ getValue }: any) => <span title={getValue()}>{formatFirmName(getValue())}</span> },
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'department', header: 'Department' },
-        { accessorKey: 'product', header: 'Product', cell: ({ getValue }: any) => <ProductLink value={getValue()} /> },
+        { accessorKey: 'product', header: 'Product', cell: ({ getValue, row }: any) => <><ProductLink value={getValue()} /><MakeText make={row.original.make} /></> },
         { accessorKey: 'quantity', header: 'Quantity' },
         { accessorKey: 'date', header: 'Date' },
         { accessorKey: 'specifications', header: 'Specifications' },
@@ -472,6 +479,14 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
                 );
             },
         },
+        // Indent PDF (Store Out section only; Loan Out reuses this component and is left unchanged)
+        ...(mode === 'store-out'
+            ? [{
+                id: 'indentPdf',
+                header: 'Indent PDF',
+                cell: ({ row }: { row: Row<StoreOutTableData> }) => <IndentPdfActions indentNo={row.original.indentNo} />,
+            }]
+            : []),
     ];
 
 
@@ -480,8 +495,8 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
         { accessorKey: "firm", header: "Firm" },
         { accessorKey: "indenter", header: "Indenter" },
         { accessorKey: "department", header: "Department" },
-        { accessorKey: "product", header: "Product" },
-        { accessorKey: "uom", header: "UOM" },
+        { accessorKey: "product", header: "Product", cell: ({ getValue, row }: any) => <>{getValue()}<MakeText make={row.original.make} /></> },
+        { accessorKey: "uom", header: "UOM", cell: ({ getValue }: any) => <UomText uom={getValue()} /> },
         { accessorKey: "quantity", header: "Issued Quantity" },
         { accessorKey: "requestedQuantity", header: "Requested Quantity" },
         { accessorKey: "issueApprovedBy", header: "Issue Approved By" },
@@ -496,6 +511,13 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
                 return <Pill variant={variant}>{status}</Pill>;
             },
         },
+        ...(mode === 'store-out'
+            ? [{
+                id: 'indentPdf',
+                header: 'Indent PDF',
+                cell: ({ row }: { row: Row<HistoryData> }) => <IndentPdfActions indentNo={row.original.indentNo} />,
+            }]
+            : []),
     ];
 
 
@@ -865,9 +887,9 @@ export default ({ mode = 'store-out', initialTab }: { mode?: 'store-out' | 'loan
                                         { label: 'Department',    value: selectedIndent.department },
                                         { label: 'Area of Use',   value: selectedIndent.areaOfUse },
                                         { label: 'Date',          value: selectedIndent.date },
-                                        { label: 'Item',          value: selectedIndent.product },
+                                        { label: 'Item',          value: selectedIndent.product ? <>{selectedIndent.product}<MakeText make={selectedIndent.make} /></> : selectedIndent.product },
                                         { label: 'Quantity',      value: String(selectedIndent.quantity) },
-                                        { label: 'UOM',           value: selectedIndent.uom },
+                                        { label: 'UOM',           value: selectedIndent.uom ? <UomText uom={selectedIndent.uom} /> : selectedIndent.uom },
                                         { label: 'Validity Date', value: selectedIndent.validityDate },
                                         { label: 'Specifications',value: selectedIndent.specifications },
                                     ].map(({ label, value }) =>

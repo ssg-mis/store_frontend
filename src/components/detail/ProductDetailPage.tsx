@@ -5,6 +5,7 @@ import { IndentLink, POLink, VendorLink } from '../element/EntityLinks';
 import { Badge, DetailPage, Field, FieldGrid, Section, StatusBadge, dash, fmtDate, fmtMoney, fmtQty, useDetail } from './DetailKit';
 import StockPanel from './StockPanel';
 import { formatFirmName } from '@/lib/utils';
+import UomText from '../element/UomText';
 
 export default function ProductDetailPage() {
     const { productName = '' } = useParams();
@@ -16,7 +17,7 @@ export default function ProductDetailPage() {
             title={data?.name || productName}
             loading={loading}
             error={error}
-            subtitle={data && <>{data.code && <Badge tone="blue">{data.code}</Badge>}{data.category && <span>{data.category}</span>}{data.uom && <span>· {data.uom}</span>}</>}
+            subtitle={data && <>{data.code && <Badge tone="blue">{data.code}</Badge>}{data.category && <span>{data.category}</span>}{data.uom && <span>· <UomText uom={data.uom} inline /></span>}</>}
         >
             {data && (
                 <>
@@ -38,7 +39,7 @@ export default function ProductDetailPage() {
                                             <TableRow key={r.id}>
                                                 <TableCell>{formatFirmName(r.firm)}</TableCell>
                                                 <TableCell>{dash(r.department)}</TableCell>
-                                                <TableCell className={`text-right font-bold tabular-nums ${r.current <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmtQty(r.current)} {r.uom}</TableCell>
+                                                <TableCell className={`text-right font-bold tabular-nums ${r.current <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmtQty(r.current)} <UomText uom={r.uom} inline /></TableCell>
                                                 <TableCell className="text-right tabular-nums">{fmtQty(r.indented)}</TableCell>
                                                 <TableCell className="text-right tabular-nums">{fmtQty(r.approved)}</TableCell>
                                                 <TableCell className="text-right tabular-nums">{fmtQty(r.purchased)}</TableCell>
@@ -66,7 +67,7 @@ export default function ProductDetailPage() {
                                                 <TableCell><IndentLink value={i.indentNumber} /></TableCell>
                                                 <TableCell className="whitespace-nowrap">{fmtDate(i.createdAt)}</TableCell>
                                                 <TableCell>{dash(i.department)}</TableCell>
-                                                <TableCell className="text-right tabular-nums">{fmtQty(i.quantity)} {i.uom}</TableCell>
+                                                <TableCell className="text-right tabular-nums">{fmtQty(i.quantity)} <UomText uom={i.uom} inline /></TableCell>
                                                 <TableCell className="text-right tabular-nums">{i.approvedQuantity != null ? fmtQty(i.approvedQuantity) : '—'}</TableCell>
                                                 <TableCell><StatusBadge status={i.stage} /></TableCell>
                                             </TableRow>
@@ -92,7 +93,7 @@ export default function ProductDetailPage() {
                                                 <TableCell><POLink value={r.poNumber} /></TableCell>
                                                 <TableCell className="font-mono text-xs">{dash(r.grnNumber)}</TableCell>
                                                 <TableCell><VendorLink value={r.vendor} /></TableCell>
-                                                <TableCell className="text-right tabular-nums">{fmtQty(r.receivedQuantity)} {r.uom}</TableCell>
+                                                <TableCell className="text-right tabular-nums">{fmtQty(r.receivedQuantity)} <UomText uom={r.uom} inline /></TableCell>
                                                 <TableCell><StatusBadge status={r.status} /></TableCell>
                                             </TableRow>
                                         ))}

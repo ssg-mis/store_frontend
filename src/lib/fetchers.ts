@@ -111,6 +111,86 @@ export async function uploadFile(
     }
 }
 
+// ── Quotation register & revisions ───────────────────────────────────────────
+export interface QuotationRegisterItem {
+    id: number; indent_id: number; indentNo: string; product: string; make?: string; description: string;
+    qty: string | null; unit: string; firm: string;
+    rate: number | null; gstPercent: number | null; discountPercent: number | null;
+    amount: number | null; gstAmount: number | null; total: number | null;
+    priceSource: 'PO' | 'Vendor Rate' | null; poNumber: string | null;
+}
+export interface QuotationRegisterVendor {
+    supplierName: string; address: string; gst: string; email: string; mobile: string; contactPerson: string;
+    pdfLink: string; emailStatus: string | null; emailedTo: string | null; emailedAt: string | null;
+    status: string; hasPO: boolean; ratesReceived: number;
+    items: QuotationRegisterItem[]; subtotal: number; taxTotal: number; grandTotal: number;
+}
+export interface QuotationRegisterVersion {
+    quotationNo: string; revisionNo: number; previousQuotationNo: string | null; changeSummary: string | null;
+    description: string; timestamp: string; isLatest: boolean; vendors: QuotationRegisterVendor[];
+}
+export interface QuotationRegisterEntry {
+    baseQuotationNo: string; latestQuotationNo: string; latestRevisionNo: number;
+    createdAt: string; updatedAt: string; versions: QuotationRegisterVersion[];
+}
+
+async function quotationJson(path: string, init?: RequestInit) {
+    const response = await apiFetch(`${API_BASE_URL}${path}`, init);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error || `Request failed (${response.status})`);
+    return data;
+}
+
+export async function fetchQuotationRegister(): Promise<QuotationRegisterEntry[]> {
+    const data = await quotationJson('/quotation-history/register');
+    return Array.isArray(data) ? data : [];
+}
+
+export async function fetchNextQuotationRevision(quotationNo: string): Promise<{
+    baseQuotationNo: string; previousQuotationNo: string; revisionNo: number; quotationNumber: string;
+}> {
+    return quotationJson(`/quotation-history/next-revision?quotationNo=${encodeURIComponent(quotationNo)}`);
+}
+
+export async function createQuotationRevision(payload: {
+    previousQuotationNo: string; revisionNo: number; quotationDescription?: string; rows: any[];
+}): Promise<{ quotationNumber: string; changeSummary: string }> {
+    return quotationJson('/quotation-history/revise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+// Emails a quotation PDF to the vendor. The backend sends it to the vendor's email saved in Master.
+export async function sendQuotationEmail(
+    file: File,
+    vendorName: string,
+    quotationNumber: string,
+    companyName?: string
+): Promise<{ sent: boolean; to?: string; reason?: string }> {
+    const formData = new FormData();
+    formData.append('vendorName', vendorName);
+    formData.append('quotationNumber', quotationNumber);
+    if (companyName) formData.append('companyName', companyName);
+    formData.append('file', file);
+
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/quotation/send-email`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data?.sent) {
+            return { sent: false, reason: data?.reason || data?.message || `Request failed (${response.status})` };
+        }
+        return { sent: true, to: data.to };
+    } catch (error: any) {
+        console.error('Error sending quotation email:', error);
+        return { sent: false, reason: error?.message || 'Network error' };
+    }
+}
+
 export async function fetchIndentMasterData() {
     try {
         const [deptsRes, headsRes, firmsRes, inventoryRes, productGroupsRes] = await Promise.all([
@@ -1736,6 +1816,7 @@ export interface PartyCompletedReceivedItem {
     poDate: string;
     vendor: string;
     product: string;
+    make?: string;
     receivedQuantity: number;
     uom: string;
     damagedQuantity?: number;
@@ -1757,6 +1838,7 @@ export interface PartyCompletedStoreOutItem {
     id: number;
     indentNumber: string;
     product: string;
+    make?: string;
     issuedQuantity: number;
     uom: string;
     issueApprovedBy: string;

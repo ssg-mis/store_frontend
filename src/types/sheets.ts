@@ -4,6 +4,7 @@ export type IndentSheet = {
     id: number;
     timestamp: string;
     indentNumber: string;
+    make?: string | null;
     indenterName: string;
     firm: string;
     department: string;
@@ -336,6 +337,11 @@ export type QuotationHistorySheet = {
     unit: string;
     pdfLink: string;
     firm: string;
+    // Revision tracking (optional: absent on rows created before revisions existed)
+    baseQuotationNo?: string | null;
+    revisionNo?: number;
+    isLatest?: boolean;
+    quotationDescription?: string | null;
 };
 
 export type SheetData =

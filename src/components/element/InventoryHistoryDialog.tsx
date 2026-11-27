@@ -10,6 +10,7 @@ import { Pill } from '../ui/pill';
 import { fetchInventoryHistory, type InventoryHistory } from '@/lib/fetchers';
 import { formatDate } from '@/lib/utils';
 import ItemLedger from './ItemLedger';
+import UomText from './UomText';
 
 // `value` renders the cell; `excel` (optional) is the plain value used in the Excel export.
 type Column<T> = { header: string; value: (row: T) => ReactNode; excel?: (row: T) => string | number | null | undefined; align?: 'right' };
@@ -127,7 +128,7 @@ const rfqColumns: Column<H['rfq'][number]>[] = [
 const priceColumns: Column<H['priceList'][number]>[] = [
     { header: 'Vendor', value: r => r.vendor },
     { header: 'Price', value: r => showMoney(r.price), align: 'right' },
-    { header: 'UOM', value: r => r.uom },
+    { header: 'UOM', value: r => (r.uom ? <UomText uom={r.uom} /> : r.uom), excel: r => r.uom },
     { header: 'Valid From', value: r => showDate(r.validFrom) },
     { header: 'Valid Upto', value: r => showDate(r.validUpto) },
     { header: 'Status', value: r => (r.valid ? 'Valid' : 'Expired') },
@@ -222,7 +223,7 @@ function Overview({ data }: { data: H }) {
                     <Field label="Item Name" value={item.itemName} />
                     <Field label="Category" value={item.category} />
                     <Field label="Sub Category" value={item.subCategory} />
-                    <Field label="UOM" value={item.uom} />
+                    <Field label="UOM" value={item.uom ? <UomText uom={item.uom} /> : item.uom} />
                     <Field label="Specifications" value={item.specifications} />
                     <Field label="Product Groups" value={item.productGroups?.map(g => g.name).filter(Boolean).join(', ')} />
                     <Field label="Other UOMs" value={item.additionalUoms?.map(u => `${u.uomName}${u.conversionToBase ? ` (${u.conversionToBase})` : ''}`).join(', ')} />
@@ -312,7 +313,7 @@ function PoContextBanner({ ctx, data }: { ctx: PoContext; data: H }) {
         <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4">
             <p className="text-[11px] font-bold uppercase tracking-wider text-blue-700">In this PO</p>
             <div className="mt-1 flex flex-wrap items-baseline gap-x-6 gap-y-1">
-                <p className="text-lg font-bold">{showNum(ctx.qty)} {ctx.unit || data.item.uom} <span className="font-normal text-muted-foreground">×</span> {showMoney(ctx.rate)}</p>
+                <p className="text-lg font-bold">{showNum(ctx.qty)} <UomText uom={ctx.unit || data.item.uom} inline /> <span className="font-normal text-muted-foreground">×</span> {showMoney(ctx.rate)}</p>
                 <p className="text-sm text-muted-foreground">= <span className="font-semibold text-foreground">{showMoney(ctx.qty * ctx.rate)}</span></p>
             </div>
             <div className="mt-2 flex flex-wrap gap-2">

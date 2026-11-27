@@ -7,6 +7,8 @@ import { Badge, DetailPage, Field, FieldGrid, Section, Stat, StatusBadge, StockC
 import LedgerLink from '../element/LedgerLink';
 import PriorityBadge, { highestPriority } from '../element/PriorityBadge';
 import { formatFirmName } from '@/lib/utils';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 
 export default function IndentDetailPage() {
     const { indentNumber = '' } = useParams();
@@ -73,9 +75,10 @@ export default function IndentDetailPage() {
                                             <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
                                             <TableCell className="min-w-[220px] max-w-[320px] whitespace-normal break-words">
                                                 <ProductLink value={it.productName} />
+                                                <MakeText make={it.make} />
                                                 {it.productCode && <p className="font-mono text-[10px] text-muted-foreground">{it.productCode}</p>}
                                             </TableCell>
-                                            <TableCell className="whitespace-nowrap text-right tabular-nums">{fmtQty(it.quantity)} {it.uom}</TableCell>
+                                            <TableCell className="whitespace-nowrap text-right tabular-nums">{fmtQty(it.quantity)} <UomText uom={it.uom} inline /></TableCell>
                                             <TableCell className="text-right tabular-nums">{it.approvedQuantity != null ? fmtQty(it.approvedQuantity) : '—'}</TableCell>
                                             <TableCell><StockChip stock={{ ...it.stock, found: true }} requested={it.approvedQuantity ?? it.quantity} /></TableCell>
                                             <TableCell><PriorityBadge priority={it.priority} /></TableCell>
@@ -110,7 +113,7 @@ export default function IndentDetailPage() {
                                 <TableBody>
                                     {items.map((it) => (
                                         <TableRow key={it.id}>
-                                            <TableCell className="min-w-[220px] whitespace-normal break-words font-medium">{it.productName}</TableCell>
+                                            <TableCell className="min-w-[220px] whitespace-normal break-words font-medium">{it.productName}<MakeText make={it.make} /></TableCell>
                                             {(['created', 'approved', 'rateUpdated', 'poCreated', 'received', 'issued'] as const).map((k) => (
                                                 <TableCell key={k} className={it.timeline[k] ? 'whitespace-nowrap' : 'text-muted-foreground'}>{fmtDate(it.timeline[k])}</TableCell>
                                             ))}
@@ -127,7 +130,7 @@ export default function IndentDetailPage() {
                                 {items.filter((i) => i.rateUpdates.length || i.finalVendor).map((it) => (
                                     <div key={it.id} className="space-y-2 p-4">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <span className="text-sm font-bold">{it.productName}</span>
+                                            <span className="text-sm font-bold">{it.productName}<MakeText make={it.make} inline /></span>
                                             {it.finalVendor && (
                                                 <Badge tone="green">Final: {it.finalVendor.vendor} @ {fmtMoney(it.finalVendor.rate)} · {it.finalVendor.paymentTerm}</Badge>
                                             )}

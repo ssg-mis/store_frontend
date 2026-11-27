@@ -7,6 +7,7 @@ import { IndentLink, POLink } from './EntityLinks';
 import { AttachmentThumb } from './AttachmentPreview';
 import { formatDate } from '@/lib/utils';
 import type { InventoryHistory } from '@/lib/fetchers';
+import UomText from './UomText';
 
 type Received = InventoryHistory['received'][number];
 type StoreOut = InventoryHistory['storeOut'][number];
@@ -154,12 +155,12 @@ export default function ItemLedger({ data }: { data: InventoryHistory }) {
                                         <TableCell className="text-xs whitespace-nowrap"><IndentLink value={r.indentNumber} /></TableCell>
                                         <TableCell className="text-xs">{r.vendor || '—'}</TableCell>
                                         <TableCell className="text-xs whitespace-nowrap">{r.billNumber || '—'}</TableCell>
-                                        <TableCell className="text-xs text-right font-semibold text-green-700 tabular-nums">+{num(r.okQuantity)} {r.uom}</TableCell>
+                                        <TableCell className="text-xs text-right font-semibold text-green-700 tabular-nums">+{num(r.okQuantity)} <UomText uom={r.uom} inline /></TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
                             <TableFooter>
-                                <TableRow><TableCell colSpan={6} className="text-xs font-semibold">Total IN</TableCell><TableCell className="text-right text-xs font-bold tabular-nums">{num(totalIn)} {uom}</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={6} className="text-xs font-semibold">Total IN</TableCell><TableCell className="text-right text-xs font-bold tabular-nums">{num(totalIn)} <UomText uom={uom} inline /></TableCell></TableRow>
                             </TableFooter>
                         </Table>
                     )
@@ -183,12 +184,12 @@ export default function ItemLedger({ data }: { data: InventoryHistory }) {
                                         <TableCell className="text-xs">{r.department || '—'}</TableCell>
                                         <TableCell className="text-xs">{r.indenter || '—'}</TableCell>
                                         <TableCell className="text-xs">{r.approvedBy || '—'}</TableCell>
-                                        <TableCell className="text-xs text-right font-semibold text-red-600 tabular-nums">−{num(r.quantity)} {r.uom}</TableCell>
+                                        <TableCell className="text-xs text-right font-semibold text-red-600 tabular-nums">−{num(r.quantity)} <UomText uom={r.uom} inline /></TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
                             <TableFooter>
-                                <TableRow><TableCell colSpan={6} className="text-xs font-semibold">Total OUT</TableCell><TableCell className="text-right text-xs font-bold tabular-nums">{num(totalOut)} {uom}</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={6} className="text-xs font-semibold">Total OUT</TableCell><TableCell className="text-right text-xs font-bold tabular-nums">{num(totalOut)} <UomText uom={uom} inline /></TableCell></TableRow>
                             </TableFooter>
                         </Table>
                     )

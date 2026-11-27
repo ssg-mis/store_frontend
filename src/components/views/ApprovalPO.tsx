@@ -21,6 +21,8 @@ import { useAuth } from '@/context/AuthContext';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
 import { POLink, VendorLink } from '../element/EntityLinks';
 import { FileText as FileTextIcon } from 'lucide-react';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 
 interface VendorQuote {
     slot: number;
@@ -52,6 +54,7 @@ interface PORow {
     rejectionReason: string | null;
     approvalStatus: string;
     make: string | null;
+    indent?: { make?: string | null } | null;
     vendorQuotes?: VendorQuote[];     // All vendor quotes for multi-party comparison
     approvedVendorName?: string;      // The selected winner from Three-Party Approval
 }
@@ -967,9 +970,10 @@ export default function ApprovalPO() {
                                                     {item.product}
                                                     <History className="h-3 w-3 shrink-0 text-muted-foreground" />
                                                 </button>
+                                                <MakeText make={item.indent?.make} />
                                             </TableCell>
                                             <TableCell className="text-xs">{item.quantity}</TableCell>
-                                            <TableCell className="text-xs">{item.unit}</TableCell>
+                                            <TableCell className="text-xs"><UomText uom={item.unit} /></TableCell>
                                             <TableCell className="text-xs">&#8377;{Number(item.rate || 0).toLocaleString()}</TableCell>
                                             <TableCell className="text-xs">
                                                 {item.discountPercent ? `${item.discountPercent}%` : '—'}
@@ -1107,12 +1111,12 @@ export default function ApprovalPO() {
                                             <TableCell className="text-xs whitespace-nowrap">{row.poDate ? formatDate(new Date(row.poDate)) : '—'}</TableCell>
                                             <TableCell className="text-xs"><VendorLink value={row.vendor} /></TableCell>
                                             <TableCell className="text-xs">{row.quantity}</TableCell>
-                                            <TableCell className="text-xs">{row.unit}</TableCell>
+                                            <TableCell className="text-xs"><UomText uom={row.unit} /></TableCell>
                                             <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.rate || 0).toLocaleString()}</TableCell>
                                             <TableCell className="text-xs whitespace-nowrap">&#8377;{Number(row.amount || 0).toLocaleString()}</TableCell>
                                             <TableCell className="text-xs">
                                                 {row.receivedQuantity != null ? (
-                                                    <span>{row.receivedQuantity} {row.unit}</span>
+                                                    <span>{row.receivedQuantity} <UomText uom={row.unit} inline /></span>
                                                 ) : <span className="text-muted-foreground">—</span>}
                                             </TableCell>
                                             <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
@@ -1200,7 +1204,7 @@ export default function ApprovalPO() {
                                         return (
                                             <TableRow key={row.id}>
                                                 <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                                                <TableCell className="text-xs font-medium whitespace-nowrap">{row.productName}</TableCell>
+                                                <TableCell className="text-xs font-medium whitespace-nowrap">{row.productName}<MakeText make={row.make} /></TableCell>
                                                 <TableCell className="text-xs whitespace-nowrap">
                                                     <div>{row.indenterName || '—'}</div>
                                                     {row.department && (
@@ -1209,13 +1213,13 @@ export default function ApprovalPO() {
                                                 </TableCell>
                                                 <TableCell className="text-xs whitespace-nowrap">{row.areaOfUse || '—'}</TableCell>
                                                 <TableCell className="text-xs whitespace-nowrap">
-                                                    <div>{row.quantity} {row.uom}</div>
+                                                    <div>{row.quantity} <UomText uom={row.uom} inline /></div>
                                                     <div className="text-[10px] text-muted-foreground">{row.createdAt ? formatDate(new Date(row.createdAt)) : '—'}</div>
                                                 </TableCell>
                                                 <TableCell className="text-xs whitespace-nowrap">
                                                     {approved ? (
                                                         <>
-                                                            <div>{approved.approvedQuantity} {row.uom}</div>
+                                                            <div>{approved.approvedQuantity} <UomText uom={row.uom} inline /></div>
                                                             {approved.planned && (
                                                                 <div className="text-[10px] text-muted-foreground">Planned: {formatDate(new Date(approved.planned))}</div>
                                                             )}
@@ -1240,7 +1244,7 @@ export default function ApprovalPO() {
                                                         <div className="space-y-1">
                                                             {poList.map((po: any, pIdx: number) => (
                                                                 <div key={pIdx} className="whitespace-nowrap">
-                                                                    <div className="font-medium"><POLink value={po.poNumber} /> <span className="text-muted-foreground font-normal ml-0.5">({po.quantity} {po.unit})</span></div>
+                                                                    <div className="font-medium"><POLink value={po.poNumber} /> <span className="text-muted-foreground font-normal ml-0.5">({po.quantity} <UomText uom={po.unit} inline />)</span></div>
                                                                     <div className="text-[10px] text-muted-foreground">{po.createdAt ? formatDate(new Date(po.createdAt)) : ''}</div>
                                                                 </div>
                                                             ))}
@@ -1252,7 +1256,7 @@ export default function ApprovalPO() {
                                                         <div className="space-y-1">
                                                             {grnList.map((grn: any, gIdx: number) => (
                                                                 <div key={gIdx} className="whitespace-nowrap">
-                                                                    <div className="font-medium">{grn.grnNumber || 'GRN'} <span className="text-muted-foreground font-normal ml-0.5">({grn.receivedQuantity} {row.uom})</span></div>
+                                                                    <div className="font-medium">{grn.grnNumber || 'GRN'} <span className="text-muted-foreground font-normal ml-0.5">({grn.receivedQuantity} <UomText uom={row.uom} inline />)</span></div>
                                                                     <div className="text-[10px] text-muted-foreground">
                                                                         {grn.createdAt ? formatDate(new Date(grn.createdAt)) : ''}
                                                                     </div>
@@ -1266,7 +1270,7 @@ export default function ApprovalPO() {
                                                         <div className="space-y-1">
                                                             {storeOutList.map((so: any, sIdx: number) => (
                                                                 <div key={sIdx} className="whitespace-nowrap">
-                                                                    <div className="font-medium">{so.issue_status || 'Issued'} <span className="text-muted-foreground font-normal ml-0.5">({so.issued_quantity || 0} {row.uom})</span></div>
+                                                                    <div className="font-medium">{so.issue_status || 'Issued'} <span className="text-muted-foreground font-normal ml-0.5">({so.issued_quantity || 0} <UomText uom={row.uom} inline />)</span></div>
                                                                     <div className="text-[10px] text-muted-foreground">
                                                                         {so.createdAt ? formatDate(new Date(so.createdAt)) : ''}
                                                                     </div>

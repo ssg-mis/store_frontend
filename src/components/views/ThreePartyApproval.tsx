@@ -27,6 +27,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 import { formatDate, debounce, formatFirmName } from '@/lib/utils';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
@@ -38,6 +40,7 @@ interface RateApprovalProduct {
     id: number;
     indentId: number;
     product: string;
+    make?: string;
     productCode?: string;
     quantity: number;
     uom: string;
@@ -67,6 +70,7 @@ interface GroupedRateApprovalData {
     date: string;
     vendorTotals: Record<string, number>;
     rfqs: Record<string, RfqInfo>; // lower-cased supplier name -> latest RFQ sent to it
+    remarks?: string; // remarks entered at Vendor Rate Update
 }
 
 const isImageUrl = (url?: string | null) => !!url && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(url);
@@ -78,6 +82,7 @@ interface HistoryProduct {
     id: number;
     indentId: number;
     product: string;
+    make?: string;
     productCode?: string;
     quantity: number;
     uom: string;
@@ -224,6 +229,7 @@ export default () => {
                             products: [],
                             vendorTotals: {},
                             rfqs: {},
+                            remarks: '',
                         };
                     }
                     // Rows arrive newest first, so the first RFQ seen per supplier is the latest.
@@ -237,6 +243,13 @@ export default () => {
                     // Only process the latest update for each unique product (indentId)
                     if (seenProductIds.has(r.indentId)) return;
                     seenProductIds.add(r.indentId);
+
+                    // Vendor Rate Update remarks (same remark is saved on each product of the indent)
+                    const vruRemark = String(r.remarks || '').trim();
+                    if (vruRemark) {
+                        const existing = (grouped[indentNo].remarks || '').split('\n').filter(Boolean);
+                        if (!existing.includes(vruRemark)) grouped[indentNo].remarks = [...existing, vruRemark].join('\n');
+                    }
 
                     // Build the vendor comparison list dynamically from quotes (1..N).
                     // Falls back to the legacy vendorName1/2/3 columns for older rows.
@@ -264,6 +277,7 @@ export default () => {
                         id: r.id,
                         indentId: r.indentId,
                         product: r.productName || '',
+                        make: r.make || '',
                         productCode: r.productCode || r.product_code || '',
                         quantity: r.approvedQuantity || r.quantity || 0,
                         uom: r.uom || '',
@@ -347,6 +361,7 @@ export default () => {
                         id: r.id,
                         indentId: r.indentId,
                         product: r.productName || '',
+                        make: r.make || '',
                         productCode: r.productCode || r.product_code || '',
                         quantity: r.approvedQuantity || r.quantity || 0,
                         uom: r.uom || '',
@@ -634,8 +649,8 @@ export default () => {
                     <div className="flex flex-col gap-0.5 text-left text-xs">
                         {shown.map(p => (
                             <span key={p.id} className="whitespace-nowrap">
-                                <span className="font-medium">{p.product}</span>
-                                <span className="text-muted-foreground"> · {p.quantity} {p.uom}</span>
+                                <span className="font-medium">{p.product}</span><MakeText make={p.make} inline />
+                                <span className="text-muted-foreground"> · {p.quantity} <UomText uom={p.uom} inline /></span>
                             </span>
                         ))}
                         {products.length > shown.length && (
@@ -646,6 +661,16 @@ export default () => {
             },
         },
         { accessorKey: 'date', header: 'Date' },
+        {
+            accessorKey: 'remarks',
+            header: 'Remarks',
+            cell: ({ getValue }: any) => {
+                const remarks = String(getValue() || '').trim();
+                return remarks
+                    ? <span className="block max-w-[220px] whitespace-pre-wrap text-xs" title={remarks}>{remarks}</span>
+                    : <span className="text-muted-foreground">—</span>;
+            },
+        },
         {
             header: 'Vendor Totals',
             accessorKey: 'vendorTotals',
@@ -1141,9 +1166,10 @@ export default () => {
                                                                         )}
                                                                         <div className="min-w-0 space-y-0.5">
                                                                             <div className="font-semibold">{p.product}</div>
+                                                                            <MakeText make={p.make} />
                                                                             <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
                                                                                 {p.productCode && <span className="font-mono">{p.productCode}</span>}
-                                                                                <span className="font-medium text-foreground">{p.quantity} {p.uom}</span>
+                                                                                <span className="font-medium text-foreground">{p.quantity} <UomText uom={p.uom} inline /></span>
                                                                                 {(p.category || p.subCategory) && (
                                                                                     <span>{[p.category, p.subCategory].filter(Boolean).join(' › ')}</span>
                                                                                 )}
@@ -1201,7 +1227,7 @@ export default () => {
                                                                                             <span className={isSelected ? 'font-bold text-green-900' : 'font-semibold'}>
                                                                                                 ₹{offerRate?.toLocaleString()}
                                                                                             </span>
-                                                                                            <span className="text-[10px] text-muted-foreground">/ {p.uom || 'unit'}</span>
+                                                                                            <span className="text-[10px] text-muted-foreground">/ {p.uom ? <UomText uom={p.uom} inline /> : 'unit'}</span>
                                                                                             {isItemL1 && (
                                                                                                 <span className="text-[9px] bg-green-100 text-green-800 font-bold px-1 py-0.5 rounded leading-none">L1</span>
                                                                                             )}
@@ -1310,7 +1336,7 @@ export default () => {
                                                                                 {item.name}
                                                                             </span>
                                                                             <span className="text-[9px] text-muted-foreground">
-                                                                                {item.quantity} {item.uom} @ ₹{item.rate}
+                                                                                {item.quantity} <UomText uom={item.uom} inline /> @ ₹{item.rate}
                                                                             </span>
                                                                         </div>
                                                                         <div className="text-right shrink-0">

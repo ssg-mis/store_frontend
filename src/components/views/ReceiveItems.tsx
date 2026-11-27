@@ -33,6 +33,8 @@ import { useSheets } from '@/context/SheetsContext';
 import { Pill } from '../ui/pill';
 import { IndentLink, POLink, VendorLink } from '../element/EntityLinks';
 import { QtyStatusChip, fmtQ, qtyBalance } from '../element/QtyCompare';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 
 interface RecieveItemsData {
     id: number;
@@ -42,6 +44,7 @@ interface RecieveItemsData {
     indentNumber: string;
     firm: string;
     product: string;
+    make?: string;
     productCode: string;
     uom: string;
     quantity: number;
@@ -68,6 +71,7 @@ interface HistoryData {
     poNumber: string;
     vendor: string;
     product: string;
+    make?: string;
     uom: string;
     orderQuantity: number;
     receivedDate: string;
@@ -204,6 +208,7 @@ const ReceiveItems = () => {
                         remainingQty: remainingQty > 0 ? remainingQty : 0,
                         poDate: po.createdAt || '',
                         product: indent.productName || po.product || '',
+                        make: indent.make || '',
                         firm: indent.firm || 'N/A',
                         totalAmount: Number(po.totalPOAmount) || 0,
                         quotationNo: po.quotationNumber || 'N/A',
@@ -261,6 +266,7 @@ const ReceiveItems = () => {
                         poNumber: receivedRecord.poNumber || receivedRecord.po_number || '',
                         vendor: receivedRecord.vendor || '',
                         product: receivedRecord.product || '',
+                        make: receivedRecord.indent?.make || '',
                         uom: receivedRecord.uom || '',
                         firm: receivedRecord.indent?.firm || 'N/A',
                         orderQuantity: Number(receivedRecord.orderQuantity) || 0,
@@ -1197,12 +1203,12 @@ const ReceiveItems = () => {
                                                         <Fragment key={indent.id}>
                                                         <tr className="hover:bg-muted/30 transition-colors">
                                                             <td className="px-2 py-3 text-xs text-muted-foreground">{indent.productCode || '-'}</td>
-                                                            <td className="px-2 py-3 min-w-[140px] max-w-[200px] truncate" title={indent.product}>{indent.product}</td>
-                                                            <td className="px-2 py-3 text-center text-xs">{indent.uom}</td>
+                                                            <td className="px-2 py-3 min-w-[140px] max-w-[200px] truncate" title={indent.product}>{indent.product}<MakeText make={indent.make} /></td>
+                                                            <td className="px-2 py-3 text-center text-xs"><UomText uom={indent.uom} /></td>
                                                             <td className="px-2 py-3 text-center text-xs font-medium whitespace-nowrap">
                                                                 {fmtQ(indent.indentQuantity)} {indent.indentUom}
                                                             </td>
-                                                            <td className="px-2 py-3 text-center text-xs font-medium whitespace-nowrap">{fmtQ(indent.quantity)} {indent.uom}</td>
+                                                            <td className="px-2 py-3 text-center text-xs font-medium whitespace-nowrap">{fmtQ(indent.quantity)} <UomText uom={indent.uom} inline /></td>
                                                             <td className="px-2 py-3 text-center text-xs text-muted-foreground whitespace-nowrap">{fmtQ(indent.receivedBefore)}</td>
                                                             <td className="px-2 py-3 text-center font-medium text-blue-600">{indent.remainingQty}</td>
                                                             <td className="px-2 py-3">
@@ -1724,10 +1730,10 @@ const ReceiveItems = () => {
                                             return (
                                                 <TableRow key={i}>
                                                     <TableCell className="text-xs font-mono">{item.productCode || '—'}</TableCell>
-                                                    <TableCell className="text-xs font-medium max-w-[200px]">{item.product}</TableCell>
+                                                    <TableCell className="text-xs font-medium max-w-[200px]">{item.product}<MakeText make={item.make} /></TableCell>
                                                     <TableCell className="text-xs text-right">{item.indentQuantity ? `${fmtQ(item.indentQuantity)} ${item.indentUom || ''}` : '—'}</TableCell>
                                                     <TableCell className="text-xs text-right font-medium">{item.orderQuantity || '—'}</TableCell>
-                                                    <TableCell className="text-xs">{item.uom}</TableCell>
+                                                    <TableCell className="text-xs"><UomText uom={item.uom} /></TableCell>
                                                     <TableCell className="text-xs text-right">{grossReceived}</TableCell>
                                                     <TableCell className="text-xs text-right font-medium text-orange-600">{item.purchaseReturn}</TableCell>
                                                     <TableCell className="text-xs text-right">{item.damagedQuantity}</TableCell>
@@ -1810,11 +1816,11 @@ const ReceiveItems = () => {
                                             {rows.map(({ item, m, poQty, before, balance, okay, weight }) => (
                                                 <Fragment key={item.indentId}>
                                                     <TableRow>
-                                                        <TableCell className="text-xs font-medium max-w-[200px] whitespace-normal">{m?.product}</TableCell>
+                                                        <TableCell className="text-xs font-medium max-w-[200px] whitespace-normal">{m?.product}<MakeText make={m?.make} /></TableCell>
                                                         <TableCell className="text-xs text-right">{fmtQ(m?.indentQuantity)} {m?.indentUom}</TableCell>
-                                                        <TableCell className="text-xs text-right font-medium">{fmtQ(poQty)} {m?.uom}</TableCell>
+                                                        <TableCell className="text-xs text-right font-medium">{fmtQ(poQty)} <UomText uom={m?.uom} inline /></TableCell>
                                                         <TableCell className="text-xs text-right text-muted-foreground">{fmtQ(before)}</TableCell>
-                                                        <TableCell className="text-sm text-right font-bold">{fmtQ(item.quantity)} {m?.uom}</TableCell>
+                                                        <TableCell className="text-sm text-right font-bold">{fmtQ(item.quantity)} <UomText uom={m?.uom} inline /></TableCell>
                                                         <TableCell className="text-xs text-right text-orange-600">{fmtQ(item.purchaseReturn)}</TableCell>
                                                         <TableCell className="text-xs text-right">{fmtQ(item.damagedQuantity)}</TableCell>
                                                         <TableCell className="text-xs text-right font-semibold text-green-700">{fmtQ(okay)}</TableCell>

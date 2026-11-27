@@ -1,4 +1,5 @@
 import Heading from '../element/Heading';
+import UomText from '../element/UomText';
 
 import { useEffect, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
@@ -149,7 +150,7 @@ export default () => {
                 <div className="text-wrap max-w-40 text-center"><ProductLink value={row.original.itemName} /></div>
             ),
         },
-        { accessorKey: 'uom', header: 'UOM' },
+        { accessorKey: 'uom', header: 'UOM', cell: ({ getValue }: any) => <UomText uom={getValue()} /> },
         { accessorKey: 'department', header: 'Department' },
         { accessorKey: 'departmentHead', header: 'Dept Head' },
         { accessorKey: 'indented', header: 'Indented' },
@@ -258,7 +259,7 @@ export default () => {
                                 <div key={log.id} className="rounded-sm border p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                         <p className="text-sm font-medium">
-                                            {log.action} {Math.abs(Number(log.quantity || 0))} {log.uom || viewRow?.uom || ''}
+                                            {log.action} {Math.abs(Number(log.quantity || 0))} <UomText uom={log.uom || viewRow?.uom || ''} inline />
                                         </p>
                                         <p className="text-xs text-muted-foreground">{formatDate(log.createdAt)}</p>
                                     </div>

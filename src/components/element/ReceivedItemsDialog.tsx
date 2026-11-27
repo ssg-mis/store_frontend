@@ -17,6 +17,8 @@ import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { SearchableSelectContent } from './SearchableSelectContent';
 import { cn, formatDate, formatFirmName } from '@/lib/utils';
+import UomText from './UomText';
+import MakeText from './MakeText';
 
 // Shape of a row from GET /received (flattened with firm, orderQuantity and indent).
 export interface ReceivedRecord {
@@ -55,6 +57,7 @@ export interface ReceivedRecord {
         productCode?: string;
         department?: string;
         indenterName?: string;
+        make?: string | null;
     } | null;
 }
 
@@ -154,9 +157,9 @@ const COLUMNS: Column[] = [
         header: 'Product',
         group: 'Item & Quantity',
         className: 'max-w-[220px] truncate font-medium text-slate-900',
-        cell: (r) => <span title={r.product || ''}>{text(r.product)}</span>,
+        cell: (r) => <><span title={r.product || ''}>{text(r.product)}</span><MakeText make={r.indent?.make} /></>,
     },
-    { header: 'UOM', group: 'Item & Quantity', cell: (r) => r.uom },
+    { header: 'UOM', group: 'Item & Quantity', cell: (r) => (r.uom ? <UomText uom={r.uom} /> : r.uom) },
     {
         header: 'PO Qty',
         group: 'Item & Quantity',

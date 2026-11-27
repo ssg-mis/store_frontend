@@ -34,6 +34,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '../ui/textarea';
 import { Checkbox } from '../ui/checkbox';
 import InventoryHistoryDialog from '../element/InventoryHistoryDialog';
+import MakeText from '../element/MakeText';
 
 
 function generatePoNumber(poNumbers: string[], today = new Date(), firmAlias?: string): string {
@@ -701,7 +702,7 @@ export default () => {
                     gst: 18,
                     discount: 0,
                     discountAmount: 0,
-                    make: '',
+                    make: i.make || '', // pre-filled from the indent's Make (editable)
                 })));
             } else {
                 form.setValue(
@@ -714,7 +715,7 @@ export default () => {
                         gst: 18,
                         discount: 0,
                         discountAmount: 0,
-                        make: '',
+                        make: i.make || '', // pre-filled from the indent's Make (editable)
                     }))
                 );
                 if (!vendorIndentNumbers.length) {
@@ -746,7 +747,7 @@ export default () => {
                         gst: 18,
                         discount: 0,
                         discountAmount: 0,
-                        make: '',
+                        make: i.make || '', // pre-filled from the indent's Make (editable)
                     })));
 
                     // Auto-fill Lead Time if available
@@ -1824,6 +1825,7 @@ export default () => {
                                                                 </button>
                                                             );
                                                         })()}
+                                                        <MakeText make={indent?.indent ? indent.indent.make : indent?.make} />
                                                     </TableCell>
                                                     <TableCell className="px-2 py-1 max-w-[160px] truncate">
                                                         {indent?.specifications || indent?.description || (

@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../ui/form';
+import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
 import { PuffLoader as Loader } from 'react-spinners';
@@ -26,6 +27,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 import ExcelEditorDialog from '../element/ExcelEditorDialog';
 import { Pill } from '../ui/pill';
 import { formatDate, debounce, formatFirmName } from '@/lib/utils';
@@ -46,6 +49,7 @@ interface VendorUpdateData {
     departmentHead?: string;
     indentApprovedBy?: string;
     product: string;
+    make?: string;
     productCode: string | null;
     productCategory: string;
     quantity: number;
@@ -69,6 +73,7 @@ interface HistoryData {
     indenter: string;
     department: string;
     product: string;
+    make?: string;
     productCode?: string;
     quantity: number;
     uom: string;
@@ -124,6 +129,7 @@ const ProductDropdownCell = ({ items }: { items: any[] }) => {
         return (
             <span className="text-xs font-semibold text-foreground max-w-[260px] truncate block" title={name}>
                 {name}
+                <MakeText make={items[0].make} />
             </span>
         );
     }
@@ -359,6 +365,7 @@ export default () => {
                     departmentHead: record.departmentHead || '',
                     indentApprovedBy: record.indentApprovedBy || '',
                     product: record.productName || '',
+                    make: record.make || '',
                     productCode: record.productCode || null,
                     productCategory: record.productCategory || '',
                     quantity: record.approvedQuantity || 0,
@@ -428,6 +435,7 @@ export default () => {
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
+                        make: record.make || '',
                         productCode: record.productCode || record.product_code || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
@@ -464,6 +472,7 @@ export default () => {
                         indenter: record.indenterName || '',
                         department: record.department || '',
                         product: record.productName || '',
+                        make: record.make || '',
                         productCode: record.productCode || record.product_code || '',
                         quantity: record.approvedQuantity || 0,
                         uom: record.uom || '',
@@ -716,6 +725,24 @@ export default () => {
             });
     }, [filteredTableData]);
 
+    // Vendors selected at the previous stages for an indent group: vendors picked at Approve Indent
+    // (Multi-Party) plus the suppliers its current quotation was sent to.
+    const getPreviousStageVendors = useCallback((items: { indentId?: number; suggestedVendors?: string[] }[]) => {
+        const names: string[] = [];
+        const seen = new Set<string>();
+        const add = (v: unknown) => {
+            const name = String(v ?? '').trim();
+            const key = name.toLowerCase();
+            if (name && !seen.has(key)) { seen.add(key); names.push(name); }
+        };
+        items.forEach(item => (item.suggestedVendors || []).forEach(add));
+        const indentIds = new Set(items.map(i => i.indentId).filter(Boolean));
+        rfqHistory
+            .filter((q: any) => indentIds.has(q.indent_id ?? q.indentId) && q.isLatest !== false)
+            .forEach((q: any) => add(q.supplierName));
+        return names;
+    }, [rfqHistory]);
+
     const groupedHistoryData = useMemo(() => {
         const groups = new Map<string, HistoryData[]>();
         filteredHistoryData.forEach(item => {
@@ -949,6 +976,7 @@ export default () => {
             rate: z.coerce.number().gt(0, 'Rate must be > 0'),
             paymentTerm: z.string().nonempty('Payment term required'),
         })).min(1),
+        remarks: z.string().optional(),
     });
 
     const regularForm = useForm<z.infer<typeof regularSchema>>({
@@ -987,6 +1015,7 @@ export default () => {
                     approvedVendorName: values.products[i].vendorName,
                     approvedRate: values.products[i].rate,
                     approvedPaymentTerm: values.products[i].paymentTerm,
+                    remarks: values.remarks?.trim() || undefined,
                 } as any], 'insert', 'THREE_PARTY_APPROVAL')
             ));
 
@@ -1028,6 +1057,7 @@ export default () => {
             comparisonSheet: z.instanceof(File, { message: 'Comparison sheet is required' }),
             rates: z.array(z.coerce.number().gt(0, 'Rate must be > 0')).min(1),
         })).min(1, 'At least one vendor is required').max(MAX_VENDORS),
+        remarks: z.string().optional(),
     });
 
     const makeDefaultVendors = (vendorCount: number, productCount: number) =>
@@ -1058,9 +1088,10 @@ export default () => {
             suggested.forEach((vendorName, v) => {
                 defaults[v].vendorName = vendorName;
             });
-            threePartyForm.reset({ vendors: defaults });
+            threePartyForm.reset({ vendors: defaults, remarks: '' });
             regularForm.reset({
                 products: selectedGroup.items.map(() => ({ vendorName: '', rate: '' as unknown as number, paymentTerm: '' })),
+                remarks: '',
             });
         }
     }, [selectedGroup]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1095,6 +1126,7 @@ export default () => {
                     product_code: item.productCode,
                     planned: new Date().toISOString(),
                     quotes,
+                    remarks: values.remarks?.trim() || undefined,
                 };
                 return postToSheet([payload], 'insert', 'VENDOR_RATE_UPDATE');
             }));
@@ -1245,8 +1277,7 @@ export default () => {
                                             </TableHead>
                                             <TableHead>Indent No</TableHead>
                                             <TableHead>Firm</TableHead>
-                                            <TableHead>Indenter</TableHead>
-                                            <TableHead>Department</TableHead>
+                                            <TableHead>Vendor</TableHead>
                                             <TableHead>Date</TableHead>
                                             <TableHead>Vendor Type</TableHead>
                                             <TableHead>Products</TableHead>
@@ -1269,8 +1300,19 @@ export default () => {
                                                 </TableCell>
                                                 <TableCell className="font-medium text-xs sm:text-sm"><IndentLink value={group.indentNo} /></TableCell>
                                                 <TableCell className="text-xs sm:text-sm" title={group.firm}>{formatFirmName(group.firm)}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.indenter}</TableCell>
-                                                <TableCell className="text-xs sm:text-sm">{group.department}</TableCell>
+                                                <TableCell className="text-xs sm:text-sm">
+                                                    {(() => {
+                                                        const prevVendors = getPreviousStageVendors(group.items);
+                                                        if (prevVendors.length === 0) return <span className="text-muted-foreground">—</span>;
+                                                        return (
+                                                            <div className="flex flex-col gap-0.5 max-w-[240px]">
+                                                                {prevVendors.map(v => (
+                                                                    <span key={v} className="truncate" title={v}>{v}</span>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </TableCell>
                                                 <TableCell className="text-xs sm:text-sm whitespace-nowrap">{group.requestDate}</TableCell>
                                                 <TableCell>
                                                     <Pill variant={group.vendorType === 'Three Party' ? 'secondary' : 'primary'}>
@@ -1413,10 +1455,10 @@ export default () => {
                                                                         : <span className="text-muted-foreground text-xs">—</span>
                                                                     }
                                                                 </TableCell>
-                                                                <TableCell className="text-xs font-medium max-w-[160px]">{item.product}</TableCell>
+                                                                <TableCell className="text-xs font-medium max-w-[160px]">{item.product}<MakeText make={item.make} /></TableCell>
                                                                 <TableCell className="text-xs text-muted-foreground">{item.productCategory || '—'}</TableCell>
                                                                 <TableCell className="text-xs">{item.quantity}</TableCell>
-                                                                <TableCell className="text-xs">{item.uom}</TableCell>
+                                                                <TableCell className="text-xs"><UomText uom={item.uom} /></TableCell>
                                                                 <TableCell className="text-xs max-w-[160px] truncate text-muted-foreground" title={item.specifications}>
                                                                     {item.specifications || '—'}
                                                                 </TableCell>
@@ -1568,6 +1610,7 @@ export default () => {
                                                                     <div>
                                                                         {product?.product} <span className="text-[10px] text-muted-foreground font-normal">(Rate)</span> <span className="text-red-500">*</span>
                                                                     </div>
+                                                                    <MakeText make={product?.make} />
                                                                 </div>
                                                             </TableCell>
                                                             {vendorFields.map((vf, v) => (
@@ -1700,6 +1743,19 @@ export default () => {
                                                 </TableBody>
                                             </Table>
                                         </div>
+                                        <FormField
+                                            control={threePartyForm.control}
+                                            name="remarks"
+                                            render={({ field }) => (
+                                                <FormItem className="px-1">
+                                                    <FormLabel className="text-xs font-semibold">Remarks</FormLabel>
+                                                    <FormControl>
+                                                        <Textarea placeholder="Enter remarks (optional)" className="text-xs min-h-[60px]" {...field} value={field.value || ''} />
+                                                    </FormControl>
+                                                    <FormMessage className="text-[10px]" />
+                                                </FormItem>
+                                            )}
+                                        />
                                         <DialogFooter>
                                             <Button variant="outline" onClick={() => setSelectedGroup(null)}>Back to list</Button>
                                             <Button type="submit" disabled={threePartyForm.formState.isSubmitting}>
@@ -1753,6 +1809,7 @@ export default () => {
                                                                         </span>
                                                                     )}
                                                                     <div>{selectedGroup.items[i]?.product}</div>
+                                                                    <MakeText make={selectedGroup.items[i]?.make} />
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="min-w-[200px] align-top">
@@ -1842,6 +1899,19 @@ export default () => {
                                                 </TableBody>
                                             </Table>
                                         </div>
+                                        <FormField
+                                            control={regularForm.control}
+                                            name="remarks"
+                                            render={({ field }) => (
+                                                <FormItem className="px-1">
+                                                    <FormLabel className="text-xs font-semibold">Remarks</FormLabel>
+                                                    <FormControl>
+                                                        <Textarea placeholder="Enter remarks (optional)" className="text-xs min-h-[60px]" {...field} value={field.value || ''} />
+                                                    </FormControl>
+                                                    <FormMessage className="text-[10px]" />
+                                                </FormItem>
+                                            )}
+                                        />
                                         <DialogFooter>
                                             <Button variant="outline" onClick={() => setSelectedGroup(null)}>Back to list</Button>
                                             <Button type="submit" disabled={regularForm.formState.isSubmitting}>
@@ -1987,9 +2057,9 @@ export default () => {
                                     {viewingHistoryGroup?.items.slice().sort((a: any, b: any) => (a.product || '').localeCompare(b.product || '')).map((item: any, i: number) => (
                                         <TableRow key={i}>
                                             <TableCell className="font-mono text-xs">{item.productCode || '—'}</TableCell>
-                                            <TableCell className="text-sm">{item.product}</TableCell>
+                                            <TableCell className="text-sm">{item.product}<MakeText make={item.make} /></TableCell>
                                             <TableCell className="text-sm">{item.quantity}</TableCell>
-                                            <TableCell className="text-sm">{item.uom}</TableCell>
+                                            <TableCell className="text-sm"><UomText uom={item.uom} /></TableCell>
                                             {viewingHistoryGroup?.vendorType === 'Three Party' ? (
                                                 (viewingHistoryGroup?.quotes || []).map((_q: any, idx: number) => {
                                                     const rate = (item.quotes?.[idx]?.rate) ?? (item as any)[`rate${idx + 1}`];
