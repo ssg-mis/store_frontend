@@ -11,6 +11,8 @@ import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { IndentLink, VendorLink, ProductLink } from '../element/EntityLinks';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 
 interface PendingIndentsData {
     date: string;
@@ -23,6 +25,7 @@ interface PendingIndentsData {
     departmentHead: string;
     indentApprovedBy: string;
     product: string;
+    make?: string;
     productCode: string;
     quantity: number;
     rate: number;
@@ -83,6 +86,7 @@ export default () => {
                     departmentHead: record.departmentHead || '',
                     indentApprovedBy: record.indentApprovedBy || '',
                     product: record.productName || '',
+                    make: record.make || '',
                     productCode: record.productCode || '',
                     quantity: record.approvedQuantity || record.quantity || 0,
                     rate: record.approvedRate || 0,
@@ -334,9 +338,9 @@ export default () => {
                                             : <span className="text-muted-foreground text-xs">—</span>
                                         }
                                     </TableCell>
-                                    <TableCell className="text-xs"><ProductLink value={item.product} /></TableCell>
+                                    <TableCell className="text-xs"><ProductLink value={item.product} /><MakeText make={item.make} /></TableCell>
                                     <TableCell className="text-xs">{item.quantity}</TableCell>
-                                    <TableCell className="text-xs">{item.uom}</TableCell>
+                                    <TableCell className="text-xs"><UomText uom={item.uom} /></TableCell>
                                     <TableCell className="text-xs font-semibold">&#8377;{item.rate.toLocaleString()}</TableCell>
                                     {(() => {
                                         const st = stockMap[(item.product || '').trim()];
@@ -345,8 +349,8 @@ export default () => {
                                         return (
                                             <>
                                                 <TableCell><StockChip stock={{ ...st, incoming: 0 }} requested={Number(item.quantity) || 0} /></TableCell>
-                                                <TableCell className="text-xs tabular-nums text-blue-600">{fmtQty(st.incoming)} {item.uom}</TableCell>
-                                                <TableCell className="text-xs font-semibold tabular-nums text-emerald-700">{fmtQty(after)} {item.uom}</TableCell>
+                                                <TableCell className="text-xs tabular-nums text-blue-600">{fmtQty(st.incoming)} <UomText uom={item.uom} inline /></TableCell>
+                                                <TableCell className="text-xs font-semibold tabular-nums text-emerald-700">{fmtQty(after)} <UomText uom={item.uom} inline /></TableCell>
                                             </>
                                         );
                                     })()}

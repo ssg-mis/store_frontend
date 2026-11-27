@@ -31,6 +31,7 @@ import IndentPdf from '../element/IndentPdf';
 import { pdf } from '@react-pdf/renderer';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import UomText from '../element/UomText';
 
 
 
@@ -113,6 +114,7 @@ export default () => {
                     department: z.string().nonempty(),
                     departmentHead: z.string().nonempty(),
                     productName: z.string().nonempty(),
+                    make: z.string().optional(),
                     quantity: z.coerce.number().gt(0, 'Must be greater than 0'),
                     uom: z.string().nonempty(),
                     orderedWeight: z.coerce.number().min(0, 'Cannot be negative').optional(),
@@ -142,6 +144,7 @@ export default () => {
                     attachment: undefined,
                     uom: '',
                     productName: '',
+                    make: '',
                     productCategory: '',
                     productSubCategory: '',
                     specifications: '',
@@ -592,6 +595,7 @@ export default () => {
                     areaOfUse: product.areaOfUse,
                     departmentHead: product.departmentHead,
                     productName: product.productName,
+                    make: product.make?.trim() || null,
                     productCategory: product.productCategory || null,
                     productSubCategory: (product.productSubCategory && product.productSubCategory !== '__none__') ? product.productSubCategory : null,
                     quantity: product.quantity,
@@ -656,6 +660,7 @@ export default () => {
                         attachment: undefined,
                         uom: '',
                         productName: '',
+                        make: '',
                         productCategory: '',
                         productSubCategory: '',
                         specifications: '',
@@ -947,6 +952,7 @@ export default () => {
                                             department: lastProduct.department || '',
                                             departmentHead: lastProduct.departmentHead || '',
                                             productName: '',
+                                            make: '',
                                             productCategory: lastProduct.productCategory || '',
                                             productSubCategory: '',
                                             quantity: 1,
@@ -1425,7 +1431,7 @@ export default () => {
                                                                                 const lp = getLastPurchaseInfo(field.value, departmentHead);
                                                                                 return lp ? (
                                                                                     <p className="text-[10px] text-yellow-600 font-medium px-1">
-                                                                                        Last Purchased: {lp.qty} {lp.uom} @ ₹{lp.rate} on {lp.date}{lp.vendor ? ` from ${lp.vendor}` : ''}
+                                                                                        Last Purchased: {lp.qty} <UomText uom={lp.uom} inline /> @ ₹{lp.rate} on {lp.date}{lp.vendor ? ` from ${lp.vendor}` : ''}
                                                                                     </p>
                                                                                 ) : null;
                                                                             })()}
@@ -1437,6 +1443,19 @@ export default () => {
                                                         </FormItem>
                                                     );
                                                 }}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`products.${index}.make`}
+                                                render={({ field }) => (
+                                                    <FormItem className="min-w-0">
+                                                        <FormLabel>Make</FormLabel>
+                                                        <FormControl>
+                                                            <Input placeholder="Enter make / brand (optional)" {...field} value={field.value || ''} />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
                                             />
                                             <FormField
                                                 control={form.control}

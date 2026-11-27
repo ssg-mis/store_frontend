@@ -12,8 +12,9 @@ import { useFieldArray, useForm, type Control, type FieldValues } from 'react-ho
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormControl, FormField, FormItem, FormLabel } from '../ui/form';
 import type { PoMasterSheet, QuotationHistorySheet, MasterDataRow } from '@/types';
-import { postToSheet, uploadFile, fetchSheet, fetchFirms } from '@/lib/fetchers';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { postToSheet, uploadFile, fetchSheet, fetchFirms, sendQuotationEmail, fetchNextQuotationRevision, createQuotationRevision } from '@/lib/fetchers';
+import QuotationHistoryTab from './QuotationHistoryTab';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSheets } from '@/context/SheetsContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { cn, formatDate, formatFirmName } from '@/lib/utils';
@@ -25,13 +26,15 @@ import { pdf } from '@react-pdf/renderer';
 import POPdf, { type POPdfProps } from '../element/QuotationPdf';
 import { Checkbox } from '../ui/checkbox';
 import { IndentLink, ProductLink } from '../element/EntityLinks';
+import UomText from '../element/UomText';
+import MakeText from '../element/MakeText';
 import { Search as SearchIcon } from 'lucide-react'; // Added icons
 
 
 
 
 
-type Mode = 'create' | 'revise';
+type Mode = 'create' | 'revise' | 'history';
 
 
 interface SupplierInfo {
@@ -293,7 +296,14 @@ export default function QuotationPage() {
       return isApproved &&
         (!hasQuotationInHistory || isPartOfCurrentQuotation) &&
         (!isAlreadyInNextStage || isPartOfCurrentQuotation);
-    }).reverse();
+    });
+
+    // Latest first: sort by created date descending (id breaks ties / covers missing dates).
+    const getTime = (item: any) => {
+      const t = new Date(item.createdAt || item.timestamp || 0).getTime();
+      return isNaN(t) ? 0 : t;
+    };
+    filtered.sort((a, b) => (getTime(b) - getTime(a)) || ((Number(b.id) || 0) - (Number(a.id) || 0)));
 
     return filtered;
   }, [indentSheet, mode, selectedQuotationNo, allHistory]);
@@ -344,6 +354,28 @@ export default function QuotationPage() {
   };
 
 
+  // Quotations that can be revised: the current (latest) version of each quotation, newest first
+  const revisableQuotationNumbers = useMemo(() => {
+    const latestByFamily = new Map<string, { no: string; rev: number; time: number }>();
+    allHistory.forEach((h) => {
+      const no = (h.quatationNo || '').trim();
+      if (!no) return;
+      const family = (h.baseQuotationNo || no).trim();
+      const rev = Number(h.revisionNo || 0);
+      const time = new Date(h.timestamp || 0).getTime() || 0;
+      const cur = latestByFamily.get(family);
+      if (!cur || rev > cur.rev || (rev === cur.rev && time > cur.time)) latestByFamily.set(family, { no, rev, time });
+    });
+    return Array.from(latestByFamily.values()).sort((a, b) => b.time - a.time).map((x) => x.no);
+  }, [allHistory]);
+
+  // Opened from the Quotation History tab: switch to Revise with that quotation loaded
+  const handleReviseFromHistory = async (quotationNo: string) => {
+    await fetchLatestQuotationNumbers();
+    setSelectedQuotationNo(quotationNo);
+    setMode('revise');
+  };
+
   // Logic for Revise mode: Populate form when selectedQuotationNo changes
   useEffect(() => {
     if (mode === 'revise' && selectedQuotationNo) {
@@ -374,6 +406,7 @@ export default function QuotationPage() {
 
         // Update form
         form.setValue('quotationNumber', selectedQuotationNo);
+        autoFilledVendorsRef.current.clear();
         form.setValue('suppliers', uniqueSuppliers);
         form.setValue('selectedIndents', uniqueIndents);
 
@@ -382,8 +415,9 @@ export default function QuotationPage() {
         if (firstRecord.timestamp) {
           form.setValue('quotationDate', new Date(firstRecord.timestamp));
         }
-        if (firstRecord.description) {
-          form.setValue('description', firstRecord.description);
+        const quotationDescription = firstRecord.quotationDescription ?? firstRecord.description;
+        if (quotationDescription) {
+          form.setValue('description', quotationDescription);
         }
 
         toast.success(`Loaded quotation ${selectedQuotationNo}`);
@@ -395,13 +429,58 @@ export default function QuotationPage() {
   // Handle checkbox selection — selection is keyed by the unique indent id so two
   // indents that share the same internal code are never selected together.
   const handleItemSelection = (id: string, checked: boolean) => {
-    setSelectedItems(prev => {
-      if (checked) {
-        return [...prev, id];
-      } else {
-        return prev.filter(item => item !== id);
+    const next = checked
+      ? (selectedItems.includes(id) ? selectedItems : [...selectedItems, id])
+      : selectedItems.filter(item => item !== id);
+    setSelectedItems(next);
+    syncAutoFilledVendors(next, checked ? [id] : []);
+  };
+
+  // ── Auto-fill suppliers with the vendors picked at Approve Indent (Multi-Party) ──
+  // Only vendors added this way are tracked, so unchecking an item never removes a
+  // supplier the user picked by hand. The user can still add/remove suppliers freely.
+  const autoFilledVendorsRef = useRef<Set<string>>(new Set());
+
+  const getSuggestedVendors = (ids: string[]): string[] => {
+    const names: string[] = [];
+    ids.forEach(id => {
+      const item: any = eligibleItems.find(i => String(i.id) === id);
+      const suggested: string[] = item?.approvedIndents?.[0]?.suggestedVendors || [];
+      suggested.forEach(v => {
+        const key = String(v || '').trim().toLowerCase();
+        if (!key) return;
+        // Use the supplier's exact name from the supplier list so it matches the dropdown/cards.
+        const master = masterSuppliers.find(sup => (sup.supplierName || '').trim().toLowerCase() === key);
+        if (master?.supplierName && !names.includes(master.supplierName)) names.push(master.supplierName);
+      });
+    });
+    return names;
+  };
+
+  const syncAutoFilledVendors = (nextSelected: string[], addedIds: string[]) => {
+    const current: string[] = form.getValues('suppliers') || [];
+    let updated = [...current];
+
+    // Add vendors suggested for newly checked items
+    getSuggestedVendors(addedIds).forEach(name => {
+      if (!updated.includes(name)) {
+        updated.push(name);
+        autoFilledVendorsRef.current.add(name);
       }
     });
+
+    // Remove auto-filled vendors no longer suggested by any checked item
+    const stillSuggested = new Set(getSuggestedVendors(nextSelected));
+    Array.from(autoFilledVendorsRef.current).forEach(name => {
+      if (!stillSuggested.has(name)) {
+        updated = updated.filter(s => s !== name);
+        autoFilledVendorsRef.current.delete(name);
+      }
+    });
+
+    if (updated.length !== current.length || updated.some((v, i) => v !== current[i])) {
+      form.setValue('suppliers', updated, { shouldDirty: true });
+    }
   };
 
 
@@ -410,8 +489,10 @@ export default function QuotationPage() {
     if (checked) {
       const allIds = eligibleItems.map(item => String(item.id));
       setSelectedItems(allIds);
+      syncAutoFilledVendors(allIds, allIds.filter(id => !selectedItems.includes(id)));
     } else {
       setSelectedItems([]);
+      syncAutoFilledVendors([], []);
     }
   };
 
@@ -458,6 +539,8 @@ export default function QuotationPage() {
       });
 
       const allQuotationRows: QuotationHistorySheet[] = [];
+      // Quotation PDFs to email to vendors once the quotation is saved
+      const emailJobs: { file: File; vendorName: string; quotationNumber: string }[] = [];
 
       // Get all existing quotation numbers to generate unique ones - FIXED
       const allNumbers = [...filterUniqueQuotationNumbers(poMasterSheet), ...latestQuotationNumbers];
@@ -469,12 +552,22 @@ export default function QuotationPage() {
         .filter(num => num > 0)
         .reduce((max, num) => Math.max(max, num), 0);
 
+      // Revise: the new version gets the next revision number (e.g. QT-012-R1) and earlier
+      // versions are kept as they are.
+      const isRevision = mode === 'revise' && !!selectedQuotationNo;
+      const revisionInfo = isRevision ? await fetchNextQuotationRevision(selectedQuotationNo) : null;
+
       for (let i = 0; i < supplierInfos.length; i++) {
         const supplierInfo = supplierInfos[i];
 
-        // Generate unique quotation number for each supplier
-        currentMaxNumber += 1;
-        const uniqueQuotationNumber = `QT-${String(currentMaxNumber).padStart(3, '0')}`;
+        // Generate unique quotation number for each supplier (revision: shared revision number)
+        let uniqueQuotationNumber: string;
+        if (revisionInfo) {
+          uniqueQuotationNumber = revisionInfo.quotationNumber;
+        } else {
+          currentMaxNumber += 1;
+          uniqueQuotationNumber = `QT-${String(currentMaxNumber).padStart(3, '0')}`;
+        }
 
         const pdfProps: POPdfProps = {
           companyName: company.name,
@@ -543,21 +636,68 @@ export default function QuotationPage() {
           unit: item.uom || '',
           pdfLink: pdfUrl,
           firm: item.firm || 'N/A',
+          quotationDescription: values.description || '',
         }));
 
         allQuotationRows.push(...quotationHistoryRows);
+        emailJobs.push({ file, vendorName: supplierInfo.name, quotationNumber: uniqueQuotationNumber });
       }
 
-      await postToSheet(allQuotationRows, 'insert', 'QUOTATION HISTORY');
+      if (allQuotationRows.length === 0) {
+        toast.error('No quotation was created (no selected supplier has an email in Master).');
+        return;
+      }
+
+      if (revisionInfo) {
+        try {
+          const saved = await createQuotationRevision({
+            previousQuotationNo: revisionInfo.previousQuotationNo,
+            revisionNo: revisionInfo.revisionNo,
+            quotationDescription: values.description || '',
+            rows: allQuotationRows,
+          });
+          toast.success(`Revision ${saved.quotationNumber} saved. Previous versions are kept in Quotation History.`);
+        } catch (err) {
+          toast.error(`Failed to save revision: ${(err as Error).message}. No email was sent.`);
+          return;
+        }
+      } else {
+        const saveResult: any = await postToSheet(allQuotationRows, 'insert', 'QUOTATION HISTORY');
+        if (saveResult && saveResult.success === false) {
+          toast.error('Failed to save quotation. No email was sent.');
+          return;
+        }
+      }
+
+      // Email each vendor its quotation PDF (sent to the vendor's email saved in Master)
+      if (emailJobs.length > 0) {
+        const emailResults = await Promise.all(
+          emailJobs.map(job =>
+            sendQuotationEmail(job.file, job.vendorName, job.quotationNumber, company.name)
+              .then(r => ({ ...r, vendorName: job.vendorName }))
+          )
+        );
+        const sent = emailResults.filter(r => r.sent);
+        const failed = emailResults.filter(r => !r.sent);
+        if (sent.length > 0) {
+          toast.success(`Quotation emailed to ${sent.length} vendor(s): ${sent.map(r => `${r.vendorName}${r.to ? ` (${r.to})` : ''}`).join(', ')}`);
+        }
+        failed.forEach(r => toast.error(`Email not sent to ${r.vendorName}: ${r.reason || 'Unknown error'}`));
+      }
 
       // Refresh local quotation-number state immediately so the very next quotation
       // created in this session (without a page reload) sees the numbers we just
       // inserted instead of recomputing from the stale, pre-insert list.
       await fetchLatestQuotationNumbers();
 
-      toast.success(`Successfully created ${supplierInfos.length} unique quotation(s) for ${supplierInfos.length} supplier(s)`);
+      if (!revisionInfo) {
+        toast.success(`Successfully created ${supplierInfos.length} unique quotation(s) for ${supplierInfos.length} supplier(s)`);
+      } else {
+        setSelectedQuotationNo('');
+      }
       form.reset();
       setSelectedItems([]);
+      autoFilledVendorsRef.current.clear();
       setSupplierSearch('');
 
       setTimeout(() => {
@@ -600,13 +740,18 @@ export default function QuotationPage() {
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         <div className="w-full mx-auto">
           <div className="w-full">
-            <Tabs defaultValue="create" onValueChange={(v) => setMode(v === 'create' ? 'create' as Mode : 'revise' as Mode)}>
+            <Tabs value={mode} onValueChange={(v) => setMode(v === 'create' ? 'create' as Mode : v === 'history' ? 'history' as Mode : 'revise' as Mode)}>
               <TabsList className="h-10 w-full rounded-none">
                 <TabsTrigger value="create">Create</TabsTrigger>
                 <TabsTrigger value="revise">Revise</TabsTrigger>
+                <TabsTrigger value="history">Quotation History</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
+
+          {mode === 'history' ? (
+            <QuotationHistoryTab onRevise={handleReviseFromHistory} />
+          ) : (
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit, onError)} className="flex flex-col items-center">
@@ -652,10 +797,10 @@ export default function QuotationPage() {
                         <SelectValue placeholder="Select a quotation to revise..." />
                       </SelectTrigger>
                       <SelectContent className="z-[100] max-h-[300px]">
-                        {latestQuotationNumbers.length === 0 ? (
+                        {revisableQuotationNumbers.length === 0 ? (
                           <SelectItem value="no-quotations" disabled>No quotations found</SelectItem>
                         ) : (
-                          latestQuotationNumbers.map((no, k) => (
+                          revisableQuotationNumbers.map((no, k) => (
                             <SelectItem key={k} value={no}>{no}</SelectItem>
                           ))
                         )}
@@ -741,6 +886,7 @@ export default function QuotationPage() {
                                     size="sm"
                                     className="absolute top-2 right-2 h-6 w-6 p-0 hover:bg-red-100 hover:text-red-600 rounded-full"
                                     onClick={() => {
+                                      autoFilledVendorsRef.current.delete(supplierName);
                                       field.onChange(field.value.filter(s => s !== supplierName));
                                     }}
                                   >
@@ -951,10 +1097,10 @@ export default function QuotationPage() {
                               <TableCell>{index + 1}</TableCell>
                               <TableCell><IndentLink value={item.indentNumber} /></TableCell>
                               <TableCell title={item.firm}>{formatFirmName(item.firm || 'N/A')}</TableCell>
-                              <TableCell><ProductLink value={item.productName} /></TableCell>
+                              <TableCell><ProductLink value={item.productName} /><MakeText make={item.make} /></TableCell>
                               <TableCell>{item.specifications || <span className="text-muted-foreground">No Description</span>}</TableCell>
                               <TableCell>{item.quantity}</TableCell>
-                              <TableCell>{item.uom}</TableCell>
+                              <TableCell><UomText uom={item.uom} /></TableCell>
                             </TableRow>
                           ))
                         )}
@@ -968,6 +1114,7 @@ export default function QuotationPage() {
                 <Button type="reset" variant="outline" onClick={() => {
                   form.reset();
                   setSelectedItems([]);
+                  autoFilledVendorsRef.current.clear();
                   setSupplierSearch('');
                 }}>
                   Reset
@@ -980,6 +1127,7 @@ export default function QuotationPage() {
               </div>
             </form>
           </Form>
+          )}
         </div>
       </div>
     </div>

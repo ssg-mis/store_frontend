@@ -16,6 +16,7 @@ import Heading from '../element/Heading';
 import { fetchIndentMasterData, fetchFromSupabasePaginated, postToSheet } from '@/lib/fetchers';
 import { useSheets } from '@/context/SheetsContext';
 import { IndentLink } from '../element/EntityLinks';
+import MakeText from '../element/MakeText';
 
 interface AllIndentTableData {
     id: string;
@@ -28,6 +29,7 @@ interface AllIndentTableData {
     department: string;
     departmentHead: string;
     productName: string;
+    make?: string;
     quantity: number;
     uom: string;
     areaOfUse: string;
@@ -89,6 +91,7 @@ export default () => {
                     department: record.department || '',
                     departmentHead: record.departmentHead || record.department_head || '',
                     productName: record.productName || record.product_name || '',
+                    make: record.make || '',
                     quantity: record.quantity || 0,
                     uom: record.uom || '',
                     areaOfUse: record.areaOfUse || record.area_of_use || '',
@@ -477,6 +480,7 @@ export default () => {
                 const availableProducts = master?.groupHeadItems?.[currentDepartmentHead] || [];
 
                 return (
+                    <>
                     <Select
                         value={currentValue}
                         onValueChange={(value) => handleBulkUpdate(indent.id, 'productName', value)}
@@ -505,6 +509,8 @@ export default () => {
                             </div>
                         </SelectContent>
                     </Select>
+                    <MakeText make={indent.make} />
+                    </>
                 );
             },
             size: 220,

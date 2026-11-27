@@ -27,6 +27,7 @@ import {
     type AccessoryIssueItemRow,
 } from '@/lib/fetchers';
 import Heading from '../element/Heading';
+import UomText from '../element/UomText';
 
 const statusClasses: Record<string, string> = {
     Issued: 'bg-amber-100 text-amber-800',
@@ -79,7 +80,7 @@ function ReturnItemRow({ issueId, item, onDone }: { issueId: number; item: Acces
     return (
         <TableRow>
             <TableCell>{item.productName}</TableCell>
-            <TableCell>{item.issuedQuantity} {item.uom}</TableCell>
+            <TableCell>{item.issuedQuantity} <UomText uom={item.uom} inline /></TableCell>
             <TableCell>{item.reusableQty}</TableCell>
             <TableCell>{item.unusableQty}</TableCell>
             <TableCell><StatusBadge status={item.status} /></TableCell>

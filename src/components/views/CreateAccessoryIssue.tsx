@@ -32,6 +32,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useSheets } from '@/context/SheetsContext';
 import Heading from '../element/Heading';
+import UomText from '../element/UomText';
 
 type UOMConversionRow = {
     conversion_id: number;
@@ -914,7 +915,7 @@ export default () => {
                                                                                 const lp = getLastPurchaseInfo(field.value, departmentHead);
                                                                                 return lp ? (
                                                                                     <p className="text-[10px] text-yellow-600 font-medium bg-background/80 backdrop-blur-sm rounded-sm px-1">
-                                                                                        Last Purchased: {lp.qty} {lp.uom} @ ₹{lp.rate} on {lp.date}{lp.vendor ? ` from ${lp.vendor}` : ''}
+                                                                                        Last Purchased: {lp.qty} <UomText uom={lp.uom} inline /> @ ₹{lp.rate} on {lp.date}{lp.vendor ? ` from ${lp.vendor}` : ''}
                                                                                     </p>
                                                                                 ) : null;
                                                                             })()}

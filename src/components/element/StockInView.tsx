@@ -9,6 +9,7 @@ import { Pill } from '../ui/pill';
 import { IndentLink, POLink, ProductLink } from './EntityLinks';
 import { fetchStockInList, type StockInRow } from '@/lib/fetchers';
 import { formatDate } from '@/lib/utils';
+import UomText from './UomText';
 
 const num = (v: number) => Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 });
 
@@ -39,7 +40,7 @@ export default function StockInView() {
         {
             accessorKey: 'quantity',
             header: 'Qty In',
-            cell: ({ row }) => <span className="font-semibold text-green-700">+{num(row.original.quantity)} {row.original.uom || ''}</span>,
+            cell: ({ row }) => <span className="font-semibold text-green-700">+{num(row.original.quantity)} {row.original.uom ? <UomText uom={row.original.uom} inline /> : ''}</span>,
         },
         { accessorKey: 'type', header: 'Type', cell: ({ row }) => <Pill variant={row.original.type === 'GRN' ? 'secondary' : 'primary'}>{row.original.type === 'GRN' ? 'GRN' : 'Manual'}</Pill> },
         { accessorKey: 'grnNumber', header: 'GRN No', cell: ({ row }) => row.original.grnNumber || '—' },

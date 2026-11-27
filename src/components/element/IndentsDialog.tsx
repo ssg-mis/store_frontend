@@ -8,6 +8,8 @@ import { SearchableSelectContent } from './SearchableSelectContent';
 import { cn, formatDate, formatFirmName } from '@/lib/utils';
 import type { IndentSheet } from '@/types';
 import { IndentLink, POLink, ProductLink } from './EntityLinks';
+import UomText from './UomText';
+import MakeText from './MakeText';
 
 const ALL = '__all__';
 const PAGE_SIZE = 100;
@@ -71,9 +73,9 @@ const BASE_COLUMNS: Column[] = [
     ) },
     { header: 'Department', cell: (r) => text(r.department) },
     { header: 'Indenter', cell: (r) => text(r.indenterName) },
-    { header: 'Product', className: 'max-w-[240px] truncate font-medium text-slate-900', cell: (r) => <span title={r.productName}><ProductLink value={r.productName} /></span> },
+    { header: 'Product', className: 'max-w-[240px] truncate font-medium text-slate-900', cell: (r) => <><span title={r.productName}><ProductLink value={r.productName} /></span><MakeText make={r.make} /></> },
     { header: 'Qty', align: 'right', cell: (r) => num(r.quantity).toLocaleString('en-IN') },
-    { header: 'UOM', cell: (r) => text(r.uom) },
+    { header: 'UOM', cell: (r) => (r.uom && String(r.uom).trim() ? <UomText uom={r.uom} /> : text(r.uom)) },
     { header: 'Approved Qty', align: 'right', cell: (r) => ((r as any).approvedIndents?.[0] ? num((r as any).approvedIndents[0].approvedQuantity).toLocaleString('en-IN') : '—') },
     { header: 'Indent Type', cell: (r) => text(r.indentType) },
     { header: 'Vendor Type', cell: (r) => { const v = (r as any).approvedIndents?.[0]?.vendorType; return v === 'Three Party' ? 'Multi-Party' : text(v); } },

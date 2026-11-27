@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import { usePageViewOnly } from '@/components/element/ViewOnlyGuard';
 import { POLink, VendorLink } from '../element/EntityLinks';
+import MakeText from '../element/MakeText';
 
 type TabKey = 'Pending' | 'Verified' | 'Rejected';
 
@@ -33,6 +34,7 @@ interface PORow {
     gstPercent?: number | string | null;
     amount: number | string;
     make?: string | null;
+    indent?: { make?: string | null } | null;
     verifiedBy?: string | null;
     verifiedAt?: string | null;
     rejectionReason?: string | null;
@@ -302,7 +304,7 @@ export default function VerificationPO() {
                                             <TableRow key={it.id}>
                                                 <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
                                                 <TableCell className="text-xs">{it.internalCode || '—'}</TableCell>
-                                                <TableCell className="text-xs font-medium">{it.product}</TableCell>
+                                                <TableCell className="text-xs font-medium">{it.product}<MakeText make={it.indent?.make} /></TableCell>
                                                 <TableCell className="text-xs">{it.quantity}</TableCell>
                                                 <TableCell className="text-xs">{it.unit}</TableCell>
                                                 <TableCell className="text-xs">{money(it.rate)}</TableCell>

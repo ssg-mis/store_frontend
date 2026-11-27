@@ -1,6 +1,7 @@
 import { Database, Plus, Pencil, Trash2, ChevronRight, ChevronDown, History } from 'lucide-react';
 import InventoryHistoryDialog from '../element/InventoryHistoryDialog';
 import Heading from '../element/Heading';
+import UomText, { invalidateUomAlternates } from '../element/UomText';
 import { useEffect, useState, useMemo } from 'react';
 import { SearchableSelectContent } from '../element/SearchableSelectContent';
 import { fetchFromSupabasePaginated, postToSheet, fetchUOMs, postToUOM, updateUOM, fetchFirms, postToFirm, updateFirm, fetchProductCategories, postProductCategory, updateProductCategory, fetchDepartments, postDepartment, updateDepartment, fetchDepartmentHeads, postDepartmentHead, updateDepartmentHead, deleteProductCategory, deleteUOM, deleteDepartment, deleteDepartmentHead, fetchProductGroups, postProductGroup, updateProductGroup, deleteProductGroup, fetchProductSubCategories, postProductSubCategory, updateProductSubCategory, deleteProductSubCategory, fetchSpecifications, postSpecification, updateSpecification, deleteSpecification, fetchPaymentTerms, postPaymentTerm, updatePaymentTerm, deletePaymentTerm, fetchTerms, postTerm, updateTerm, deleteTerm, fetchDeliveryTerms, postDeliveryTerm, updateDeliveryTerm, deleteDeliveryTerm, fetchContractors, postContractor, updateContractor, deleteContractor, fetchTransportationTerms, postTransportationTerm, updateTransportationTerm, deleteTransportationTerm, fetchVendorProductPrices, postVendorProductPrice, putVendorProductPrice, deleteVendorProductPrice, type ProductSubCategoryRow, type VendorProductPriceRow } from '@/lib/fetchers';
@@ -1050,7 +1051,7 @@ export default function MasterData() {
         {
             accessorKey: 'uom',
             header: 'UOM',
-            cell: ({ getValue }) => <TruncCell value={getValue() as string} width={80} />,
+            cell: ({ getValue }) => { const v = getValue() as string; return v && v !== 'null' && v !== '---' && String(v).trim() !== '' ? <UomText uom={v} /> : <TruncCell value={v} width={80} />; },
         },
         {
             id: 'history',
@@ -1386,6 +1387,7 @@ export default function MasterData() {
     async function loadUOMs() {
         const data = await fetchUOMs();
         setUoms(data || []);
+        invalidateUomAlternates(); // keep "Alt:" UOM labels across the app in sync
     }
 
     async function loadFirms() {
@@ -2218,7 +2220,7 @@ export default function MasterData() {
                                                     <TableRow key={`item-${row.id}`} className="bg-background">
                                                         <TableCell className="pl-10 text-muted-foreground text-sm">—</TableCell>
                                                         <TableCell><TruncCell value={row.productName} width={200} /></TableCell>
-                                                        <TableCell><TruncCell value={row.uom} width={80} /></TableCell>
+                                                        <TableCell>{row.uom && row.uom !== 'null' && row.uom !== '---' && String(row.uom).trim() !== '' ? <UomText uom={row.uom} /> : <TruncCell value={row.uom} width={80} />}</TableCell>
                                                         <TableCell>{row.price != null ? row.price : <span className="text-muted-foreground">—</span>}</TableCell>
                                                         <TableCell>{row.validFrom ? new Date(row.validFrom).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>
                                                         <TableCell>{row.validUpto ? new Date(row.validUpto).toLocaleDateString() : <span className="text-muted-foreground">—</span>}</TableCell>

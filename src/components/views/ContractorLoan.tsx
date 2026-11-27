@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { fetchFromSupabasePaginated } from '@/lib/fetchers';
 import { debounce, formatDate, formatFirmName } from '@/lib/utils';
 import { IndentLink, ProductLink } from '../element/EntityLinks';
+import UomText from '../element/UomText';
 
 interface Row {
     id: number;
@@ -108,7 +109,7 @@ function ContractorTable({ tab }: { tab: TabKey }) {
         { accessorKey: 'indenter', header: 'Indenter' },
         { accessorKey: 'product', header: 'Product', cell: ({ getValue }: any) => <ProductLink value={getValue()} /> },
         { accessorKey: 'quantity', header: cfg.qtyHeader },
-        { accessorKey: 'uom', header: 'UOM' },
+        { accessorKey: 'uom', header: 'UOM', cell: ({ getValue }: any) => <UomText uom={getValue()} /> },
     ];
 
     return (

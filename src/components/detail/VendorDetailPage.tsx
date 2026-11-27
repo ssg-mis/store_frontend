@@ -4,6 +4,7 @@ import { fetchVendorDetail } from '@/lib/fetchers';
 import { POLink, ProductLink } from '../element/EntityLinks';
 import { DetailPage, Field, FieldGrid, Section, Stat, StatusBadge, dash, fmtDate, fmtDateTime, fmtMoney, fmtQty, useDetail } from './DetailKit';
 import POTable from './POTable';
+import UomText from '../element/UomText';
 
 export default function VendorDetailPage() {
     const { vendorName = '' } = useParams();
@@ -73,7 +74,7 @@ export default function VendorDetailPage() {
                                                 <TableCell><POLink value={r.poNumber} /></TableCell>
                                                 <TableCell className="font-mono text-xs">{dash(r.grnNumber)}</TableCell>
                                                 <TableCell className="whitespace-normal">{r.product}</TableCell>
-                                                <TableCell className="text-right tabular-nums">{fmtQty(r.receivedQuantity)} {r.uom}</TableCell>
+                                                <TableCell className="text-right tabular-nums">{fmtQty(r.receivedQuantity)} <UomText uom={r.uom} inline /></TableCell>
                                                 <TableCell><StatusBadge status={r.status} /></TableCell>
                                             </TableRow>
                                         ))}
